@@ -13,7 +13,8 @@ Buka `index.html` di browser. Klik sekali pada kotak untuk melihat penjelasannya
 ## File
 
 - `index.html`: peta berbentuk diagram (kotak, garis sambungan, zoom). Bisa dibuka langsung di browser tanpa server.
-- `plan.json`, `architecture.json`: sumber peta. Berisi kartu, sambungan, asumsi, dan 9 pertanyaan yang belum diputuskan.
+- `plan.json`, `architecture.json`: sumber peta. Berisi kartu, sambungan, dan asumsi.
+- `KEPUTUSAN.md`: jawaban 12 pertanyaan review (12 November 2026). Kartu yang memakainya bertanda "keputusan 12 Nov".
 - `LICENSE-floorplan.txt`: lisensi MIT untuk tampilan peta, yang dibuat dengan Floorplan.
 
 Rumus di `Struktur_Sistem.MD` dan `Formula_Sistem.MD` tidak dipakai di peta ini karena berbeda dengan Day4.

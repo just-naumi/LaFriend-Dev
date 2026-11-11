@@ -12,67 +12,10 @@
   "Rumus CS mengikuti Day4 (lima faktor). Struktur_Sistem.MD dan Formula_Sistem.MD memuat rumus lain dan tidak dipakai di peta ini.",
   "Skor kelompok mengikuti Day7 (GQ = 0,70 rata-rata + 0,30 terendah). Rata-rata biasa di Day4 dan Day5 dianggap versi lebih awal.",
   "Semua bobot dan tabel nilai adalah hipotesis desain dari repo, belum divalidasi. Contoh bertanda 'hitung sendiri' dihitung dari rumus repo.",
-  "Pengulangan (mencoba calon berikutnya, mencari pengganti) ditulis di teks kartu, bukan digambar sebagai panah balik."
+  "Pengulangan (mencoba calon berikutnya, mencari pengganti) ditulis di teks kartu, bukan digambar sebagai panah balik.",
+  "Sembilan pertanyaan terbuka dijawab pada 12 Nov 2026. Kartu yang memakai jawaban itu bertanda 'keputusan 12 Nov'. Daftar lengkapnya ada di KEPUTUSAN.md."
  ],
- "questions": [
-  {
-   "question": "Berapa nilai G untuk pasangan tujuan yang belum ada di tabel, misalnya yang melibatkan 'Diskusi dan berbagi pengetahuan'?",
-   "about": [
-    "fitur-1-intent-matching/h-tujuan/10-g_lain.js"
-   ]
-  },
-  {
-   "question": "Pasangan gaya belajar mana yang 'saling melengkapi' (80), 'masih bisa' (60), dan 'bertentangan' (30)? Day4 hanya memberi contoh Teaching dengan Practice.",
-   "about": [
-    "fitur-1-intent-matching/i-gaya-belajar/02-k_style.js"
-   ]
-  },
-  {
-   "question": "Bila ada beberapa waktu bersama, nilai D diambil dari waktu yang mana? Berapa nilai pilihan pertama dengan pilihan ketiga?",
-   "about": [
-    "fitur-1-intent-matching/j-prioritas-waktu/02-k_date.js",
-    "fitur-1-intent-matching/j-prioritas-waktu/07-d_lain.js"
-   ]
-  },
-  {
-   "question": "Cabang M 85 dan 70 bisa tumpang tindih. Bagaimana Hybrid dihitung terhadap Offline atau Online?",
-   "about": [
-    "fitur-1-intent-matching/e-metode/03-k_mode.js"
-   ]
-  },
-  {
-   "question": "Day5 memakai skor sesi (calculate_session_score) tetapi rumusnya belum ditulis. Apakah sama dengan CS?",
-   "about": [
-    "fitur-1-intent-matching/z-skor-akhir/03-k_ada_sesi.js"
-   ]
-  },
-  {
-   "question": "Durasi minimum 60 menit dan ukuran 2 sampai 4 masih asumsi PoC. Apakah sudah final?",
-   "about": [
-    "fitur-1-intent-matching/d-jam-kosong/03-k_jam.js",
-    "fitur-2-group-formation/b-ukuran-kelompok/02-h2_ukuran.js"
-   ]
-  },
-  {
-   "question": "Bila tidak semua anggota menyetujui jadwal akhir, apa langkah berikutnya?",
-   "about": [
-    "fitur-2-group-formation/f-persetujuan-jadwal/04-c2_jadwal_tolak.js"
-   ]
-  },
-  {
-   "question": "Apakah sesi batal masuk penyebut SCR? Apakah konfirmasi host saja cukup, atau perlu host ditambah satu anggota seperti di Formula_Sistem?",
-   "about": [
-    "fitur-3-outcome/c-pelaksanaan/05-x3_batal.js",
-    "fitur-3-outcome/c-pelaksanaan/06-k3_held.js"
-   ]
-  },
-  {
-   "question": "Berapa data yang disebut cukup untuk menguji bobot baru?",
-   "about": [
-    "fitur-3-outcome/z-uji-bobot/02-k3_data.js"
-   ]
-  }
- ],
+ "questions": [],
  "files": [
   {
    "path": "fitur-1-intent-matching/a-mata-kuliah/01-p_course.js",
@@ -144,7 +87,7 @@
   {
    "path": "fitur-1-intent-matching/d-jam-kosong/03-k_jam.js",
    "name": "Keputusan 4: irisan minimal 60 menit?",
-   "description": "Ya: lanjut ke Keputusan 5.\nTidak: ditolak.\n\nContoh: 120 >= 60. Ya.\n\nCatatan: Day4 hanya menulis 'ada jam yang beririsan'. Angka 60 menit diambil dari Day5 dan masih asumsi PoC.\n\nSumber: Plan/Day3.MD bagian 2C, Plan/Day4.MD bagian 2, Plan/Day5.MD bagian 6.",
+   "description": "Ya: lanjut ke Keputusan 5.\nTidak: ditolak.\n\nContoh: 120 >= 60. Ya.\n\nAturan (keputusan 12 Nov): 60 menit adalah nilai awal pengaturan yang bisa diubah admin, sama seperti batas 24 jam di Day10.\n\nSumber: Plan/Day3.MD bagian 2C, Plan/Day4.MD bagian 2, Plan/Day5.MD bagian 6.",
    "uses": [
     "fitur-1-intent-matching/e-metode/02-k_mode_syarat.js",
     "fitur-1-intent-matching/y-gerbang/02-x_tolak.js"
@@ -153,7 +96,7 @@
   {
    "path": "fitur-1-intent-matching/e-metode/01-p_mode.js",
    "name": "Parameter: metode belajar",
-   "description": "Offline, Online, atau Hybrid. Boleh lebih dari satu: satu pilihan utama dan pilihan alternatif. Wajib.\n\nContoh: Andi Offline (utama), Online (alternatif).\nLanjut ke: Keputusan 5 (boleh atau tidak) dan pohon nilai M (berapa nilainya).\n\nSumber: Plan/Day3.MD bagian 2E, Plan/Day4.MD bagian 8.",
+   "description": "Offline, Online, atau Hybrid. Boleh lebih dari satu: satu pilihan utama dan pilihan alternatif. Wajib.\n\nAturan (keputusan 12 Nov): Hybrid berarti bersedia Offline maupun Online, jadi Hybrid cocok dengan keduanya (Day3: fleksibel antara online dan offline).\nContoh: Andi Offline (utama), Online (alternatif).\nLanjut ke: Keputusan 5 (boleh atau tidak) dan pohon nilai M (berapa nilainya).\n\nSumber: Plan/Day3.MD bagian 2E, Plan/Day4.MD bagian 8.",
    "uses": [
     "fitur-1-intent-matching/e-metode/02-k_mode_syarat.js",
     "fitur-1-intent-matching/e-metode/03-k_mode.js"
@@ -237,20 +180,23 @@
   {
    "path": "fitur-1-intent-matching/h-tujuan/02-k_goal.js",
    "name": "Keputusan: pasangan tujuan yang mana?",
-   "description": "Nilai G diambil dari tabel kecocokan tujuan, rentang 0 sampai 100. Tujuan tidak harus sama persis: yang ingin memahami dan yang ingin latihan soal bisa saling membantu.\n\nCatatan: angka tabel masih asumsi desain.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.",
+   "description": "Nilai G diambil dari tabel kecocokan tujuan, rentang 0 sampai 100. Lima tujuan menghasilkan 15 pasangan, dan semuanya sekarang punya nilai.\n\nAturan: kesamaan materi tidak dinilai di sini karena sudah dihitung di T. G hanya menilai apakah cara kedua pihak memakai sesi sejalan.\nCatatan: angka tabel masih hipotesis desain.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.",
    "uses": [
-    "fitur-1-intent-matching/h-tujuan/03-g_paham_paham.js",
+    "fitur-1-intent-matching/h-tujuan/03-g_sama.js",
     "fitur-1-intent-matching/h-tujuan/04-g_paham_latih.js",
     "fitur-1-intent-matching/h-tujuan/05-g_paham_ujian.js",
     "fitur-1-intent-matching/h-tujuan/06-g_latih_ujian.js",
-    "fitur-1-intent-matching/h-tujuan/07-g_tugas_paham.js",
-    "fitur-1-intent-matching/h-tujuan/08-g_tugas_tugas.js",
-    "fitur-1-intent-matching/h-tujuan/09-g_tak_kait.js",
-    "fitur-1-intent-matching/h-tujuan/10-g_lain.js"
+    "fitur-1-intent-matching/h-tujuan/07-g_diskusi_ujian.js",
+    "fitur-1-intent-matching/h-tujuan/08-g_latih_tugas.js",
+    "fitur-1-intent-matching/h-tujuan/09-g_paham_diskusi.js",
+    "fitur-1-intent-matching/h-tujuan/10-g_diskusi_latih.js",
+    "fitur-1-intent-matching/h-tujuan/11-g_tugas_paham.js",
+    "fitur-1-intent-matching/h-tujuan/12-g_diskusi_tugas.js",
+    "fitur-1-intent-matching/h-tujuan/13-g_ujian_tugas.js"
    ]
   },
   {
-   "path": "fitur-1-intent-matching/h-tujuan/11-h_goal.js",
+   "path": "fitur-1-intent-matching/h-tujuan/14-h_goal.js",
    "name": "Hitungan: G, kesesuaian tujuan (bobot 0,25)",
    "description": "Rumus: kontribusi = 0,25 x G.\n\nContoh: Andi dan Budi sama-sama Memahami materi. G = 100. 0,25 x 100 = 25.\n\nLanjut ke: skor akhir.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.",
    "uses": [
@@ -258,67 +204,91 @@
    ]
   },
   {
-   "path": "fitur-1-intent-matching/h-tujuan/03-g_paham_paham.js",
-   "name": "Cabang: Memahami materi dengan Memahami materi",
-   "description": "G = 100.\n\nLanjut ke: hitungan kontribusi.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.",
+   "path": "fitur-1-intent-matching/h-tujuan/03-g_sama.js",
+   "name": "Cabang: tujuan sama (kelima tujuan)",
+   "description": "G = 100.\n\nLanjut ke: hitungan kontribusi.\nDari Day4: Memahami + Memahami dan Tugas + Tugas bernilai 100. Tiga tujuan lain diberi nilai yang sama (keputusan 12 Nov).\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.",
    "uses": [
-    "fitur-1-intent-matching/h-tujuan/11-h_goal.js"
+    "fitur-1-intent-matching/h-tujuan/14-h_goal.js"
    ]
   },
   {
    "path": "fitur-1-intent-matching/h-tujuan/04-g_paham_latih.js",
    "name": "Cabang: Memahami materi dengan Latihan soal",
-   "description": "G = 85.\n\nLanjut ke: hitungan kontribusi.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.",
+   "description": "G = 85.\n\nLanjut ke: hitungan kontribusi.\nDari Day4.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.",
    "uses": [
-    "fitur-1-intent-matching/h-tujuan/11-h_goal.js"
+    "fitur-1-intent-matching/h-tujuan/14-h_goal.js"
    ]
   },
   {
    "path": "fitur-1-intent-matching/h-tujuan/05-g_paham_ujian.js",
    "name": "Cabang: Memahami materi dengan Persiapan ujian",
-   "description": "G = 85.\n\nLanjut ke: hitungan kontribusi.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.",
+   "description": "G = 85.\n\nLanjut ke: hitungan kontribusi.\nDari Day4.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.",
    "uses": [
-    "fitur-1-intent-matching/h-tujuan/11-h_goal.js"
+    "fitur-1-intent-matching/h-tujuan/14-h_goal.js"
    ]
   },
   {
    "path": "fitur-1-intent-matching/h-tujuan/06-g_latih_ujian.js",
    "name": "Cabang: Latihan soal dengan Persiapan ujian",
-   "description": "G = 85.\n\nLanjut ke: hitungan kontribusi.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.",
+   "description": "G = 85.\n\nLanjut ke: hitungan kontribusi.\nDari Day4.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.",
    "uses": [
-    "fitur-1-intent-matching/h-tujuan/11-h_goal.js"
+    "fitur-1-intent-matching/h-tujuan/14-h_goal.js"
    ]
   },
   {
-   "path": "fitur-1-intent-matching/h-tujuan/07-g_tugas_paham.js",
+   "path": "fitur-1-intent-matching/h-tujuan/07-g_diskusi_ujian.js",
+   "name": "Cabang: Diskusi dan berbagi dengan Persiapan ujian",
+   "description": "G = 75.\n\nLanjut ke: hitungan kontribusi.\nKeputusan 12 Nov: sama-sama mengulang materi, tetapi yang satu ingin bertukar pendapat, yang lain mengejar target ujian.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.",
+   "uses": [
+    "fitur-1-intent-matching/h-tujuan/14-h_goal.js"
+   ]
+  },
+  {
+   "path": "fitur-1-intent-matching/h-tujuan/08-g_latih_tugas.js",
+   "name": "Cabang: Latihan soal dengan Mengerjakan tugas",
+   "description": "G = 75.\n\nLanjut ke: hitungan kontribusi.\nKeputusan 12 Nov: sama-sama mengerjakan soal, tetapi soal tugas tidak boleh dikerjakan bersama begitu saja.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.",
+   "uses": [
+    "fitur-1-intent-matching/h-tujuan/14-h_goal.js"
+   ]
+  },
+  {
+   "path": "fitur-1-intent-matching/h-tujuan/09-g_paham_diskusi.js",
+   "name": "Cabang: Memahami materi dengan Diskusi dan berbagi",
+   "description": "G = 70.\n\nLanjut ke: hitungan kontribusi.\nKeputusan 12 Nov: sisi berbagi cocok dengan yang belum paham, tetapi sisi diskusi kurang terpenuhi. Cocok sebagian dan lebih untung di satu pihak, jadi di antara 60 dan 85.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.",
+   "uses": [
+    "fitur-1-intent-matching/h-tujuan/14-h_goal.js"
+   ]
+  },
+  {
+   "path": "fitur-1-intent-matching/h-tujuan/10-g_diskusi_latih.js",
+   "name": "Cabang: Diskusi dan berbagi dengan Latihan soal",
+   "description": "G = 70.\n\nLanjut ke: hitungan kontribusi.\nKeputusan 12 Nov: alasan sama seperti Memahami dengan Diskusi.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.",
+   "uses": [
+    "fitur-1-intent-matching/h-tujuan/14-h_goal.js"
+   ]
+  },
+  {
+   "path": "fitur-1-intent-matching/h-tujuan/11-g_tugas_paham.js",
    "name": "Cabang: Mengerjakan tugas dengan Memahami materi",
-   "description": "G = 60.\n\nLanjut ke: hitungan kontribusi.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.",
+   "description": "G = 60.\n\nLanjut ke: hitungan kontribusi.\nDari Day4.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.",
    "uses": [
-    "fitur-1-intent-matching/h-tujuan/11-h_goal.js"
+    "fitur-1-intent-matching/h-tujuan/14-h_goal.js"
    ]
   },
   {
-   "path": "fitur-1-intent-matching/h-tujuan/08-g_tugas_tugas.js",
-   "name": "Cabang: Mengerjakan tugas dengan Mengerjakan tugas",
-   "description": "G = 100.\n\nLanjut ke: hitungan kontribusi.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.",
+   "path": "fitur-1-intent-matching/h-tujuan/12-g_diskusi_tugas.js",
+   "name": "Cabang: Diskusi dan berbagi dengan Mengerjakan tugas",
+   "description": "G = 60.\n\nLanjut ke: hitungan kontribusi.\nKeputusan 12 Nov: disamakan dengan Tugas dengan Memahami. Satu pihak mengejar hasil tugas.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.",
    "uses": [
-    "fitur-1-intent-matching/h-tujuan/11-h_goal.js"
+    "fitur-1-intent-matching/h-tujuan/14-h_goal.js"
    ]
   },
   {
-   "path": "fitur-1-intent-matching/h-tujuan/09-g_tak_kait.js",
-   "name": "Cabang: tujuan tidak berkaitan",
-   "description": "G = 30.\n\nLanjut ke: hitungan kontribusi.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.",
+   "path": "fitur-1-intent-matching/h-tujuan/13-g_ujian_tugas.js",
+   "name": "Cabang: Persiapan ujian dengan Mengerjakan tugas",
+   "description": "G = 40.\n\nLanjut ke: hitungan kontribusi.\nKeputusan 12 Nov: targetnya berbeda (ujian dan tugas), dekat dengan 'tidak berkaitan' (30) di Day4.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.",
    "uses": [
-    "fitur-1-intent-matching/h-tujuan/11-h_goal.js"
-   ]
-  },
-  {
-   "path": "fitur-1-intent-matching/h-tujuan/10-g_lain.js",
-   "name": "Cabang: pasangan lain",
-   "description": "G = belum diputuskan.\n\nLanjut ke: hitungan kontribusi.\nContoh: pasangan yang melibatkan 'Diskusi dan berbagi pengetahuan' belum ada di tabel.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.",
-   "uses": [
-    "fitur-1-intent-matching/h-tujuan/11-h_goal.js"
+    "fitur-1-intent-matching/h-tujuan/14-h_goal.js"
    ]
   },
   {
@@ -332,7 +302,7 @@
   {
    "path": "fitur-1-intent-matching/i-gaya-belajar/02-k_style.js",
    "name": "Keputusan: bagaimana hubungan dua gaya belajar?",
-   "description": "Empat kemungkinan. Gaya yang berbeda tidak menggugurkan calon, hanya menurunkan nilai.\n\nCatatan: Day4 hanya memberi satu contoh 'saling melengkapi' (Teaching dengan Practice). Pasangan lain belum dipetakan ke cabang.\n\nSumber: Plan/Day3.MD bagian 2D, Plan/Day4.MD bagian 6.",
+   "description": "Empat kemungkinan. Gaya yang berbeda tidak menggugurkan calon, hanya menurunkan nilai.\n\nPemetaan pasangan (keputusan 12 Nov): dasarnya adalah apakah kedua gaya butuh berbicara. Discussion, Practice, dan Teaching sama-sama aktif berbicara. Focus Study butuh suasana tenang.\n\nSumber: Plan/Day3.MD bagian 2D, Plan/Day4.MD bagian 6.",
    "uses": [
     "fitur-1-intent-matching/i-gaya-belajar/03-s_sama.js",
     "fitur-1-intent-matching/i-gaya-belajar/04-s_lengkap.js",
@@ -359,7 +329,7 @@
   {
    "path": "fitur-1-intent-matching/i-gaya-belajar/04-s_lengkap.js",
    "name": "Cabang: saling melengkapi",
-   "description": "S = 80.\n\nLanjut ke: hitungan kontribusi.\nContoh: Teaching dengan Practice. Satu menjelaskan, satu berlatih.\n\nSumber: Plan/Day3.MD bagian 2D, Plan/Day4.MD bagian 6.",
+   "description": "S = 80.\n\nLanjut ke: hitungan kontribusi.\nPasangan: Teaching dengan Practice (Day4), Discussion dengan Practice, Discussion dengan Teaching.\n\nSumber: Plan/Day3.MD bagian 2D, Plan/Day4.MD bagian 6.",
    "uses": [
     "fitur-1-intent-matching/i-gaya-belajar/07-h_style.js"
    ]
@@ -367,7 +337,7 @@
   {
    "path": "fitur-1-intent-matching/i-gaya-belajar/05-s_bisa.js",
    "name": "Cabang: berbeda tetapi masih bisa bersama",
-   "description": "S = 60.\n\nLanjut ke: hitungan kontribusi.\n\nSumber: Plan/Day3.MD bagian 2D, Plan/Day4.MD bagian 6.",
+   "description": "S = 60.\n\nLanjut ke: hitungan kontribusi.\nPasangan: Practice dengan Focus Study. Latihan bisa dikerjakan tenang berdampingan.\n\nSumber: Plan/Day3.MD bagian 2D, Plan/Day4.MD bagian 6.",
    "uses": [
     "fitur-1-intent-matching/i-gaya-belajar/07-h_style.js"
    ]
@@ -375,7 +345,7 @@
   {
    "path": "fitur-1-intent-matching/i-gaya-belajar/06-s_tentang.js",
    "name": "Cabang: bertentangan secara jelas",
-   "description": "S = 30.\n\nLanjut ke: hitungan kontribusi.\n\nSumber: Plan/Day3.MD bagian 2D, Plan/Day4.MD bagian 6.",
+   "description": "S = 30.\n\nLanjut ke: hitungan kontribusi.\nPasangan: Discussion dengan Focus Study, Teaching dengan Focus Study. Satu ingin berbicara, satu ingin tenang.\n\nSumber: Plan/Day3.MD bagian 2D, Plan/Day4.MD bagian 6.",
    "uses": [
     "fitur-1-intent-matching/i-gaya-belajar/07-h_style.js"
    ]
@@ -391,17 +361,16 @@
   {
    "path": "fitur-1-intent-matching/j-prioritas-waktu/02-k_date.js",
    "name": "Keputusan: prioritas waktu bersama di kedua pihak?",
-   "description": "Sistem mencari waktu yang sama-sama tersedia, lalu membandingkan urutan kesukaannya di kedua pihak.\n\nBelum diputuskan: bila ada beberapa waktu bersama, nilai D diambil dari waktu yang mana.\n\nSumber: Plan/Day3.MD bagian 4, Plan/Day4.MD bagian 7.",
+   "description": "Sistem mencari waktu yang sama-sama tersedia, lalu membandingkan urutan kesukaannya di kedua pihak.\n\nAturan (keputusan 12 Nov): bila ada beberapa waktu bersama, D diambil dari waktu dengan nilai tertinggi. Waktu itu juga yang diusulkan sebagai jadwal sesi, jadi nilai dan jadwalnya selalu sama.\nContoh: Rabu (pilihan 1 dan 1) dan Jumat (2 dan 3). D = 100 dari Rabu, dan Rabu yang diusulkan.\n\nSumber: Plan/Day3.MD bagian 4, Plan/Day4.MD bagian 7.",
    "uses": [
     "fitur-1-intent-matching/j-prioritas-waktu/03-d_satu_satu.js",
     "fitur-1-intent-matching/j-prioritas-waktu/04-d_satu_dua.js",
     "fitur-1-intent-matching/j-prioritas-waktu/05-d_dua_dua.js",
-    "fitur-1-intent-matching/j-prioritas-waktu/06-d_akhir.js",
-    "fitur-1-intent-matching/j-prioritas-waktu/07-d_lain.js"
+    "fitur-1-intent-matching/j-prioritas-waktu/06-d_akhir.js"
    ]
   },
   {
-   "path": "fitur-1-intent-matching/j-prioritas-waktu/08-h_date.js",
+   "path": "fitur-1-intent-matching/j-prioritas-waktu/07-h_date.js",
    "name": "Hitungan: D, preferensi tanggal (bobot 0,15)",
    "description": "Rumus: kontribusi = 0,15 x D.\n\nContoh: Rabu 10.00 pilihan pertama Andi dan Budi. D = 100. 0,15 x 100 = 15.\n\nLanjut ke: skor akhir.\n\nSumber: Plan/Day3.MD bagian 4, Plan/Day4.MD bagian 7.",
    "uses": [
@@ -413,7 +382,7 @@
    "name": "Cabang: keduanya pilihan pertama",
    "description": "D = 100.\n\nLanjut ke: hitungan kontribusi.\n\nSumber: Plan/Day3.MD bagian 4, Plan/Day4.MD bagian 7.",
    "uses": [
-    "fitur-1-intent-matching/j-prioritas-waktu/08-h_date.js"
+    "fitur-1-intent-matching/j-prioritas-waktu/07-h_date.js"
    ]
   },
   {
@@ -421,7 +390,7 @@
    "name": "Cabang: satu pilihan pertama, satu pilihan kedua",
    "description": "D = 85.\n\nLanjut ke: hitungan kontribusi.\n\nSumber: Plan/Day3.MD bagian 4, Plan/Day4.MD bagian 7.",
    "uses": [
-    "fitur-1-intent-matching/j-prioritas-waktu/08-h_date.js"
+    "fitur-1-intent-matching/j-prioritas-waktu/07-h_date.js"
    ]
   },
   {
@@ -429,23 +398,15 @@
    "name": "Cabang: keduanya pilihan kedua",
    "description": "D = 75.\n\nLanjut ke: hitungan kontribusi.\n\nSumber: Plan/Day3.MD bagian 4, Plan/Day4.MD bagian 7.",
    "uses": [
-    "fitur-1-intent-matching/j-prioritas-waktu/08-h_date.js"
+    "fitur-1-intent-matching/j-prioritas-waktu/07-h_date.js"
    ]
   },
   {
    "path": "fitur-1-intent-matching/j-prioritas-waktu/06-d_akhir.js",
-   "name": "Cabang: salah satu hanya alternatif terakhir",
-   "description": "D = 60.\n\nLanjut ke: hitungan kontribusi.\n\nSumber: Plan/Day3.MD bagian 4, Plan/Day4.MD bagian 7.",
+   "name": "Cabang: salah satu pilihan ketiga atau lebih",
+   "description": "D = 60.\n\nLanjut ke: hitungan kontribusi.\nKeputusan 12 Nov: pilihan ketiga ke bawah dianggap 'alternatif terakhir' dari Day4. Contoh: pilihan pertama dengan pilihan ketiga = 60.\n\nSumber: Plan/Day3.MD bagian 4, Plan/Day4.MD bagian 7.",
    "uses": [
-    "fitur-1-intent-matching/j-prioritas-waktu/08-h_date.js"
-   ]
-  },
-  {
-   "path": "fitur-1-intent-matching/j-prioritas-waktu/07-d_lain.js",
-   "name": "Cabang: kombinasi lain",
-   "description": "D = belum diputuskan.\n\nLanjut ke: hitungan kontribusi.\nContoh: pilihan pertama dengan pilihan ketiga belum ada di tabel.\n\nSumber: Plan/Day3.MD bagian 4, Plan/Day4.MD bagian 7.",
-   "uses": [
-    "fitur-1-intent-matching/j-prioritas-waktu/08-h_date.js"
+    "fitur-1-intent-matching/j-prioritas-waktu/07-h_date.js"
    ]
   },
   {
@@ -477,16 +438,16 @@
   },
   {
    "path": "fitur-1-intent-matching/e-metode/05-m_alternatif.js",
-   "name": "Cabang: metode sama, salah satu pilihan alternatif",
-   "description": "M = 85.\n\nLanjut ke: hitungan kontribusi.\n\nSumber: Plan/Day4.MD bagian 8.",
+   "name": "Cabang: satu pihak memakai pilihan utama, pihak lain pilihan alternatif",
+   "description": "M = 85.\n\nLanjut ke: hitungan kontribusi.\nContoh: Andi Offline (utama). Budi Online (utama), Offline (alternatif). Metode bersama Offline.\n\nSumber: Plan/Day4.MD bagian 8.",
    "uses": [
     "fitur-1-intent-matching/e-metode/08-h_mode.js"
    ]
   },
   {
    "path": "fitur-1-intent-matching/e-metode/06-m_beda.js",
-   "name": "Cabang: ada metode bersama, prioritasnya berbeda",
-   "description": "M = 70.\n\nLanjut ke: hitungan kontribusi.\n\nSumber: Plan/Day4.MD bagian 8.",
+   "name": "Cabang: metode bersama hanya ada di pilihan alternatif kedua pihak",
+   "description": "M = 70.\n\nLanjut ke: hitungan kontribusi.\nKeputusan 12 Nov: cabang 85 dan 70 dipisah agar tidak tumpang tindih.\n\nSumber: Plan/Day4.MD bagian 8.",
    "uses": [
     "fitur-1-intent-matching/e-metode/08-h_mode.js"
    ]
@@ -518,7 +479,7 @@
   {
    "path": "fitur-1-intent-matching/z-skor-akhir/03-k_ada_sesi.js",
    "name": "Keputusan: ada sesi yang sudah tersedia dan lolos?",
-   "description": "Sistem selalu mencari sesi yang sudah ada lebih dulu, baru mencari partner.\n\nYa: tampilkan daftar sesi.\nTidak: cari partner.\n\nContoh: Andi mencari Binary Tree. Session A lolos (92). Session B gugur karena materinya Sorting. Session C gugur karena penuh.\n\nSumber: Plan/Day4.MD bagian 9 dan 10, Plan/Day5.MD bagian 1 sampai 4.",
+   "description": "Sistem selalu mencari sesi yang sudah ada lebih dulu, baru mencari partner.\n\nSkor sesi (keputusan 12 Nov): GQ kelompok setelah pencari masuk, memakai rumus Fitur 2. Dengan begitu pasangan terlemah di sesi ikut terlihat. Bila sesi baru berisi host saja, GQ = CS pencari dengan host.\n\nYa: tampilkan daftar sesi.\nTidak: cari partner.\n\nContoh: Andi mencari Binary Tree. Session A lolos (92). Session B gugur karena materinya Sorting. Session C gugur karena penuh.\n\nSumber: Plan/Day4.MD bagian 9 dan 10, Plan/Day5.MD bagian 1 sampai 4.",
    "uses": [
     "fitur-1-intent-matching/z-skor-akhir/04-r_sesi.js",
     "fitur-1-intent-matching/z-skor-akhir/07-r_partner.js"
@@ -576,7 +537,7 @@
   {
    "path": "fitur-2-group-formation/b-ukuran-kelompok/01-p2_size.js",
    "name": "Parameter: ukuran kelompok tiap anggota",
-   "description": "Jumlah paling sedikit dan paling banyak, termasuk host. Asumsi PoC 2 sampai 4.\n\nContoh: Andi 2-4, Budi 3-4, Citra 2-3.\nLanjut ke: hitungan rentang ukuran bersama.\n\nSumber: Plan/Day3.MD bagian 2F, Plan/Day7.MD bagian 2 dan 10.",
+   "description": "Jumlah paling sedikit dan paling banyak, termasuk host. Nilai awal 2 sampai 4, berupa pengaturan yang bisa diubah (keputusan 12 Nov).\n\nContoh: Andi 2-4, Budi 3-4, Citra 2-3.\nLanjut ke: hitungan rentang ukuran bersama.\n\nSumber: Plan/Day3.MD bagian 2F, Plan/Day7.MD bagian 2 dan 10.",
    "uses": [
     "fitur-2-group-formation/b-ukuran-kelompok/02-h2_ukuran.js"
    ]
@@ -785,7 +746,10 @@
   {
    "path": "fitur-2-group-formation/f-persetujuan-jadwal/04-c2_jadwal_tolak.js",
    "name": "Cabang: tidak semua setuju",
-   "description": "Sesi belum dikonfirmasi.\n\nBelum diputuskan: langkah berikutnya, misalnya mengusulkan slot lain atau anggota keluar.\n\nSumber: Plan/Day5.MD bagian 9, Plan/Day7.MD bagian 11, Plan/Day10.MD."
+   "description": "Langkah (keputusan 12 Nov):\n1. Sistem mengusulkan waktu bersama berikutnya dengan nilai D tertinggi. Keputusan persetujuan diulang.\n2. Bila waktu bersama habis, anggota yang menolak dikeluarkan, lalu sisa anggota dicek terhadap MinGroup.\n\nSumber: Plan/Day5.MD bagian 9, Plan/Day7.MD bagian 11, Plan/Day10.MD.",
+   "uses": [
+    "fitur-2-group-formation/e-jawaban-undangan/06-k2_masih_min.js"
+   ]
   },
   {
    "path": "fitur-2-group-formation/f-persetujuan-jadwal/05-r2_confirmed.js",
@@ -940,13 +904,16 @@
   },
   {
    "path": "fitur-3-outcome/c-pelaksanaan/05-x3_batal.js",
-   "name": "Cabang: dibatalkan, tidak dihitung terlaksana",
-   "description": "Belum diputuskan: apakah sesi batal ikut masuk penyebut SCR.\n\nSumber: Plan/Day9.MD bagian 3C, 7, dan 9."
+   "name": "Cabang: dibatalkan, dihitung tidak terlaksana",
+   "description": "Aturan (keputusan 12 Nov): sesi yang sudah CONFIRMED lalu batal tetap masuk penyebut SCR sebagai tidak terlaksana. Day9 menulis sesi batal tidak dihitung terlaksana. Bila dikeluarkan dari penyebut, SCR terlihat lebih bagus dari kenyataannya.\n\nSumber: Plan/Day9.MD bagian 3C, 7, dan 9.",
+   "uses": [
+    "fitur-3-outcome/c-pelaksanaan/09-h3_scr.js"
+   ]
   },
   {
    "path": "fitur-3-outcome/c-pelaksanaan/06-k3_held.js",
-   "name": "Keputusan: host atau anggota mengonfirmasi sesi terlaksana?",
-   "description": "Ya: sesi COMPLETED.\nTidak: sesi tidak terlaksana.\n\nCatatan: Formula_Sistem.MD meminta host ditambah minimal satu anggota. Day9 cukup host atau anggota.\n\nSumber: Plan/Day9.MD bagian 3C, 7, dan 9.",
+   "name": "Keputusan: host dan minimal satu anggota mengonfirmasi sesi terlaksana?",
+   "description": "Aturan (keputusan 12 Nov): butuh host ditambah minimal satu anggota, seperti di Formula_Sistem.MD, agar satu orang tidak bisa mengklaim sendirian. Bila jawaban saling bertentangan, sesi ditandai disputed dan belum dihitung.\n\nYa: sesi COMPLETED.\nTidak: sesi tidak terlaksana.\n\nSumber: Plan/Day9.MD bagian 3C, 7, dan 9.",
    "uses": [
     "fitur-3-outcome/c-pelaksanaan/07-r3_selesai.js",
     "fitur-3-outcome/c-pelaksanaan/08-r3_tidak.js"
@@ -1043,7 +1010,7 @@
   {
    "path": "fitur-3-outcome/z-uji-bobot/02-k3_data.js",
    "name": "Keputusan: data sudah cukup untuk menilai bobot?",
-   "description": "Ya: analisis hubungan faktor dengan hasil.\nBelum: bobot awal tetap.\n\nBelum diputuskan: jumlah data yang disebut cukup. Day9 hanya mengingatkan bahwa enam kelompok belum cukup.\n\nSumber: Plan/Day9.MD bagian 3, 5, dan 8.",
+   "description": "Uji (keputusan 12 Nov): minimal 30 sesi COMPLETED yang punya Session Feedback. Angka 30 adalah hipotesis, bukan hasil hitung ukuran sampel.\n\nYa: analisis hubungan faktor dengan hasil.\nBelum: bobot awal tetap. Day9 sudah mengingatkan bahwa enam kelompok belum cukup.\n\nSumber: Plan/Day9.MD bagian 3, 5, dan 8.",
    "uses": [
     "fitur-3-outcome/z-uji-bobot/03-r3_analisis.js",
     "fitur-3-outcome/z-uji-bobot/06-x3_tetap.js"

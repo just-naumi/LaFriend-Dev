@@ -86,7 +86,7 @@
    "label": "E. Metode belajar",
    "kind": "data",
    "summary": "Offline, Online, atau Hybrid. Boleh lebih dari satu: satu pilihan utama dan pilihan alternatif. Wajib.",
-   "details": "Contoh: Andi Offline (utama), Online (alternatif).\nLanjut ke: Keputusan 5 (boleh atau tidak) dan pohon nilai M (berapa nilainya).\n\nSumber: Plan/Day3.MD bagian 2E, Plan/Day4.MD bagian 8.\n\nDi dalam kotak ini: 2 keputusan, 4 cabang, 1 hitungan. Klik dua kali untuk membukanya.",
+   "details": "Aturan (keputusan 12 Nov): Hybrid berarti bersedia Offline maupun Online, jadi Hybrid cocok dengan keduanya (Day3: fleksibel antara online dan offline).\nContoh: Andi Offline (utama), Online (alternatif).\nLanjut ke: Keputusan 5 (boleh atau tidak) dan pohon nilai M (berapa nilainya).\n\nSumber: Plan/Day3.MD bagian 2E, Plan/Day4.MD bagian 8.\n\nDi dalam kotak ini: 2 keputusan, 4 cabang, 1 hitungan. Klik dua kali untuk membukanya.",
    "paths": [
     "fitur-1-intent-matching/e-metode/**"
    ]
@@ -119,7 +119,7 @@
    "label": "H. Tujuan belajar",
    "kind": "data",
    "summary": "Satu dari lima pilihan: Memahami materi, Mengerjakan latihan soal, Persiapan ujian, Mengerjakan tugas, Diskusi dan berbagi pengetahuan. Wajib.",
-   "details": "Contoh: Memahami materi.\nLanjut ke: pohon nilai G.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.\n\nDi dalam kotak ini: 1 keputusan, 8 cabang, 1 hitungan. Klik dua kali untuk membukanya.",
+   "details": "Contoh: Memahami materi.\nLanjut ke: pohon nilai G.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.\n\nDi dalam kotak ini: 1 keputusan, 11 cabang, 1 hitungan. Klik dua kali untuk membukanya.",
    "paths": [
     "fitur-1-intent-matching/h-tujuan/**"
    ]
@@ -141,7 +141,7 @@
    "label": "J. Prioritas waktu",
    "kind": "data",
    "summary": "Urutan kesukaan tiap pilihan waktu: 1 paling disukai, 2 pilihan kedua, dan seterusnya. Field baru preference_rank di intent_availabilities.",
-   "details": "Contoh: Andi memilih Rabu 10.00 sebagai pilihan pertama.\nLanjut ke: pohon nilai D.\n\nBeda dengan jam kosong: jam kosong menentukan boleh atau tidak, prioritas waktu hanya menambah nilai. Dengan begitu hal yang sama tidak dihitung dua kali.\n\nSumber: Plan/Day3.MD bagian 4, Plan/Day4.MD bagian 7.\n\nDi dalam kotak ini: 1 keputusan, 5 cabang, 1 hitungan. Klik dua kali untuk membukanya.",
+   "details": "Contoh: Andi memilih Rabu 10.00 sebagai pilihan pertama.\nLanjut ke: pohon nilai D.\n\nBeda dengan jam kosong: jam kosong menentukan boleh atau tidak, prioritas waktu hanya menambah nilai. Dengan begitu hal yang sama tidak dihitung dua kali.\n\nSumber: Plan/Day3.MD bagian 4, Plan/Day4.MD bagian 7.\n\nDi dalam kotak ini: 1 keputusan, 4 cabang, 1 hitungan. Klik dua kali untuk membukanya.",
    "paths": [
     "fitur-1-intent-matching/j-prioritas-waktu/**"
    ]
@@ -184,7 +184,7 @@
    "parent": "f2",
    "label": "B. Ukuran kelompok",
    "kind": "data",
-   "summary": "Jumlah paling sedikit dan paling banyak, termasuk host. Asumsi PoC 2 sampai 4.",
+   "summary": "Jumlah paling sedikit dan paling banyak, termasuk host. Nilai awal 2 sampai 4, berupa pengaturan yang bisa diubah (keputusan 12 Nov).",
    "details": "Contoh: Andi 2-4, Budi 3-4, Citra 2-3.\nLanjut ke: hitungan rentang ukuran bersama.\n\nSumber: Plan/Day3.MD bagian 2F, Plan/Day7.MD bagian 2 dan 10.\n\nDi dalam kotak ini: 1 keputusan, 1 hitungan, 1 hasil. Klik dua kali untuk membukanya.",
    "paths": [
     "fitur-2-group-formation/b-ukuran-kelompok/**"
@@ -347,7 +347,7 @@
      "note": "1 / 2 x 100 = 50. 0,30 x 50 = 15."
     },
     {
-     "node": "fitur-1-intent-matching/h-tujuan/11-h_goal.js",
+     "node": "fitur-1-intent-matching/h-tujuan/14-h_goal.js",
      "note": "Sama-sama Memahami materi. 25."
     },
     {
@@ -426,7 +426,7 @@
     },
     {
      "node": "fitur-3-outcome/c-pelaksanaan/06-k3_held.js",
-     "note": "Host mengonfirmasi sesi terlaksana."
+     "note": "Host dan satu anggota mengonfirmasi sesi terlaksana."
     },
     {
      "node": "fitur-3-outcome/c-pelaksanaan/07-r3_selesai.js",
