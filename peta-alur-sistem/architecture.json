@@ -1,0 +1,503 @@
+{
+ "$schema": "floorplan/architecture@1",
+ "project": {
+  "name": "LaFriend: alur sistem dan hitungan (mengikuti repo)",
+  "summary": "Peta cara sistem LaFriend berpikir menurut dokumen Plan di repo LaFriend-Dev. Tiap fitur dipecah menjadi parameter masuk, pohon keputusan, dan hitungan matematikanya. Belum ada kode."
+ },
+ "audience": "everyone",
+ "nodes": [
+  {
+   "id": "f1",
+   "label": "Fitur 1: Intent-Based Matching",
+   "kind": "feature",
+   "summary": "Sepuluh parameter masuk, dua hasil keluar. Buka satu kotak parameter untuk melihat pohon keputusannya.",
+   "details": "Cara baca: tiap kotak berhuruf adalah satu parameter. Klik kotak untuk melihat penjelasannya dan ke mana ia tersambung. Klik dua kali untuk membuka pohon keputusannya.\n\nA sampai F adalah syarat wajib (H): gagal satu berarti ditolak. E dan G sampai J memberi nilai.\n\nRumus: CS = 0,30 x T + 0,25 x G + 0,15 x S + 0,15 x D + 0,15 x M.\nContoh Andi dengan Budi: 85.\n\nUrutan: sesi yang sudah ada dicari lebih dulu, partner dicari bila tidak ada sesi yang lolos.\n\nSumber: Plan/Day3, Day4, Day5.",
+   "paths": [
+    "fitur-1-intent-matching/**"
+   ]
+  },
+  {
+   "id": "f2",
+   "label": "Fitur 2: Feasibility-Aware Group Formation",
+   "kind": "feature",
+   "summary": "Enam parameter masuk, satu hasil keluar. Buka satu kotak parameter untuk melihat pohon keputusannya.",
+   "details": "Cara baca: tiap kotak berhuruf adalah satu parameter. Klik untuk penjelasan, klik dua kali untuk pohon keputusannya.\n\nCalon ditambahkan satu per satu: cek ukuran, cek jadwal semua anggota, hitung GQ, pilih calon dengan GQ terbaik.\n\nRumus:\nMinGroup = max(min tiap anggota), MaxGroup = min(max tiap anggota, 4)\nGQ = 0,70 x rata-rata pasangan + 0,30 x pasangan terendah\nContoh: 80,83.\n\nUndangan dan persetujuan jadwal masing-masing diberi batas 24 jam.\n\nSumber: Plan/Day7, Day5, Day10.",
+   "paths": [
+    "fitur-2-group-formation/**"
+   ]
+  },
+  {
+   "id": "f3",
+   "label": "Fitur 3: Outcome-Oriented Matching",
+   "kind": "feature",
+   "summary": "Lima parameter masuk, satu hasil keluar. Buka satu kotak parameter untuk melihat hitungannya.",
+   "details": "Cara baca: tiap kotak berhuruf adalah satu parameter. Klik untuk penjelasan, klik dua kali untuk pohon dan hitungannya.\n\nLima metrik: RAR, GFR, SCR, MSS, RSI. Kelimanya tidak digabung menjadi satu skor.\n\nBobot tidak berubah otomatis. Bobot baru harus diuji pada data terpisah dan ditetapkan manual. Angka contoh adalah simulasi, belum ada data.\n\nSumber: Plan/Day9.",
+   "paths": [
+    "fitur-3-outcome/**"
+   ]
+  },
+  {
+   "id": "f1.a",
+   "parent": "f1",
+   "label": "A. Mata kuliah",
+   "kind": "data",
+   "summary": "Satu mata kuliah dari katalog. Wajib.",
+   "details": "Contoh: Struktur Data.\nLanjut ke: Keputusan 1.\nHitungan: tidak ada. Hanya ya atau tidak.\n\nSumber: Plan/Day3.MD bagian 3, Plan/Day4.MD bagian 2.\n\nDi dalam kotak ini: 1 keputusan. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-1-intent-matching/a-mata-kuliah/**"
+   ]
+  },
+  {
+   "id": "f1.b",
+   "parent": "f1",
+   "label": "B. Status akun",
+   "kind": "data",
+   "summary": "Diperiksa sistem, bukan diisi: verification_status dan account_status.",
+   "details": "Contoh: VERIFIED dan ACTIVE.\nLanjut ke: Keputusan 2.\n\nSumber: Plan/Day3.MD bagian 3, Plan/Day4.MD bagian 2.\n\nDi dalam kotak ini: 1 keputusan. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-1-intent-matching/b-status-akun/**"
+   ]
+  },
+  {
+   "id": "f1.c",
+   "parent": "f1",
+   "label": "C. Rentang tanggal",
+   "kind": "data",
+   "summary": "Tanggal paling awal dan paling akhir mahasiswa bersedia belajar (earliest_date, latest_date). Wajib.",
+   "details": "Contoh: 12 sampai 18 November 2026.\nLanjut ke: Keputusan 3.\n\nSumber: Plan/Day3.MD bagian 3, Plan/Day4.MD bagian 2.\n\nDi dalam kotak ini: 1 keputusan. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-1-intent-matching/c-rentang-tanggal/**"
+   ]
+  },
+  {
+   "id": "f1.d",
+   "parent": "f1",
+   "label": "D. Jam kosong",
+   "kind": "data",
+   "summary": "Beberapa pilihan hari dan jam, disimpan di tabel intent_availabilities. Wajib.",
+   "details": "Contoh: Senin 13.00-16.00, Rabu 09.00-12.00, Jumat 13.00-17.00.\nLanjut ke: hitungan irisan jam.\n\nSumber: Plan/Day3.MD bagian 2C, Plan/Day4.MD bagian 2, Plan/Day5.MD bagian 6.\n\nDi dalam kotak ini: 1 keputusan, 1 hitungan. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-1-intent-matching/d-jam-kosong/**"
+   ]
+  },
+  {
+   "id": "f1.e",
+   "parent": "f1",
+   "label": "E. Metode belajar",
+   "kind": "data",
+   "summary": "Offline, Online, atau Hybrid. Boleh lebih dari satu: satu pilihan utama dan pilihan alternatif. Wajib.",
+   "details": "Contoh: Andi Offline (utama), Online (alternatif).\nLanjut ke: Keputusan 5 (boleh atau tidak) dan pohon nilai M (berapa nilainya).\n\nSumber: Plan/Day3.MD bagian 2E, Plan/Day4.MD bagian 8.\n\nDi dalam kotak ini: 2 keputusan, 4 cabang, 1 hitungan. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-1-intent-matching/e-metode/**"
+   ]
+  },
+  {
+   "id": "f1.f",
+   "parent": "f1",
+   "label": "F. Kapasitas sesi",
+   "kind": "data",
+   "summary": "Data milik sesi yang sudah ada, bukan isian mahasiswa: jumlah anggota dan batas anggota.",
+   "details": "Contoh: Session A 2/4, Session C 4/4.\nLanjut ke: Keputusan 6. Hanya dipakai saat calonnya sesi, bukan partner.\n\nSumber: Plan/Day3.MD bagian 3, Plan/Day5.MD bagian 3.\n\nDi dalam kotak ini: 1 keputusan. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-1-intent-matching/f-kapasitas/**"
+   ]
+  },
+  {
+   "id": "f1.g",
+   "parent": "f1",
+   "label": "G. Materi",
+   "kind": "data",
+   "summary": "Satu atau beberapa materi spesifik. Wajib.",
+   "details": "Contoh: Andi Binary Tree. Budi Binary Tree dan BST.\nLanjut ke: penyeragaman nama materi.\n\nSumber: Plan/Day3.MD bagian 2A, Plan/Day4.MD bagian 4.\n\nDi dalam kotak ini: 1 hitungan, 1 proses. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-1-intent-matching/g-materi/**"
+   ]
+  },
+  {
+   "id": "f1.h",
+   "parent": "f1",
+   "label": "H. Tujuan belajar",
+   "kind": "data",
+   "summary": "Satu dari lima pilihan: Memahami materi, Mengerjakan latihan soal, Persiapan ujian, Mengerjakan tugas, Diskusi dan berbagi pengetahuan. Wajib.",
+   "details": "Contoh: Memahami materi.\nLanjut ke: pohon nilai G.\n\nSumber: Plan/Day3.MD bagian 2B, Plan/Day4.MD bagian 5.\n\nDi dalam kotak ini: 1 keputusan, 8 cabang, 1 hitungan. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-1-intent-matching/h-tujuan/**"
+   ]
+  },
+  {
+   "id": "f1.i",
+   "parent": "f1",
+   "label": "I. Gaya belajar",
+   "kind": "data",
+   "summary": "Satu dari empat: Discussion, Practice, Teaching, Focus Study. Wajib.",
+   "details": "Contoh: Discussion.\nLanjut ke: pohon nilai S.\n\nSumber: Plan/Day3.MD bagian 2D, Plan/Day4.MD bagian 6.\n\nDi dalam kotak ini: 1 keputusan, 4 cabang, 1 hitungan. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-1-intent-matching/i-gaya-belajar/**"
+   ]
+  },
+  {
+   "id": "f1.j",
+   "parent": "f1",
+   "label": "J. Prioritas waktu",
+   "kind": "data",
+   "summary": "Urutan kesukaan tiap pilihan waktu: 1 paling disukai, 2 pilihan kedua, dan seterusnya. Field baru preference_rank di intent_availabilities.",
+   "details": "Contoh: Andi memilih Rabu 10.00 sebagai pilihan pertama.\nLanjut ke: pohon nilai D.\n\nBeda dengan jam kosong: jam kosong menentukan boleh atau tidak, prioritas waktu hanya menambah nilai. Dengan begitu hal yang sama tidak dihitung dua kali.\n\nSumber: Plan/Day3.MD bagian 4, Plan/Day4.MD bagian 7.\n\nDi dalam kotak ini: 1 keputusan, 5 cabang, 1 hitungan. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-1-intent-matching/j-prioritas-waktu/**"
+   ]
+  },
+  {
+   "id": "f1.gerbang",
+   "parent": "f1",
+   "label": "Hasil: lolos atau ditolak",
+   "kind": "config",
+   "summary": "Tempat enam syarat wajib bertemu. H = 1 berarti lanjut dinilai, H = 0 berarti tidak diberi skor.",
+   "details": "Di dalam kotak ini: 2 hasil. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-1-intent-matching/y-gerbang/**"
+   ]
+  },
+  {
+   "id": "f1.skor",
+   "parent": "f1",
+   "label": "Hasil: skor CS, sesi dulu, lalu partner",
+   "kind": "config",
+   "summary": "Tempat lima kontribusi dijumlah menjadi CS, diurutkan tanpa ambang, lalu dipilih: bergabung ke sesi yang ada atau lanjut mencari partner.",
+   "details": "Di dalam kotak ini: 2 keputusan, 1 hitungan, 2 hasil, 2 proses. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-1-intent-matching/z-skor-akhir/**"
+   ]
+  },
+  {
+   "id": "f2.a",
+   "parent": "f2",
+   "label": "A. Urutan partner dari Fitur 1",
+   "kind": "data",
+   "summary": "Daftar calon beserta CS terhadap host.",
+   "details": "Contoh: Budi 95, Citra 90, Deni 88.\nLanjut ke: host menjadi anggota pertama.\n\nAturan: skor tinggi terhadap host belum berarti cocok dengan anggota lain.\n\nSumber: Plan/Day7.MD bagian 2 dan 6, Plan/Day10.MD.\n\nDi dalam kotak ini: 1 proses. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-2-group-formation/a-urutan-partner/**"
+   ]
+  },
+  {
+   "id": "f2.b",
+   "parent": "f2",
+   "label": "B. Ukuran kelompok",
+   "kind": "data",
+   "summary": "Jumlah paling sedikit dan paling banyak, termasuk host. Asumsi PoC 2 sampai 4.",
+   "details": "Contoh: Andi 2-4, Budi 3-4, Citra 2-3.\nLanjut ke: hitungan rentang ukuran bersama.\n\nSumber: Plan/Day3.MD bagian 2F, Plan/Day7.MD bagian 2 dan 10.\n\nDi dalam kotak ini: 1 keputusan, 1 hitungan, 1 hasil. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-2-group-formation/b-ukuran-kelompok/**"
+   ]
+  },
+  {
+   "id": "f2.c",
+   "parent": "f2",
+   "label": "C. Jam kosong tiap anggota",
+   "kind": "data",
+   "summary": "Slot jam kosong dari intent semua anggota sementara dan calon.",
+   "details": "Contoh: Andi Rabu 09.00-12.00, Budi Rabu 10.00-13.00, Citra Rabu 11.00-14.00.\nLanjut ke: hitungan irisan seluruh anggota.\n\nSumber: Plan/Day7.MD bagian 5, Plan/Day5.MD bagian 6.\n\nDi dalam kotak ini: 1 keputusan, 1 hitungan. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-2-group-formation/c-jam-kosong/**"
+   ]
+  },
+  {
+   "id": "f2.d",
+   "parent": "f2",
+   "label": "D. Skor antaranggota",
+   "kind": "data",
+   "summary": "CS calon dengan setiap anggota yang sudah ada, dihitung dengan rumus Fitur 1.",
+   "details": "Contoh: Andi-Budi 90, Andi-Citra 85, Budi-Citra 75.\nLanjut ke: tabel skor pasangan.\n\nSumber: Plan/Day7.MD bagian 3, 4, 6, dan 10.\n\nDi dalam kotak ini: 1 keputusan, 2 hitungan, 1 proses. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-2-group-formation/d-skor-antaranggota/**"
+   ]
+  },
+  {
+   "id": "f2.e",
+   "parent": "f2",
+   "label": "E. Jawaban undangan",
+   "kind": "data",
+   "summary": "Menerima, menolak, atau tidak menjawab, dari tiap calon. Status undangan: PENDING, ACCEPTED, REJECTED, WITHDRAWN, EXPIRED.",
+   "details": "Contoh: Budi menerima, Citra menolak.\nLanjut ke: keputusan jawaban.\n\nSumber: Plan/Day7.MD bagian 8, Plan/Day5.MD bagian 9, Plan/Day10.MD.\n\nDi dalam kotak ini: 2 keputusan, 4 cabang. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-2-group-formation/e-jawaban-undangan/**"
+   ]
+  },
+  {
+   "id": "f2.f",
+   "parent": "f2",
+   "label": "F. Persetujuan jadwal akhir",
+   "kind": "data",
+   "summary": "Setuju atau tidak dari tiap anggota terhadap jadwal yang diusulkan.",
+   "details": "Contoh: Rabu 11.00-12.00.\nLanjut ke: keputusan persetujuan.\n\nSumber: Plan/Day5.MD bagian 9, Plan/Day7.MD bagian 11, Plan/Day10.MD.\n\nDi dalam kotak ini: 1 keputusan, 1 cabang, 1 hasil, 1 proses. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-2-group-formation/f-persetujuan-jadwal/**"
+   ]
+  },
+  {
+   "id": "f2.proposal",
+   "parent": "f2",
+   "label": "Hasil: proposal kelompok",
+   "kind": "config",
+   "summary": "Tempat sistem memutuskan kelompok cukup besar untuk diusulkan, atau intent tetap aktif karena calon habis.",
+   "details": "Di dalam kotak ini: 2 keputusan, 2 hasil. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-2-group-formation/z-proposal/**"
+   ]
+  },
+  {
+   "id": "f3.a",
+   "parent": "f3",
+   "label": "A. Catatan aktivitas",
+   "kind": "data",
+   "summary": "Dicatat otomatis di tabel matching_events, bukan diisi mahasiswa.",
+   "details": "Jenis: RECOMMENDATION_VIEWED, JOIN_REQUEST_SENT, INVITATION_ACCEPTED, INVITATION_REJECTED, SCHEDULE_APPROVED, SESSION_CONFIRMED, SESSION_COMPLETED, SESSION_CANCELLED.\nLanjut ke: hitungan RAR.\n\nSumber: Plan/Day9.MD bagian 3A dan 6.\n\nDi dalam kotak ini: 1 hitungan. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-3-outcome/a-catatan-aktivitas/**"
+   ]
+  },
+  {
+   "id": "f3.b",
+   "parent": "f3",
+   "label": "B. Hasil pembentukan kelompok",
+   "kind": "data",
+   "summary": "Berhasil dikonfirmasi atau gagal, diambil otomatis dari status sesi dan undangan.",
+   "details": "Lanjut ke: hitungan GFR, dan alasan bila gagal.\n\nSumber: Plan/Day9.MD bagian 2B, 3B, dan 4.\n\nDi dalam kotak ini: 1 keputusan, 8 cabang, 1 hitungan. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-3-outcome/b-hasil-pembentukan/**"
+   ]
+  },
+  {
+   "id": "f3.c",
+   "parent": "f3",
+   "label": "C. Konfirmasi pelaksanaan sesi",
+   "kind": "data",
+   "summary": "Host atau anggota menyatakan sesi benar-benar terlaksana.",
+   "details": "Lanjut ke: keputusan waktu sesi.\n\nSumber: Plan/Day9.MD bagian 3C, 7, dan 9.\n\nDi dalam kotak ini: 3 keputusan, 2 cabang, 1 hitungan, 2 hasil. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-3-outcome/c-pelaksanaan/**"
+   ]
+  },
+  {
+   "id": "f3.d",
+   "parent": "f3",
+   "label": "D. Recommendation Feedback",
+   "kind": "data",
+   "summary": "Diisi saat melihat rekomendasi:\nkesesuaian (Sangat sesuai, Sesuai, Netral, Tidak sesuai)\nkejelasan alasan (Sangat jelas, Jelas, Kurang jelas, Tidak jelas)\nketertarikan (Tertarik, Ragu-ragu, Tidak tertarik)",
+   "details": "Mengukur persepsi terhadap rekomendasi, bukan keberhasilan sesi. Disimpan di relevance_rating dan explanation_rating.\n\nHitungan: Day9 tidak menulis rumusnya.\nLanjut ke: lima metrik.\n\nSumber: Plan/Day9.MD bagian 2A.\n\nDi dalam kotak ini: hanya parameter, tidak ada pohon. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-3-outcome/d-feedback-rekomendasi/**"
+   ]
+  },
+  {
+   "id": "f3.e",
+   "parent": "f3",
+   "label": "E. Session Feedback",
+   "kind": "data",
+   "summary": "Diisi setelah sesi selesai: terlaksana atau tidak, partisipasi anggota, kesesuaian gaya, merasa terbantu, kepuasan 1 sampai 5, ingin belajar bersama lagi.",
+   "details": "Ini feedback terpenting untuk menilai mutu matching.\nLanjut ke: keputusan pengisian.\n\nSumber: Plan/Day9.MD bagian 2C, 3D, 3E, 7, dan 9.\n\nDi dalam kotak ini: 2 keputusan, 1 cabang, 2 hitungan. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-3-outcome/e-feedback-sesi/**"
+   ]
+  },
+  {
+   "id": "f3.bobot",
+   "parent": "f3",
+   "label": "Hasil: lima metrik dan uji bobot",
+   "kind": "config",
+   "summary": "Tempat lima metrik dikumpulkan, lalu tiga keputusan menentukan apakah bobot boleh berubah.",
+   "details": "Di dalam kotak ini: 2 keputusan, 3 hasil, 2 proses. Klik dua kali untuk membukanya.",
+   "paths": [
+    "fitur-3-outcome/z-uji-bobot/**"
+   ]
+  }
+ ],
+ "flows": [
+  {
+   "id": "fitur-1",
+   "title": "Fitur 1: contoh Andi dengan Budi",
+   "description": "Dari mata kuliah sampai CS 85.",
+   "steps": [
+    {
+     "node": "fitur-1-intent-matching/a-mata-kuliah/01-p_course.js",
+     "note": "Andi dan Budi sama-sama Struktur Data."
+    },
+    {
+     "node": "fitur-1-intent-matching/c-rentang-tanggal/02-k_tanggal.js",
+     "note": "Rentang tanggal beririsan."
+    },
+    {
+     "node": "fitur-1-intent-matching/d-jam-kosong/02-h_jam.js",
+     "note": "Rabu 09.00-12.00 dengan 10.00-12.00. Irisan 120 menit."
+    },
+    {
+     "node": "fitur-1-intent-matching/d-jam-kosong/03-k_jam.js",
+     "note": "120 >= 60. Ya."
+    },
+    {
+     "node": "fitur-1-intent-matching/e-metode/02-k_mode_syarat.js",
+     "note": "Keduanya bisa Offline."
+    },
+    {
+     "node": "fitur-1-intent-matching/y-gerbang/01-r_lolos.js",
+     "note": "H = 1, masuk lima pohon nilai."
+    },
+    {
+     "node": "fitur-1-intent-matching/g-materi/03-h_topik.js",
+     "note": "1 / 2 x 100 = 50. 0,30 x 50 = 15."
+    },
+    {
+     "node": "fitur-1-intent-matching/h-tujuan/11-h_goal.js",
+     "note": "Sama-sama Memahami materi. 25."
+    },
+    {
+     "node": "fitur-1-intent-matching/z-skor-akhir/01-h_total.js",
+     "note": "15 + 25 + 15 + 15 + 15 = 85."
+    },
+    {
+     "node": "fitur-1-intent-matching/z-skor-akhir/02-r_urut.js",
+     "note": "Budi 85, Citra 78, Deni 65."
+    },
+    {
+     "node": "fitur-1-intent-matching/z-skor-akhir/03-k_ada_sesi.js",
+     "note": "Sesi dicari lebih dulu, partner bila tidak ada."
+    }
+   ]
+  },
+  {
+   "id": "fitur-2",
+   "title": "Fitur 2: contoh kelompok Andi, Budi, Citra",
+   "description": "Dari daftar partner sampai sesi CONFIRMED.",
+   "steps": [
+    {
+     "node": "fitur-2-group-formation/a-urutan-partner/01-p2_partner.js",
+     "note": "Budi 95, Citra 90, Deni 88."
+    },
+    {
+     "node": "fitur-2-group-formation/a-urutan-partner/02-r2_host.js",
+     "note": "Andi menjadi host."
+    },
+    {
+     "node": "fitur-2-group-formation/b-ukuran-kelompok/02-h2_ukuran.js",
+     "note": "MinGroup = max(min), MaxGroup = min(max, 4)."
+    },
+    {
+     "node": "fitur-2-group-formation/c-jam-kosong/02-h2_irisan.js",
+     "note": "Mulai 11.00, selesai 12.00. Duration 60 menit."
+    },
+    {
+     "node": "fitur-2-group-formation/c-jam-kosong/03-k2_irisan.js",
+     "note": "60 >= 60. Ya."
+    },
+    {
+     "node": "fitur-2-group-formation/d-skor-antaranggota/03-h2_gq.js",
+     "note": "Kelompok A 80,83, kelompok B 75,17."
+    },
+    {
+     "node": "fitur-2-group-formation/d-skor-antaranggota/04-k2_terbaik.js",
+     "note": "Kelompok A dipilih walau Deni lebih tinggi terhadap Andi."
+    },
+    {
+     "node": "fitur-2-group-formation/z-proposal/04-r2_proposal.js",
+     "note": "Proposal DRAFT dikirim."
+    },
+    {
+     "node": "fitur-2-group-formation/e-jawaban-undangan/02-k2_jawab.js",
+     "note": "Tiap calon menjawab dalam 24 jam."
+    },
+    {
+     "node": "fitur-2-group-formation/f-persetujuan-jadwal/03-k2_jadwal_setuju.js",
+     "note": "Semua menyetujui jadwal Rabu 11.00-12.00."
+    },
+    {
+     "node": "fitur-2-group-formation/f-persetujuan-jadwal/05-r2_confirmed.js",
+     "note": "Sesi CONFIRMED, intent anggota CONVERTED."
+    }
+   ]
+  },
+  {
+   "id": "fitur-3",
+   "title": "Fitur 3: dari sesi ke evaluasi bobot",
+   "description": "Dari konfirmasi pelaksanaan sampai keputusan bobot.",
+   "steps": [
+    {
+     "node": "fitur-3-outcome/c-pelaksanaan/02-k3_lewat.js",
+     "note": "Jadwal sesi sudah lewat."
+    },
+    {
+     "node": "fitur-3-outcome/c-pelaksanaan/06-k3_held.js",
+     "note": "Host mengonfirmasi sesi terlaksana."
+    },
+    {
+     "node": "fitur-3-outcome/c-pelaksanaan/07-r3_selesai.js",
+     "note": "Sesi COMPLETED."
+    },
+    {
+     "node": "fitur-3-outcome/c-pelaksanaan/09-h3_scr.js",
+     "note": "16 / 20 = 80% (simulasi)."
+    },
+    {
+     "node": "fitur-3-outcome/e-feedback-sesi/05-h3_mss.js",
+     "note": "(5 + 4 + 4) / 3 = 4,33."
+    },
+    {
+     "node": "fitur-3-outcome/z-uji-bobot/01-r3_metrik.js",
+     "note": "Lima metrik dilihat berdampingan."
+    },
+    {
+     "node": "fitur-3-outcome/z-uji-bobot/02-k3_data.js",
+     "note": "Bila data cukup, faktor dianalisis."
+    },
+    {
+     "node": "fitur-3-outcome/z-uji-bobot/04-r3_uji.js",
+     "note": "Bobot baru diuji pada data terpisah."
+    },
+    {
+     "node": "fitur-3-outcome/z-uji-bobot/05-k3_lebih.js",
+     "note": "Bobot baru dipakai hanya bila lebih baik."
+    }
+   ]
+  }
+ ],
+ "tour": [
+  {
+   "node": "f1",
+   "title": "Mulai dari Fitur 1",
+   "note": "Klik dua kali. Yang muncul adalah kotak parameter A sampai J dan garis sambungannya."
+  },
+  {
+   "node": "f1.a",
+   "title": "Satu kotak, satu parameter",
+   "note": "A sampai F adalah syarat wajib. Klik sekali untuk penjelasan, klik dua kali untuk pohonnya."
+  },
+  {
+   "node": "f1.g",
+   "title": "Parameter yang memberi nilai",
+   "note": "Materi dihitung dengan Jaccard, lalu dikali bobot 0,30."
+  },
+  {
+   "node": "fitur-1-intent-matching/z-skor-akhir/01-h_total.js",
+   "title": "Tempat semua hitungan bertemu",
+   "note": "Lima kontribusi dijumlah di sini. Contoh Andi dengan Budi: 85."
+  },
+  {
+   "node": "f2",
+   "title": "Fitur 2 memakai hasil Fitur 1",
+   "note": "Calon ditambahkan satu per satu dan dipilih menurut GQ, bukan skor terhadap host."
+  },
+  {
+   "node": "f3",
+   "title": "Fitur 3 menutup lingkaran",
+   "note": "Lima metrik dikumpulkan, lalu dipakai untuk menguji bobot Fitur 1."
+  }
+ ],
+ "edges": [
+  {
+   "from": "fitur-3-outcome/z-uji-bobot/07-r3_versi.js",
+   "to": "fitur-1-intent-matching/z-skor-akhir/01-h_total.js",
+   "kind": "config",
+   "label": "bobot baru",
+   "description": "Bobot yang lolos uji dipakai oleh rumus CS Fitur 1."
+  }
+ ]
+}
