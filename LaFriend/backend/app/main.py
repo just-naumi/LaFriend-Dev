@@ -11,6 +11,7 @@ from app.db.seeder import seed_initial_data
 from app.api.v1.auth import router as auth_router
 from app.routers.courses import router as courses_router
 from app.routers.study_intent import router as study_intent_router
+from app.routers.outcome import router as outcome_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -56,6 +57,7 @@ def health_check():
 app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(courses_router, prefix=settings.API_V1_STR)
 app.include_router(study_intent_router, prefix=settings.API_V1_STR)
+app.include_router(outcome_router, prefix=settings.API_V1_STR)
 
 # Mount frontend files
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
