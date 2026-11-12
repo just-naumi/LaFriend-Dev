@@ -31,6 +31,16 @@ class StudyIntentService:
                 detail="Mata kuliah tidak ditemukan di katalog resmi"
             )
 
+        # Satu mahasiswa hanya punya satu intent yang masih berjalan per mata kuliah
+        running = db.query(StudyIntent).filter(
+            StudyIntent.student_id == student_id, StudyIntent.course_id == data.course_id,
+            StudyIntent.status.in_(["ACTIVE", "GROUP_FORMING", "JOIN_PENDING"])).first()
+        if running:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Anda masih punya Study Intent yang berjalan untuk mata kuliah ini"
+            )
+
         # 3. Buat StudyIntent
         new_intent = StudyIntent(
             student_id=student_id,
@@ -100,6 +110,14 @@ class StudyIntentService:
         for key, val in update_dict.items():
             if val is not None:
                 setattr(intent, key, val)
+
+        # Yang diubah bisa hanya satu sisi, jadi urutannya dicek setelah digabung dengan nilai lama
+        if intent.earliest_date > intent.latest_date or intent.min_group_size > intent.max_group_size:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Tanggal awal tidak boleh melewati tanggal akhir, dan ukuran minimum tidak boleh melebihi maksimum"
+            )
 
         db.commit()
         db.refresh(intent)

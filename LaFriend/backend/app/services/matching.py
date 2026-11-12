@@ -8,9 +8,11 @@ Objek intent yang dipakai di sini cukup punya atribut yang sama dengan model Stu
 (course_id, topics, learning_goal, collaboration_style, learning_mode, earliest_date,
 latest_date, status, student_id, student, availabilities).
 """
+from datetime import date, timedelta
 from itertools import combinations
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from app.schemas.study_intent import WEEKDAYS
 from app.services.outcome import DEFAULT_WEIGHTS
 
 MIN_OVERLAP_MINUTES = 60  # nilai awal, bisa diubah admin (KEPUTUSAN.md nomor 6)
@@ -105,27 +107,45 @@ def mode_score(a, b) -> int:
     return {2: 100, 3: 85, 4: 70}[min(ra[m] + rb[m] for m in shared)]
 
 
-def common_slots(intents: Sequence, min_minutes: int = MIN_OVERLAP_MINUTES) -> List[dict]:
-    """Waktu yang sama-sama kosong untuk semua intent, minimal min_minutes.
+def _dated_slots(intent, first: date, last: date) -> List[dict]:
+    """Jam kosong satu intent sebagai tanggal nyata di antara first dan last.
 
-    Irisan dihitung per hari secara terpisah: mulai paling akhir sampai selesai paling awal.
+    Nama hari ("Rabu", "Wednesday") menjadi semua tanggal berhari itu di dalam rentang.
     """
-    # shortcut: hari dicocokkan dari teksnya, "Wednesday" tidak dicocokkan dengan "2026-11-18"
-    slots = [{"day": av.day_or_date.strip().casefold(), "start": _minutes(av.start_time),
-              "end": _minutes(av.end_time), "ranks": [av.priority_rank]}
-             for av in intents[0].availabilities]
+    slots = []
+    for av in intent.availabilities:
+        key = av.day_or_date.strip().casefold()
+        if key in WEEKDAYS:
+            days = [first + timedelta(days=n) for n in range((last - first).days + 1)]
+            days = [d for d in days if d.weekday() == WEEKDAYS[key]]
+        else:
+            days = [d for d in [date.fromisoformat(key)] if first <= d <= last]
+        slots += [{"day": d.isoformat(), "start": _minutes(av.start_time), "end": _minutes(av.end_time),
+                   "ranks": [av.priority_rank]} for d in days]
+    return slots
+
+
+def common_slots(intents: Sequence, min_minutes: int = MIN_OVERLAP_MINUTES) -> List[dict]:
+    """Waktu yang sama-sama kosong untuk semua intent, minimal min_minutes, urut dari tanggal terawal.
+
+    Hanya tanggal di dalam irisan rentang tanggal semua intent yang dipakai. Irisan jam dihitung
+    per tanggal secara terpisah: mulai paling akhir sampai selesai paling awal.
+    """
+    first = max(date.fromisoformat(i.earliest_date) for i in intents)
+    last = min(date.fromisoformat(i.latest_date) for i in intents)
+    slots = _dated_slots(intents[0], first, last)
     for intent in intents[1:]:
         narrowed = []
         for slot in slots:
-            for av in intent.availabilities:
-                if av.day_or_date.strip().casefold() != slot["day"]:
+            for other in _dated_slots(intent, first, last):
+                if other["day"] != slot["day"]:
                     continue
-                start, end = max(slot["start"], _minutes(av.start_time)), min(slot["end"], _minutes(av.end_time))
+                start, end = max(slot["start"], other["start"]), min(slot["end"], other["end"])
                 if end - start >= min_minutes:
                     narrowed.append({"day": slot["day"], "start": start, "end": end,
-                                     "ranks": slot["ranks"] + [av.priority_rank]})
+                                     "ranks": slot["ranks"] + other["ranks"]})
         slots = narrowed
-    return [s for s in slots if s["end"] - s["start"] >= min_minutes]
+    return sorted((s for s in slots if s["end"] - s["start"] >= min_minutes), key=lambda s: s["day"])
 
 
 def _rank_score(ranks: Sequence[int]) -> int:
@@ -187,6 +207,7 @@ def match_partners(seeker, intents: Sequence, weights: Optional[Dict[str, float]
     """Partner Matching: intent aktif mahasiswa lain yang lolos H, diurutkan dari CS tertinggi.
 
     Tidak ada ambang skor. Skor hanya mengurutkan (Day4 bagian 10).
+    Satu mahasiswa hanya muncul sekali, dengan intent yang skornya paling tinggi.
     """
     results = []
     for other in intents:
@@ -196,7 +217,12 @@ def match_partners(seeker, intents: Sequence, weights: Optional[Dict[str, float]
             continue
         results.append({"intent": other, **compatibility(seeker, other, weights, min_minutes)})
     results.sort(key=lambda r: r["total"], reverse=True)
-    return results[:limit]
+    seen, unique = set(), []
+    for r in results:
+        if r["intent"].student_id not in seen:
+            seen.add(r["intent"].student_id)
+            unique.append(r)
+    return unique[:limit]
 
 
 def match_sessions(seeker, sessions: Sequence, weights: Optional[Dict[str, float]] = None,

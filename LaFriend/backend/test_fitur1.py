@@ -33,7 +33,7 @@ def test_andi_budi():
     r = M.compatibility(ANDI, BUDI)
     assert (r["t"], r["g"], r["s"], r["d"], r["m"]) == (50, 100, 100, 100, 100), r
     assert r["total"] == 85, r
-    assert r["proposed_slot"] == {"day": "wednesday", "start_time": "10:00", "end_time": "12:00"}, r
+    assert r["proposed_slot"] == {"day": "2026-11-18", "start_time": "10:00", "end_time": "12:00"}, r
 
 
 def test_topics():
@@ -76,12 +76,98 @@ def test_hard_constraints():
     assert M.hard_constraint(ANDI, intent("x", slots=[slot("Wednesday", "11:00", "13:00")]), min_minutes=90) == "TIME_OVERLAP"
 
 
+def test_real_dates():
+    """Jam kosong dihitung pada tanggal nyata. 18 November 2026 adalah hari Rabu."""
+    for day in ("Rabu", "wednesday", "2026-11-18"):
+        assert M.hard_constraint(ANDI, intent("x", slots=[slot(day, "09:00", "12:00")])) is None, day
+    # Rentang 12-18 dan 18-25 hanya beririsan di Rabu 18 November, jadi jam kosong Senin tidak terpakai
+    monday = [slot("Monday", "09:00", "12:00")]
+    late = ("2026-11-18", "2026-11-25")
+    assert M.hard_constraint(intent("a", slots=monday), intent("b", slots=monday, dates=late)) == "TIME_OVERLAP"
+    assert M.hard_constraint(ANDI, intent("b", dates=late)) is None
+    assert M.hard_constraint(ANDI, intent("x", slots=[slot("2026-11-25", "09:00", "12:00")])) == "TIME_OVERLAP"
+    # Rentang dua minggu memuat dua hari Rabu. Yang diusulkan tanggal terawal.
+    two_weeks = ("2026-11-12", "2026-11-26")
+    slots = M.common_slots([intent("a", dates=two_weeks), intent("b", dates=two_weeks)])
+    assert [s["day"] for s in slots] == ["2026-11-18", "2026-11-25"], slots
+    assert M.date_score(intent("a", dates=two_weeks), intent("b", dates=two_weeks))[1]["day"] == "2026-11-18"
+
+
+def test_schema():
+    """Isian intent yang salah ditolak sebelum sampai ke Fitur 1."""
+    from pydantic import ValidationError
+    from app.schemas.study_intent import StudyIntentCreate, StudyIntentUpdate
+    good = dict(course_id="x", topics="Binary Tree", learning_goal="UNDERSTAND", collaboration_style="DISCUSSION",
+                earliest_date="2026-11-12", latest_date="2026-11-18",
+                availabilities=[dict(day_or_date="Rabu", start_time="09:00", end_time="12:00")])
+    assert StudyIntentCreate(**good).availabilities[0].priority_rank == 1
+    bad_slots = [dict(day_or_date="Besok", start_time="09:00", end_time="12:00"),
+                 dict(day_or_date="Rabu", start_time="9:00", end_time="12:00"),
+                 dict(day_or_date="Rabu", start_time="09:00", end_time="25:99"),
+                 dict(day_or_date="Rabu", start_time="12:00", end_time="09:00"),
+                 dict(day_or_date="Rabu", start_time="09:00", end_time="12:00", priority_rank=0)]
+    bad = [{"learning_goal": "NGASAL"}, {"collaboration_style": "APA_SAJA"}, {"learning_mode": "LURING"},
+           {"earliest_date": "besok"}, {"latest_date": "2026-11-01"}, {"min_group_size": 1}, {"max_group_size": 5},
+           {"min_group_size": 4, "max_group_size": 2}] + [{"availabilities": [s]} for s in bad_slots]
+    for change in bad:
+        try:
+            StudyIntentCreate(**{**good, **change})
+            assert False, f"harus ditolak: {change}"
+        except ValidationError:
+            pass
+    for change in ({"learning_goal": "NGASAL"}, {"latest_date": "lusa"}, {"min_group_size": 0}):
+        try:
+            StudyIntentUpdate(**change)
+            assert False, f"harus ditolak: {change}"
+        except ValidationError:
+            pass
+
+
+def test_one_running_intent_per_course():
+    from fastapi import HTTPException
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+    import app.models  # noqa: F401
+    from app.database import Base
+    from app.models.course import Course
+    from app.models.student import Student
+    from app.schemas.study_intent import StudyIntentCreate, StudyIntentUpdate
+    from app.services.study_intent import StudyIntentService as Intents
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(bind=engine)
+    db = sessionmaker(bind=engine)()
+    db.add_all([Student(student_id="s1", full_name="A", email="a@x.id", student_number="1", password_hash="x"),
+                Course(course_id="c1", course_code="TC1", course_name="Struktur Data", study_program="S1"),
+                Course(course_id="c2", course_code="TC2", course_name="Kalkulus", study_program="S1")])
+    db.commit()
+
+    def data(course):
+        return StudyIntentCreate(course_id=course, topics="Binary Tree", learning_goal="UNDERSTAND",
+                                 collaboration_style="DISCUSSION", earliest_date="2026-11-12", latest_date="2026-11-18",
+                                 availabilities=[dict(day_or_date="Rabu", start_time="09:00", end_time="12:00")])
+    first = Intents.create_intent(db, "s1", data("c1")).intent_id
+    Intents.create_intent(db, "s1", data("c2"))  # mata kuliah lain boleh
+    for call in (lambda: Intents.create_intent(db, "s1", data("c1")),
+                 lambda: Intents.update_intent(db, first, "s1", StudyIntentUpdate(earliest_date="2026-12-01")),
+                 lambda: Intents.update_intent(db, first, "s1", StudyIntentUpdate(min_group_size=4, max_group_size=3))):
+        try:
+            call()
+            assert False, "harus ditolak"
+        except HTTPException as error:
+            assert error.status_code == 400
+    assert Intents.get_intent_by_id(db, first).earliest_date == "2026-11-12"  # perubahan yang ditolak tidak tersimpan
+    Intents.cancel_intent(db, first, "s1")
+    Intents.create_intent(db, "s1", data("c1"))  # setelah dibatalkan boleh membuat lagi
+
+
 def test_date_score():
     """KEPUTUSAN.md nomor 3: Rabu (1 dan 1) dan Jumat (2 dan 3) menghasilkan D = 100 dari Rabu."""
     a = intent("a", slots=[slot("Wednesday", "09:00", "12:00", 1), slot("Friday", "13:00", "17:00", 2)])
     b = intent("b", slots=[slot("Friday", "14:00", "16:00", 3), slot("Wednesday", "10:00", "12:00", 1)])
     d, proposed = M.date_score(a, b)
-    assert d == 100 and proposed["day"] == "wednesday", (d, proposed)
+    assert d == 100 and proposed["day"] == "2026-11-18", (d, proposed)
 
     def d_for(rank_a, rank_b):
         return M.date_score(intent("a", slots=[slot("Friday", "13:00", "17:00", rank_a)]),
@@ -120,6 +206,9 @@ def test_partner_ranking():
     # deni: T 33,33 G 60 S 30 D 100 M 100 = 10 + 15 + 4,5 + 15 + 15 = 59,5. Tetap tampil, tidak ada ambang.
     assert ranked[2]["total"] == 59.5, ranked[2]
     assert len(M.match_partners(ANDI, [intent(f"m{i}") for i in range(8)])) == 5
+    # Dua intent aktif dari mahasiswa yang sama hanya muncul sekali, dengan skor tertinggi
+    twice = M.match_partners(ANDI, [BUDI, intent("budi")])
+    assert [(r["intent"].student_id, r["total"]) for r in twice] == [("budi", 100)], twice
     # Bobot dari Fitur 3 dipakai bila diberikan
     only_topic = {"t": 1.0, "g": 0.0, "s": 0.0, "d": 0.0, "m": 0.0}
     assert M.compatibility(ANDI, BUDI, only_topic)["total"] == 50
@@ -152,7 +241,8 @@ def test_sessions_first():
 
 
 if __name__ == "__main__":
-    tests = [test_andi_budi, test_topics, test_goal_and_style_tables, test_hard_constraints, test_date_score,
+    tests = [test_andi_budi, test_topics, test_goal_and_style_tables, test_hard_constraints, test_real_dates, test_schema,
+             test_one_running_intent_per_course, test_date_score,
              test_mode_score, test_group_quality, test_partner_ranking, test_sessions_first]
     for t in tests:
         t()

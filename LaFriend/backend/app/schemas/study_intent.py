@@ -1,13 +1,42 @@
-from datetime import datetime
-from typing import List, Optional
-from pydantic import BaseModel, ConfigDict, field_validator
+from datetime import date, datetime
+from typing import List, Literal, Optional
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.schemas.course import CourseResponse
+
+LearningGoal = Literal["UNDERSTAND", "PRACTICE", "EXAM_PREP", "ASSIGNMENT", "DISCUSSION"]
+CollaborationStyle = Literal["DISCUSSION", "PRACTICE", "TEACHING", "FOCUS_STUDY"]
+LearningMode = Literal["OFFLINE", "ONLINE", "HYBRID"]
+TIME_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"  # HH:MM dua digit, supaya urutan teks sama dengan urutan jam
+
+# Nama hari ke nomor hari (Senin = 0), dipakai juga oleh Fitur 1 untuk mencari tanggalnya
+WEEKDAYS = {
+    "senin": 0, "selasa": 1, "rabu": 2, "kamis": 3, "jumat": 4, "sabtu": 5, "minggu": 6,
+    "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6,
+}
+
+
+def _iso_date(v: str) -> str:
+    try:
+        return date.fromisoformat(v.strip()).isoformat()
+    except ValueError:
+        raise ValueError(f"Tanggal ({v}) harus berformat YYYY-MM-DD")
 
 class AvailabilityBase(BaseModel):
     day_or_date: str
-    start_time: str # HH:MM
-    end_time: str   # HH:MM
-    priority_rank: int = 1
+    start_time: str = Field(pattern=TIME_PATTERN) # HH:MM
+    end_time: str = Field(pattern=TIME_PATTERN)   # HH:MM
+    priority_rank: int = Field(default=1, ge=1)
+
+    @field_validator("day_or_date")
+    @classmethod
+    def validate_day_or_date(cls, v: str) -> str:
+        v_clean = v.strip()
+        if v_clean.casefold() in WEEKDAYS:
+            return v_clean
+        try:
+            return _iso_date(v_clean)
+        except ValueError:
+            raise ValueError(f"Hari ({v}) harus nama hari atau tanggal berformat YYYY-MM-DD")
 
     @field_validator("end_time")
     @classmethod
@@ -30,14 +59,19 @@ class AvailabilityResponse(AvailabilityBase):
 class StudyIntentCreate(BaseModel):
     course_id: str
     topics: str
-    learning_goal: str # UNDERSTAND, PRACTICE, EXAM_PREP, ASSIGNMENT, DISCUSSION
-    collaboration_style: str # DISCUSSION, PRACTICE, TEACHING, FOCUS_STUDY
-    learning_mode: str = "OFFLINE" # OFFLINE, ONLINE, HYBRID
+    learning_goal: LearningGoal
+    collaboration_style: CollaborationStyle
+    learning_mode: LearningMode = "OFFLINE"
     earliest_date: str # YYYY-MM-DD
     latest_date: str   # YYYY-MM-DD
-    min_group_size: int = 2
-    max_group_size: int = 4
+    min_group_size: int = Field(default=2, ge=2, le=4)
+    max_group_size: int = Field(default=4, ge=2, le=4)
     availabilities: List[AvailabilityCreate]
+
+    @field_validator("earliest_date", "latest_date")
+    @classmethod
+    def validate_date_format(cls, v: str) -> str:
+        return _iso_date(v)
 
     @field_validator("topics")
     @classmethod
@@ -73,13 +107,18 @@ class StudyIntentCreate(BaseModel):
 
 class StudyIntentUpdate(BaseModel):
     topics: Optional[str] = None
-    learning_goal: Optional[str] = None
-    collaboration_style: Optional[str] = None
-    learning_mode: Optional[str] = None
+    learning_goal: Optional[LearningGoal] = None
+    collaboration_style: Optional[CollaborationStyle] = None
+    learning_mode: Optional[LearningMode] = None
     earliest_date: Optional[str] = None
     latest_date: Optional[str] = None
-    min_group_size: Optional[int] = None
-    max_group_size: Optional[int] = None
+    min_group_size: Optional[int] = Field(default=None, ge=2, le=4)
+    max_group_size: Optional[int] = Field(default=None, ge=2, le=4)
+
+    @field_validator("earliest_date", "latest_date")
+    @classmethod
+    def validate_date_format(cls, v: Optional[str]) -> Optional[str]:
+        return _iso_date(v) if v is not None else None
 
 
 class StudyIntentResponse(BaseModel):
