@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LaFriend: halaman cek</title>
+<style>
+  :root { --line: #d5d9e0; --soft: #f4f6f9; --ink: #1c2330; --mute: #5b6676; --ok: #1a7f4b; --no: #b3261e; --brand: #2456c7; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 system-ui, "Segoe UI", sans-serif; color: var(--ink); background: var(--soft); }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 22px; margin: 8px 0 2px; }
+  h2 { font-size: 18px; margin: 0 0 4px; }
+  h3 { font-size: 15px; margin: 16px 0 6px; }
+  p { margin: 4px 0 10px; }
+  .mute { color: var(--mute); }
+  section { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin: 14px 0; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { background: var(--soft); white-space: nowrap; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  button { font: inherit; padding: 7px 14px; border: 1px solid var(--brand); border-radius: 6px; background: var(--brand); color: #fff; cursor: pointer; }
+  button.plain { background: #fff; color: var(--brand); }
+  button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px solid #f0a000; outline-offset: 1px; }
+  select, input, textarea { font: inherit; padding: 5px 7px; border: 1px solid #98a2b3; border-radius: 6px; }
+  textarea { width: 100%; height: 260px; font: 13px/1.4 Consolas, monospace; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 8px 0; }
+  .ok { color: var(--ok); font-weight: 600; }
+  .no { color: var(--no); font-weight: 600; }
+  .box { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin: 8px 0; background: var(--soft); }
+  .tag { display: inline-block; padding: 1px 8px; border-radius: 10px; background: #e3e9f7; font-size: 13px; font-weight: 600; }
+  #error { position: sticky; top: 0; background: #fde8e6; color: var(--no); border: 1px solid var(--no); border-radius: 6px; padding: 8px 12px; margin: 8px 0; }
+  ul { margin: 4px 0; padding-left: 20px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>LaFriend: halaman cek tiga fitur</h1>
+  <p class="mute">Halaman ini menjalankan logika asli di <code>app/services</code>. Data Fitur 3 disimpan di memori dan hilang saat program berhenti.</p>
+  <div id="error" role="alert" hidden></div>
+
+  <section aria-labelledby="h-data">
+    <h2 id="h-data">Data skenario</h2>
+    <p class="mute">Andi dan Budi mengikuti contoh Plan/Day4.MD. Mahasiswa lain dibuat agar tiap cabang keputusan terlihat.</p>
+    <div class="row">
+      <label for="seeker">Pencari (pembuat intent):</label>
+      <select id="seeker"></select>
+    </div>
+    <div class="scroll" id="people"></div>
+    <details>
+      <summary>Ubah data (JSON)</summary>
+      <p class="mute">Kode tujuan: UNDERSTAND, PRACTICE, EXAM_PREP, ASSIGNMENT, DISCUSSION. Kode gaya: DISCUSSION, PRACTICE, TEACHING, FOCUS_STUDY. Metode: OFFLINE, ONLINE, HYBRID. <code>alt_modes</code> berisi metode alternatif, dipisah koma.</p>
+      <label for="json">Isi skenario</label>
+      <textarea id="json" spellcheck="false"></textarea>
+      <div class="row">
+        <button type="button" id="apply">Pakai data ini</button>
+        <button type="button" class="plain" id="default">Kembalikan data awal</button>
+      </div>
+    </details>
+  </section>
+
+  <section aria-labelledby="h-f1">
+    <h2 id="h-f1">Fitur 1: Intent-Based Matching</h2>
+    <p class="mute">Syarat wajib dulu, lalu lima nilai (T, G, S, D, M), lalu skor CS. Sesi yang sudah ada dicari lebih dulu.</p>
+    <button type="button" id="run-f1">Jalankan Fitur 1</button>
+    <div id="f1" aria-live="polite"></div>
+  </section>
+
+  <section aria-labelledby="h-f2">
+    <h2 id="h-f2">Fitur 2: Group Formation</h2>
+    <p class="mute">Pencari menjadi host. Calon dari Fitur 1 dicoba satu per satu, dan yang masuk adalah calon dengan GQ terbaik.</p>
+    <button type="button" id="run-f2">Bentuk kelompok</button>
+    <div id="f2" aria-live="polite"></div>
+  </section>
+
+  <section aria-labelledby="h-f3">
+    <h2 id="h-f3">Fitur 3: Outcome-Oriented Matching</h2>
+    <p class="mute">Feedback bisa diisi setelah sesi di Fitur 2 berstatus CONFIRMED. Di halaman ini jadwal sesi dianggap sudah lewat.</p>
+    <div id="f3-form"></div>
+    <h3>Lima metrik</h3>
+    <div class="scroll" id="f3" aria-live="polite"></div>
+    <div class="row"><button type="button" class="plain" id="reset">Kosongkan data Fitur 3</button></div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let scenario = null;
+
+const REASON = {
+  COURSE: "mata kuliah berbeda", ACCOUNT: "akun tidak aktif atau belum terverifikasi",
+  DATE_RANGE: "rentang tanggal tidak beririsan", TIME_OVERLAP: "tidak ada waktu bersama 60 menit",
+  MODE: "tidak ada metode bersama", GROUP_SIZE: "ukuran kelompok tidak cocok",
+  NOT_ACTIVE: "intent tidak aktif", SCHEDULE_MISMATCH: "jadwal tidak disepakati",
+  NO_RESPONSE: "undangan tidak dijawab", USER_WITHDRAWAL: "undangan ditolak",
+};
+const STATUS = {
+  DRAFT: "DRAFT: menunggu jawaban undangan", CONFIRMATION_PENDING: "CONFIRMATION_PENDING: menunggu persetujuan jadwal",
+  CONFIRMED: "CONFIRMED: kelompok terbentuk", FAILED: "FAILED: kelompok belum terbentuk",
+};
+
+function el(tag, text, attrs) {
+  const node = document.createElement(tag);
+  if (text !== undefined && text !== null) node.textContent = text;
+  for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, v);
+  return node;
+}
+function table(headers, rows) {
+  const t = el("table"), head = t.createTHead().insertRow();
+  headers.forEach(h => head.appendChild(el("th", h, { scope: "col" })));
+  const body = t.createTBody();
+  rows.forEach(cells => {
+    const tr = body.insertRow();
+    cells.forEach(c => tr.appendChild(c instanceof Node ? c : el("td", c)));
+  });
+  return t;
+}
+const num = v => el("td", v === null || v === undefined ? "-" : String(Math.round(v * 100) / 100), { class: "num" });
+const slotText = s => s ? `${s.day[0].toUpperCase()}${s.day.slice(1)} ${s.start_time}-${s.end_time}` : "-";
+function fill(target, ...nodes) { target.replaceChildren(...nodes); }
+
+async function api(path, body) {
+  $("error").hidden = true;
+  const res = await fetch(path, body === undefined ? {} :
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    $("error").textContent = "Gagal: " + (typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail || res.status));
+    $("error").hidden = false;
+    throw new Error(path);
+  }
+  return data;
+}
+const nameOf = id => (scenario.people.find(p => p.id === id) || { name: id }).name;
+
+function showScenario() {
+  const keep = $("seeker").value;
+  fill($("seeker"), ...scenario.people.map(p => el("option", p.name, { value: p.id })));
+  if (scenario.people.some(p => p.id === keep)) $("seeker").value = keep;
+  fill($("people"), table(
+    ["Nama", "Mata kuliah", "Materi", "Tujuan", "Gaya", "Metode", "Tanggal", "Ukuran", "Jam kosong (prioritas)", "Status intent"],
+    scenario.people.map(p => [p.name, p.course, p.topics, p.goal, p.style,
+      p.mode + (p.alt_modes ? ` (alt: ${p.alt_modes})` : ""), `${p.earliest} s.d. ${p.latest}`, `${p.min}-${p.max}`,
+      p.slots.map(s => `${s.day} ${s.start}-${s.end} (${s.rank})`).join("; "), p.status])));
+  $("json").value = JSON.stringify(scenario, null, 2);
+  fill($("f1")); fill($("f2")); fill($("f3-form"));
+}
+
+async function runF1() {
+  const r = await api("/api/match", { scenario, seeker_id: $("seeker").value });
+  const w = r.weights;
+  const rows = r.candidates.map(c => {
+    const pass = el("td", c.reason ? "Gugur: " + (REASON[c.reason] || c.reason) : "Lolos", { class: c.reason ? "no" : "ok" });
+    const s = c.scores;
+    return [c.name, pass, ...["t", "g", "s", "d", "m", "total"].map(k => num(s ? s[k] : null)), slotText(s && s.proposed_slot)];
+  });
+  const kind = { SESSION: "Ada sesi yang lolos, jadi sistem menampilkan daftar sesi.",
+                 PARTNER: "Tidak ada sesi yang lolos, jadi sistem menampilkan daftar partner.",
+                 NONE: "Tidak ada sesi maupun partner yang lolos. Intent tetap ACTIVE." }[r.type];
+  const list = (items, text) => {
+    if (!items.length) return el("p", "Tidak ada.", { class: "mute" });
+    const ul = el("ul");
+    items.forEach(i => ul.appendChild(el("li", text(i))));
+    return ul;
+  };
+  const scroll = el("div", null, { class: "scroll" });
+  scroll.appendChild(table(["Calon", "Syarat wajib", "T", "G", "S", "D", "M", "CS", "Jadwal usulan"], rows));
+  fill($("f1"),
+    el("p", `Bobot yang berlaku: T ${w.t}, G ${w.g}, S ${w.s}, D ${w.d}, M ${w.m}`, { class: "mute" }),
+    el("h3", "Tiap calon terhadap " + nameOf($("seeker").value)),
+    scroll,
+    el("h3", "Sesi yang lolos (nilai GQ setelah pencari masuk)"),
+    list(r.sessions, s => `${s.name}: ${s.total}, sisa ${s.seats_left} tempat`),
+    el("h3", "Urutan partner (paling banyak 5, tanpa ambang skor)"),
+    list(r.partners, p => `${p.name}: ${p.total}`),
+    el("div", kind, { class: "box" }));
+}
+
+function showProposal(p) {
+  const nodes = [];
+  (p.trace || []).forEach((round, i) => {
+    nodes.push(el("h3", `Putaran ${i + 1}: anggota sementara ${round.members.map(nameOf).join(", ")}`));
+    nodes.push(table(["Calon", "Hasil", "GQ bila masuk"], round.tried.map(t => [
+      nameOf(t.student_id) + (t.student_id === round.chosen ? " (dipilih)" : ""),
+      el("td", t.reason ? "Gugur: " + (REASON[t.reason] || t.reason) : "Lolos", { class: t.reason ? "no" : "ok" }),
+      num(t.gq)])));
+  });
+  const box = el("div", null, { class: "box" });
+  box.appendChild(el("p")).appendChild(el("span", STATUS[p.status] || p.status, { class: "tag" }));
+  if (p.reason_code) box.appendChild(el("p", "Alasan: " + (REASON[p.reason_code] || p.reason_code), { class: "no" }));
+  box.appendChild(el("p", "Anggota: " + p.members.map((m, i) => m.name + (i === 0 ? " (host)" : "")).join(", ")));
+  if (p.slots) {
+    box.appendChild(el("p", `GQ ${p.gq}. MinGroup ${p.min_group}, MaxGroup ${p.max_group}.`));
+    box.appendChild(el("p", `Jadwal yang diusulkan: ${slotText(p.slots[p.slot_index])} (pilihan ${p.slot_index + 1} dari ${p.slots.length} waktu bersama)`));
+  }
+  box.appendChild(el("p", "Status intent: " + p.members.map(m => `${m.name} ${m.intent_status}`).join(", "), { class: "mute" }));
+  nodes.push(box);
+
+  if (p.status === "DRAFT") {
+    const pending = p.members.filter(m => !p.accepted.includes(m.id));
+    nodes.push(el("h3", "Jawaban undangan"));
+    pending.forEach(m => {
+      const row = el("div", null, { class: "row" }), select = el("select", null, { id: "inv-" + m.id });
+      [["ACCEPTED", "Menerima"], ["REJECTED", "Menolak"], ["EXPIRED", "Tidak menjawab 24 jam"]]
+        .forEach(([v, t]) => select.appendChild(el("option", t, { value: v })));
+      row.append(el("label", m.name + ":", { for: "inv-" + m.id }), select);
+      nodes.push(row);
+    });
+    const send = el("button", "Kirim jawaban undangan", { type: "button" });
+    send.onclick = async () => showProposal(await api("/api/invites",
+      { answers: Object.fromEntries(pending.map(m => [m.id, $("inv-" + m.id).value])) }));
+    nodes.push(send);
+  }
+  if (p.status === "CONFIRMATION_PENDING") {
+    nodes.push(el("h3", "Persetujuan jadwal " + slotText(p.slots[p.slot_index])));
+    p.members.forEach(m => {
+      const row = el("div", null, { class: "row" }), box = el("input", null, { type: "checkbox", id: "ok-" + m.id });
+      box.checked = true;
+      row.append(box, el("label", m.name + " setuju", { for: "ok-" + m.id }));
+      nodes.push(row);
+    });
+    const send = el("button", "Kirim persetujuan jadwal", { type: "button" });
+    send.onclick = async () => showProposal(await api("/api/schedule",
+      { approvals: Object.fromEntries(p.members.map(m => [m.id, $("ok-" + m.id).checked])) }));
+    nodes.push(send);
+  }
+  fill($("f2"), ...nodes);
+  showFeedbackForm(p.status === "CONFIRMED" ? p.members : []);
+  loadMetrics();
+}
+
+function showFeedbackForm(members) {
+  if (!members.length) return fill($("f3-form"));
+  const pick = (id, options) => { const s = el("select", null, { id }); options.forEach(([v, t]) => s.appendChild(el("option", t, { value: v }))); return s; };
+  const nodes = [el("h3", "Session Feedback untuk sesi yang baru dikonfirmasi")];
+  members.forEach((m, i) => {
+    const row = el("div", null, { class: "row" });
+    const save = el("button", "Simpan", { type: "button", class: "plain", "aria-label": "Simpan feedback " + m.name });
+    const done = el("span", "", { class: "ok" });
+    save.onclick = async () => {
+      const sat = $("sat-" + m.id).value, rep = $("rep-" + m.id).value;
+      showMetrics(await api("/api/feedback", { student_id: m.id, data: {
+        session_held: $("held-" + m.id).value === "1",
+        overall_satisfaction: sat ? Number(sat) : null,
+        repeat_intention: rep === "" ? null : rep === "1" } }));
+      done.textContent = "Tersimpan";
+    };
+    row.append(el("strong", m.name + (i === 0 ? " (host)" : "")),
+      el("label", "Sesi terlaksana?", { for: "held-" + m.id }), pick("held-" + m.id, [["1", "Ya"], ["0", "Tidak"]]),
+      el("label", "Kepuasan", { for: "sat-" + m.id }),
+      pick("sat-" + m.id, [["", "tidak diisi"], ["5", "5"], ["4", "4"], ["3", "3"], ["2", "2"], ["1", "1"]]),
+      el("label", "Mau belajar bersama lagi?", { for: "rep-" + m.id }),
+      pick("rep-" + m.id, [["", "tidak diisi"], ["1", "Ya"], ["0", "Tidak"]]), save, done);
+    nodes.push(row);
+  });
+  fill($("f3-form"), ...nodes);
+}
+
+function showMetrics(r) {
+  const m = r.metrics;
+  const label = { rar: "RAR: rekomendasi yang ditindaklanjuti", gfr: "GFR: kelompok yang berhasil terbentuk",
+                  scr: "SCR: sesi yang benar-benar terlaksana", mss: "MSS: rata-rata kepuasan (1-5)",
+                  rsi: "RSI: mau belajar bersama lagi" };
+  const rows = Object.keys(label).map(k => [label[k],
+    el("td", m[k].value === null ? "belum ada data" : m[k].value + (k === "mss" ? "" : "%"), { class: "num" }),
+    num(m[k].numerator), num(m[k].denominator)]);
+  const reasons = Object.entries(m.failure_reasons).map(([k, v]) => `${REASON[k] || k}: ${v}`).join("; ") || "tidak ada";
+  fill($("f3"), table(["Metrik", "Nilai", "Pembilang", "Penyebut"], rows),
+    el("p", `Alasan kelompok gagal: ${reasons}. Sesi disputed: ${m.sessions_disputed}. Sesi belum lewat jadwal: ${m.sessions_not_due}.`),
+    el("p", `Sesi selesai yang punya feedback: ${m.completed_with_feedback} dari minimal ${m.min_completed_for_weight_test} untuk menguji bobot.`, { class: "mute" }));
+}
+const loadMetrics = async () => showMetrics(await api("/api/metrics"));
+
+$("run-f1").onclick = runF1;
+$("run-f2").onclick = async () => showProposal(await api("/api/group", { scenario, seeker_id: $("seeker").value }));
+$("reset").onclick = async () => { showMetrics(await api("/api/reset", {})); fill($("f2")); fill($("f3-form")); };
+$("seeker").onchange = () => { fill($("f1")); fill($("f2")); fill($("f3-form")); };
+$("apply").onclick = () => {
+  try { scenario = JSON.parse($("json").value); showScenario(); $("error").hidden = true; }
+  catch (e) { $("error").textContent = "JSON tidak sah: " + e.message; $("error").hidden = false; }
+};
+$("default").onclick = async () => { scenario = await api("/api/scenario"); showScenario(); };
+$("default").onclick().then(loadMetrics);
+</script>
+</body>
+</html>
