@@ -28,22 +28,71 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.models  # noqa: F401, mendaftarkan semua tabel ke Base
-from app.core.security import hash_password, verify_password
+from app.routes import hash_password, verify_password
 from app.database import Base
-from app.db.seeder import INITIAL_STUDENTS
-from app.schemas.outcome import SessionFeedbackIn
-from app.schemas.study_intent import StudyIntentCreate
-from app.services import group_formation as G
-from app.services import intent_assistant as AI
-from app.services import matching as M
-from app.services.outcome import OutcomeService as S, _now
+from app.main import seed_data_awal
+from app.models import Course
+from app.schemas import SessionFeedbackIn
+from app.schemas import StudyIntentCreate
+from app import group_formation as G
+from app import intent_assistant as AI
+from app import matching as M
+from app.outcome import OutcomeService as S, _now
 
 WEB_DIR = backend_dir / "web" / "dist"
 WIB = timedelta(hours=7)
 RUNNING = ("ACTIVE", "GROUP_FORMING", "JOIN_PENDING")
-# Nama mata kuliah dan mahasiswa contoh mengikuti app/db/seeder.py
-COURSES = ["Struktur Data", "Algoritma & Pemrograman", "Sistem Basis Data", "Matematika Diskrit",
-           "Kalkulus", "Jaringan Komputer", "Kecerdasan Buatan"]
+# Mahasiswa contoh untuk mode uji (seeder main hanya berisi Andi). Password semua: password123
+INITIAL_STUDENTS = [
+    {
+        "full_name": "Andi Pratama",
+        "email": "andi@student.telkomuniversity.ac.id",
+        "student_number": "1201250001",
+        "study_program": "S1 Teknik Komputer",
+        "academic_year": 2025,
+        "password": "password123",
+    },
+    {
+        "full_name": "Budi Santoso",
+        "email": "budi@student.telkomuniversity.ac.id",
+        "student_number": "1201250002",
+        "study_program": "S1 Teknik Komputer",
+        "academic_year": 2025,
+        "password": "password123",
+    },
+    {
+        "full_name": "Citra Dewi",
+        "email": "citra@student.telkomuniversity.ac.id",
+        "student_number": "1201250003",
+        "study_program": "S1 Teknik Komputer",
+        "academic_year": 2025,
+        "password": "password123",
+    },
+    {
+        "full_name": "Nadia Putri",
+        "email": "nadia@student.telkomuniversity.ac.id",
+        "student_number": "1201250004",
+        "study_program": "S1 Teknik Komputer",
+        "academic_year": 2025,
+        "password": "password123",
+    },
+    {
+        "full_name": "Fadly Rahman",
+        "email": "fadly@student.telkomuniversity.ac.id",
+        "student_number": "1201250005",
+        "study_program": "S1 Teknik Komputer",
+        "academic_year": 2025,
+        "password": "password123",
+    },
+    {
+        "full_name": "Raka Aditya",
+        "email": "raka@student.telkomuniversity.ac.id",
+        "student_number": "1201250006",
+        "study_program": "S1 Teknik Komputer",
+        "academic_year": 2024,
+        "password": "password123",
+    },
+]
 PEOPLE = {"andi": "Andi", "budi": "Budi", "citra": "Citra", "nadia": "Nadia", "fadly": "Fadly", "raka": "Raka"}
 # Akun contoh dari seeder (email dan password sama). Universitas diambil dari domain email seeder.
 ACCOUNTS = {s["email"].split("@")[0]: {
@@ -61,6 +110,13 @@ INTENTS, FORMATIONS, VIEWED = [], [], set()
 engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
 Base.metadata.create_all(bind=engine)
 DB = sessionmaker(bind=engine)()  # tabel students kosong: database memori ini tidak memeriksa foreign key
+
+# Katalog mata kuliah sama dengan seeder main (kurikulum S1 Teknik Komputer), diisi ke database memori terpisah
+_catalog_engine = create_engine("sqlite://", poolclass=StaticPool)
+Base.metadata.create_all(bind=_catalog_engine)
+with sessionmaker(bind=_catalog_engine)() as _catalog:
+    seed_data_awal(_catalog)
+    COURSES = [c.course_name for c in _catalog.query(Course).all()]
 
 
 def add_intent(student_id: str, data: StudyIntentCreate) -> NS:

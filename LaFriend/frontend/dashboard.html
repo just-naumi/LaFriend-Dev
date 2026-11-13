@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — LaFriend</title>
+  
+  <!-- Google Fonts: Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Bootstrap Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  
+  <!-- Main Stylesheet -->
+  <link rel="stylesheet" href="css/style.css?v=2.4">
+
+
+  <style>
+    /* ==============================================================
+       DASHBOARD STYLING (FOKUS PADA SEARCH & INPUT KEBUTUHAN BELAJAR)
+       ============================================================== */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      scrollbar-width: none;
+    }
+
+    *::-webkit-scrollbar {
+      display: none;
+      width: 0;
+      height: 0;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #CBD5E1;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 24px 0;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Frame Mockup Smartphone */
+    .app-viewport {
+      width: 100%;
+      max-width: 360px;
+      height: 720px;
+      background-color: #FFFFFF;
+      border-radius: 38px;
+      border: 8px solid #1E1B4B;
+      box-shadow: 0 25px 60px -15px rgba(30, 27, 75, 0.35);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    @media (max-width: 400px) {
+      body {
+        padding: 0;
+      }
+      .app-viewport {
+        border-radius: 0;
+        border: none;
+        height: 100vh;
+        max-width: 100%;
+      }
+    }
+
+    /* BAGIAN ATAS: Header Ungu Datar (Solid Flat Color) */
+    .purple-header {
+      background-color: #7C3AED;
+      padding: 24px 18px 26px 18px;
+      color: #FFFFFF;
+      position: relative;
+      border-radius: 0;
+      flex-shrink: 0;
+    }
+
+    .user-profile-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+
+    .user-profile-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .avatar-circle {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: #FFFFFF;
+      color: #7C3AED;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 1.15rem;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    }
+
+    .welcome-label {
+      font-size: 0.72rem;
+      color: rgba(255, 255, 255, 0.85);
+      font-weight: 500;
+      line-height: 1.1;
+    }
+
+    .user-name-title {
+      font-size: 0.98rem;
+      font-weight: 800;
+      color: #FFFFFF;
+      letter-spacing: -0.2px;
+    }
+
+    .icon-circle-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #FFFFFF;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-decoration: none;
+    }
+
+    .icon-circle-btn:hover {
+      background: rgba(255, 255, 255, 0.32);
+      transform: scale(1.05);
+    }
+
+    .hero-tagline {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: #FFFFFF;
+      line-height: 1.25;
+      margin-bottom: 4px;
+      letter-spacing: -0.3px;
+    }
+
+    .hero-subtitle {
+      font-size: 0.78rem;
+      color: rgba(255, 255, 255, 0.88);
+      font-weight: 500;
+    }
+
+    /* KOTAK SEARCH / PROMPT AI UTAMA */
+    .header-ai-prompt-box {
+      margin-top: 14px;
+    }
+
+    .header-ai-input-wrap {
+      background: rgba(255, 255, 255, 0.22);
+      backdrop-filter: blur(14px);
+      border: 1.5px solid rgba(255, 255, 255, 0.38);
+      border-radius: 9999px;
+      padding: 5px 6px 5px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+      transition: all 0.2s ease;
+    }
+
+    .header-ai-input-wrap:focus-within {
+      background: #FFFFFF;
+      border-color: #FFFFFF;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    }
+
+    .ai-sparkle-icon {
+      font-size: 1.15rem;
+      color: #FDE047;
+      flex-shrink: 0;
+      transition: color 0.2s ease;
+    }
+
+    .header-ai-input-wrap:focus-within .ai-sparkle-icon {
+      color: #7C3AED;
+    }
+
+    .header-ai-input-wrap input {
+      background: transparent;
+      border: none;
+      color: #FFFFFF;
+      font-size: 0.84rem;
+      font-weight: 500;
+      width: 100%;
+      outline: none;
+      font-family: inherit;
+    }
+
+    .header-ai-input-wrap:focus-within input {
+      color: #1E1B4B;
+    }
+
+    .header-ai-input-wrap input::placeholder {
+      color: rgba(255, 255, 255, 0.85);
+    }
+
+    .header-ai-input-wrap:focus-within input::placeholder {
+      color: #94A3B8;
+    }
+
+    .btn-ai-action {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: #FFFFFF;
+      color: #7C3AED;
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all 0.2s ease;
+    }
+
+    .header-ai-input-wrap:focus-within .btn-ai-action {
+      background: linear-gradient(135deg, #8B5CF6, #7C3AED);
+      color: #FFFFFF;
+    }
+
+    .btn-ai-action:hover {
+      transform: scale(1.08);
+    }
+
+    /* ==============================================================
+       BAGIAN PUTIH: LURUS & KOSONG BERSIH (TANPA LEKUKAN)
+       ============================================================== */
+    .white-sheet-container {
+      background-color: #F8F9FE;
+      border-radius: 0;
+      margin-top: 0;
+      position: relative;
+      z-index: 10;
+      flex: 1;
+    }
+
+    /* ==============================================================
+       FULL-BLEED SEAMLESS LOADING SCREEN (LEGA, TANPA KARTU)
+       ============================================================== */
+    .d-none {
+      display: none !important;
+    }
+
+    .ai-loading-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 99999;
+      background: #FFFFFF;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 40px 24px;
+      overflow-y: auto;
+      border-radius: 30px;
+    }
+
+    .timeline-header-clean {
+      margin-bottom: 34px;
+      text-align: center;
+    }
+
+    .timeline-main-title {
+      font-size: 1.35rem;
+      font-weight: 800;
+      color: #0F172A;
+      line-height: 1.25;
+      letter-spacing: -0.02em;
+    }
+
+    .timeline-main-sub {
+      font-size: 0.82rem;
+      color: #64748B;
+      margin-top: 6px;
+      font-weight: 500;
+      line-height: 1.4;
+    }
+
+    .timeline-container {
+      position: relative;
+      padding-left: 42px;
+      margin: 10px 0 20px 8px;
+      text-align: left;
+    }
+
+    .timeline-container::before {
+      content: '';
+      position: absolute;
+      left: 13px;
+      top: 14px;
+      bottom: 14px;
+      width: 3px;
+      background: #E2E8F0;
+      border-radius: 2px;
+    }
+
+    .timeline-line-progress {
+      position: absolute;
+      left: 13px;
+      top: 14px;
+      width: 3px;
+      height: 0%;
+      background: linear-gradient(180deg, #7C3AED 0%, #A855F7 100%);
+      border-radius: 2px;
+      transition: height 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .timeline-step {
+      position: relative;
+      margin-bottom: 32px;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+      pointer-events: none;
+    }
+
+    .timeline-step:last-child {
+      margin-bottom: 0;
+    }
+
+    .timeline-step.active,
+    .timeline-step.completed {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    .timeline-node {
+      position: absolute;
+      left: -42px;
+      top: 0px;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: #FFFFFF;
+      border: 2px solid #CBD5E1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.74rem;
+      font-weight: 800;
+      color: #94A3B8;
+      transition: all 0.3s ease;
+      z-index: 2;
+    }
+
+    .timeline-step.active .timeline-node {
+      border-color: #7C3AED;
+      background: #FFFFFF;
+      color: #7C3AED;
+      box-shadow: 0 0 0 5px rgba(124, 58, 237, 0.16);
+      animation: pulse-ring-purple 1.5s infinite;
+    }
+
+    .timeline-step.completed .timeline-node {
+      border-color: #10B981;
+      background: #10B981;
+      color: #FFFFFF;
+      box-shadow: 0 3px 10px rgba(16, 185, 129, 0.25);
+    }
+
+    @keyframes pulse-ring-purple {
+      0% {
+        box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.4);
+      }
+      70% {
+        box-shadow: 0 0 0 7px rgba(124, 58, 237, 0);
+      }
+      100% {
+        box-shadow: 0 0 0 0 rgba(124, 58, 237, 0);
+      }
+    }
+
+    @keyframes spin-node {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .node-spinner-svg {
+      animation: spin-node 0.9s linear infinite;
+    }
+
+    .timeline-title {
+      font-size: 0.96rem;
+      font-weight: 700;
+      color: #94A3B8;
+      line-height: 28px;
+      transition: all 0.25s ease;
+    }
+
+    .timeline-step.active .timeline-title {
+      color: #7C3AED;
+      font-weight: 800;
+      font-size: 0.98rem;
+    }
+
+    .timeline-step.completed .timeline-title {
+      color: #0F172A;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- MOBILE PHONE FRAME -->
+  <div class="app-viewport">
+    
+    <!-- PURPLE GRADIENT HEADER (FOKUS SEARCH / CERITA KEBUTUHAN) -->
+    <header class="purple-header">
+      
+      <!-- Profil Pengguna & Logout -->
+      <div class="user-profile-header">
+        <div class="user-profile-info">
+          <div class="avatar-circle" id="userAvatarText">A</div>
+          <div>
+            <div class="welcome-label">Welcome Back</div>
+            <div class="user-name-title" id="dashUserName">Andi Pratama</div>
+          </div>
+        </div>
+
+        <button type="button" class="icon-circle-btn" id="btnLogout" title="Keluar dari Akun">
+          <i class="bi bi-box-arrow-right"></i>
+        </button>
+      </div>
+
+      <!-- Tagline / Ajakan Belajar -->
+      <div class="mb-2">
+        <h1 class="hero-tagline">Mau belajar apa hari ini?</h1>
+        <p class="hero-subtitle">Ceritakan kebutuhan belajarmu, LaFriend akan bantu siapkan intent.</p>
+      </div>
+
+      <!-- KOTAK CHAT/INPUT AI: Menceritakan Kebutuhan Belajar -->
+      <div class="header-ai-prompt-box">
+        <div class="header-ai-input-wrap">
+          <i class="bi bi-stars ai-sparkle-icon"></i>
+          <input 
+            type="text" 
+            id="aiNeedInput" 
+            placeholder="Ceritakan kebutuhan belajarmu ke AI..."
+            autocomplete="off"
+          >
+          <button type="button" id="btnDashboardAiSubmit" class="btn-ai-action" title="Proses kebutuhan belajar dengan AI">
+            <i class="bi bi-arrow-right"></i>
+          </button>
+        </div>
+      </div>
+
+    </header>
+
+    <!-- BAGIAN PUTIH (DIBUAT KOSONG BERSIH SESUAI PERMINTAAN) -->
+    <main class="white-sheet-container">
+    </main>
+
+    <!-- ANIMATED STEP TIMELINE LOADING OVERLAY (FULL BACKGROUND LEGA, TANPA KARTU) -->
+    <div id="aiLoadingModal" class="ai-loading-overlay d-none">
+      <div class="timeline-header-clean">
+        <div class="timeline-main-title">Menyiapkan Sesi Belajar</div>
+        <p class="timeline-main-sub">Menyesuaikan kebutuhan belajarmu ke kurikulum...</p>
+      </div>
+
+      <div class="timeline-container">
+        <div class="timeline-line-progress" id="timelineLineProgress"></div>
+
+        <!-- Step 1 -->
+        <div class="timeline-step" id="step1">
+          <div class="timeline-node" id="node1">1</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Menerima Kebutuhan Belajar</div>
+          </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="timeline-step" id="step2">
+          <div class="timeline-node" id="node2">2</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Mendeteksi Topik & Materi</div>
+          </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="timeline-step" id="step3">
+          <div class="timeline-node" id="node3">3</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Mencocokkan Mata Kuliah</div>
+          </div>
+        </div>
+
+        <!-- Step 4 -->
+        <div class="timeline-step" id="step4">
+          <div class="timeline-node" id="node4">4</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Menyiapkan Jadwal & Mode</div>
+          </div>
+        </div>
+
+        <!-- Step 5 -->
+        <div class="timeline-step" id="step5">
+          <div class="timeline-node" id="node5">5</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Membuka Formulir Belajar</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+
+
+
+  <script src="js/app.js?v=2.4"></script>
+</body>
+</html>

@@ -6,8 +6,8 @@ from types import SimpleNamespace as NS
 backend_dir = Path(__file__).resolve().parent
 sys.path.insert(0, str(backend_dir))
 
-from app.services import group_formation as G
-from app.services import matching as M
+from app import group_formation as G
+from app import matching as M
 
 
 def slot(day, start, end, rank=1):

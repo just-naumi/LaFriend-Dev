@@ -5,11 +5,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from app.schemas.study_intent import StudyIntentCreate
-from app.services import intent_assistant as A
+from app.schemas import StudyIntentCreate
+from app import intent_assistant as A
 
-COURSES = ["Struktur Data", "Algoritma & Pemrograman", "Sistem Basis Data", "Matematika Diskrit",
-           "Kalkulus", "Jaringan Komputer", "Kecerdasan Buatan"]
+# Sebagian katalog seeder main
+COURSES = ["Struktur Data", "Algoritma dan Pemrograman", "Basis Data", "Matematika Diskrit",
+           "Kalkulus 1", "Kalkulus 2", "Jaringan Komputer dan Data", "Kecerdasan Buatan & Machine Learning"]
 TODAY = date(2026, 11, 13)  # Jumat
 
 
@@ -82,12 +83,12 @@ def test_chat_joins_day_and_time_across_messages():
 
 
 def test_chat_course_change_needs_confirmation():
-    s = talk(["kalkulus materi integral", "eh jarkom aja"])
-    assert s["fields"]["course_id"] == "Kalkulus" and "Ganti mata kuliah" in s["reply"], s
+    s = talk(["kalkulus 1 materi integral", "eh jarkom aja"])
+    assert s["fields"]["course_id"] == "Kalkulus 1" and "Ganti mata kuliah" in s["reply"], s
     s = A.chat_turn(s, "ya", COURSES, {}, TODAY)
-    assert s["fields"]["course_id"] == "Jaringan Komputer", s
-    s = talk(["kalkulus materi integral", "eh jarkom aja", "nggak"])
-    assert s["fields"]["course_id"] == "Kalkulus", s
+    assert s["fields"]["course_id"] == "Jaringan Komputer dan Data", s
+    s = talk(["kalkulus 1 materi integral", "eh jarkom aja", "nggak"])
+    assert s["fields"]["course_id"] == "Kalkulus 1", s
 
 
 def test_habits_from_history():
@@ -130,7 +131,7 @@ def test_chat_done_and_form_valid():
     assert s["done"] and "Periksa" in s["reply"], s
     assert "tidak ada di rentang" not in s["reply"], s["reply"]
     # Kamis tidak ada di "minggu ini" kalau hari ini Jumat
-    s = talk(["Kalkulus materi integral buat ujian", "kamis jam 19-21", "minggu ini", "diskusi", "online", "berdua"])
+    s = talk(["Kalkulus 1 materi integral buat ujian", "kamis jam 19-21", "minggu ini", "diskusi", "online", "berdua"])
     assert s["done"] and "Kamis tidak ada di rentang" in s["reply"], s["reply"]
     form = A.to_form(talk(["Kecerdasan Buatan materi search buat ujian", "jumat jam 13-15", "minggu depan",
                            "latihan bersama", "offline", "berempat"])["fields"])

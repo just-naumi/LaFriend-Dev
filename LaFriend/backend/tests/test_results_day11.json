@@ -1,0 +1,272 @@
+[
+  {
+    "id": 1,
+    "input": "Saya ingin belajar Struktur Data",
+    "focus": "Course",
+    "status": "PASS",
+    "extracted": {
+      "course": "Struktur Data",
+      "topics": null,
+      "goal": null,
+      "style": null,
+      "mode": null,
+      "location": null,
+      "platform": null,
+      "group": null,
+      "slots": 0,
+      "avail_status": "MISSING"
+    }
+  },
+  {
+    "id": 2,
+    "input": "Saya ingin memahami Binary Tree",
+    "focus": "Topic & Goal",
+    "status": "PASS",
+    "extracted": {
+      "course": null,
+      "topics": "Binary Tree",
+      "goal": "UNDERSTAND",
+      "style": null,
+      "mode": null,
+      "location": null,
+      "platform": null,
+      "group": null,
+      "slots": 0,
+      "avail_status": "MISSING"
+    }
+  },
+  {
+    "id": 3,
+    "input": "Saya ingin latihan soal UTS",
+    "focus": "Learning Goal (Exam Prep)",
+    "status": "PASS",
+    "extracted": {
+      "course": null,
+      "topics": null,
+      "goal": "EXAM_PREP",
+      "style": null,
+      "mode": null,
+      "location": null,
+      "platform": null,
+      "group": null,
+      "slots": 0,
+      "avail_status": "MISSING"
+    }
+  },
+  {
+    "id": 4,
+    "input": "Saya ingin belajar dengan diskusi",
+    "focus": "Collaboration Style",
+    "status": "PASS",
+    "extracted": {
+      "course": null,
+      "topics": null,
+      "goal": "DISCUSSION",
+      "style": "DISCUSSION",
+      "mode": null,
+      "location": null,
+      "platform": null,
+      "group": null,
+      "slots": 0,
+      "avail_status": "MISSING"
+    }
+  },
+  {
+    "id": 5,
+    "input": "Saya ingin belajar offline",
+    "focus": "Learning Mode",
+    "status": "PASS",
+    "extracted": {
+      "course": null,
+      "topics": null,
+      "goal": null,
+      "style": null,
+      "mode": "OFFLINE",
+      "location": null,
+      "platform": null,
+      "group": null,
+      "slots": 0,
+      "avail_status": "MISSING"
+    }
+  },
+  {
+    "id": 6,
+    "input": "Saya ingin belajar online melalui Google Meet",
+    "focus": "Mode dan Platform",
+    "status": "PASS",
+    "extracted": {
+      "course": null,
+      "topics": null,
+      "goal": null,
+      "style": null,
+      "mode": "ONLINE",
+      "location": null,
+      "platform": "Google Meet",
+      "group": null,
+      "slots": 0,
+      "avail_status": "MISSING"
+    }
+  },
+  {
+    "id": 7,
+    "input": "Saya ingin belajar di Open Library",
+    "focus": "Lokasi Fisik",
+    "status": "PASS",
+    "extracted": {
+      "course": null,
+      "topics": null,
+      "goal": null,
+      "style": null,
+      "mode": "OFFLINE",
+      "location": "Open Library",
+      "platform": null,
+      "group": null,
+      "slots": 0,
+      "avail_status": "MISSING"
+    }
+  },
+  {
+    "id": 8,
+    "input": "Saya tersedia hari Senin pukul 13.00–15.00",
+    "focus": "Jadwal Lengkap",
+    "status": "PASS",
+    "extracted": {
+      "course": null,
+      "topics": null,
+      "goal": null,
+      "style": null,
+      "mode": null,
+      "location": null,
+      "platform": null,
+      "group": null,
+      "slots": 1,
+      "avail_status": "EXTRACTED"
+    }
+  },
+  {
+    "id": 9,
+    "input": "Saya bisa Senin atau Rabu sore",
+    "focus": "Jadwal Alternatif & Waktu Relatif",
+    "status": "PASS",
+    "extracted": {
+      "course": null,
+      "topics": null,
+      "goal": null,
+      "style": null,
+      "mode": null,
+      "location": null,
+      "platform": null,
+      "group": null,
+      "slots": 2,
+      "avail_status": "NEEDS_REVIEW"
+    }
+  },
+  {
+    "id": 10,
+    "input": "Saya ingin kelompok berisi 4 orang",
+    "focus": "Group Size",
+    "status": "PASS",
+    "extracted": {
+      "course": null,
+      "topics": null,
+      "goal": null,
+      "style": null,
+      "mode": null,
+      "location": null,
+      "platform": null,
+      "group": "4-4",
+      "slots": 0,
+      "avail_status": "MISSING"
+    }
+  },
+  {
+    "id": 11,
+    "input": "Saya ingin belajar Kalkulus untuk UTS secara offline",
+    "focus": "Multi-parameter Bersamaan",
+    "status": "PASS",
+    "extracted": {
+      "course": "Kalkulus",
+      "topics": null,
+      "goal": "EXAM_PREP",
+      "style": null,
+      "mode": "OFFLINE",
+      "location": null,
+      "platform": null,
+      "group": null,
+      "slots": 0,
+      "avail_status": "MISSING"
+    }
+  },
+  {
+    "id": 12,
+    "input": "Saya ingin belajar, tetapi belum tahu jadwalnya",
+    "focus": "Missing Availability Eksplisit",
+    "status": "PASS",
+    "extracted": {
+      "course": null,
+      "topics": null,
+      "goal": null,
+      "style": null,
+      "mode": null,
+      "location": null,
+      "platform": null,
+      "group": null,
+      "slots": 0,
+      "avail_status": "MISSING"
+    }
+  },
+  {
+    "id": 13,
+    "input": "Saya tidak mau belajar online",
+    "focus": "Negasi Mode Belajar",
+    "status": "PASS",
+    "extracted": {
+      "course": null,
+      "topics": null,
+      "goal": null,
+      "style": null,
+      "mode": "OFFLINE",
+      "location": null,
+      "platform": null,
+      "group": null,
+      "slots": 0,
+      "avail_status": "MISSING"
+    }
+  },
+  {
+    "id": 14,
+    "input": "Saya bisa online maupun offline",
+    "focus": "Multi-mode / Fleksibel",
+    "status": "PASS",
+    "extracted": {
+      "course": null,
+      "topics": null,
+      "goal": null,
+      "style": null,
+      "mode": "HYBRID",
+      "location": null,
+      "platform": null,
+      "group": null,
+      "slots": 0,
+      "avail_status": "MISSING"
+    }
+  },
+  {
+    "id": 15,
+    "input": "Saya ingin belajar di kampus atau Google Meet",
+    "focus": "Ambiguitas Lokasi dan Platform",
+    "status": "PASS",
+    "extracted": {
+      "course": null,
+      "topics": null,
+      "goal": null,
+      "style": null,
+      "mode": "HYBRID",
+      "location": "Kampus",
+      "platform": "Google Meet",
+      "group": null,
+      "slots": 0,
+      "avail_status": "MISSING"
+    }
+  }
+]

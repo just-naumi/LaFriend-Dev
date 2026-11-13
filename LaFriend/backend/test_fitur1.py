@@ -6,7 +6,7 @@ from types import SimpleNamespace as NS
 backend_dir = Path(__file__).resolve().parent
 sys.path.insert(0, str(backend_dir))
 
-from app.services import matching as M
+from app import matching as M
 
 
 def slot(day, start, end, rank=1):
@@ -96,9 +96,9 @@ def test_real_dates():
 def test_schema():
     """Isian intent yang salah ditolak sebelum sampai ke Fitur 1."""
     from pydantic import ValidationError
-    from app.schemas.study_intent import StudyIntentCreate, StudyIntentUpdate
+    from app.schemas import StudyIntentCreate
     good = dict(course_id="x", topics="Binary Tree", learning_goal="UNDERSTAND", collaboration_style="DISCUSSION",
-                earliest_date="2026-11-12", latest_date="2026-11-18",
+                learning_mode="OFFLINE", earliest_date="2026-11-12", latest_date="2026-11-18",
                 availabilities=[dict(day_or_date="Rabu", start_time="09:00", end_time="12:00")])
     assert StudyIntentCreate(**good).availabilities[0].priority_rank == 1
     bad_slots = [dict(day_or_date="Besok", start_time="09:00", end_time="12:00"),
@@ -115,12 +115,12 @@ def test_schema():
             assert False, f"harus ditolak: {change}"
         except ValidationError:
             pass
-    for change in ({"learning_goal": "NGASAL"}, {"latest_date": "lusa"}, {"min_group_size": 0}):
-        try:
-            StudyIntentUpdate(**change)
-            assert False, f"harus ditolak: {change}"
-        except ValidationError:
-            pass
+    # Day 11.1 main: tidak ada default palsu, mode belajar wajib diisi
+    try:
+        StudyIntentCreate(**{k: v for k, v in good.items() if k != "learning_mode"})
+        assert False, "learning_mode wajib"
+    except ValidationError:
+        pass
 
 
 def test_one_running_intent_per_course():
@@ -128,38 +128,33 @@ def test_one_running_intent_per_course():
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
     from sqlalchemy.pool import StaticPool
-    import app.models  # noqa: F401
+    from app import routes as R
     from app.database import Base
-    from app.models.course import Course
-    from app.models.student import Student
-    from app.schemas.study_intent import StudyIntentCreate, StudyIntentUpdate
-    from app.services.study_intent import StudyIntentService as Intents
+    from app.models import Course, Student
+    from app.schemas import StudyIntentCreate
 
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(bind=engine)
     db = sessionmaker(bind=engine)()
-    db.add_all([Student(student_id="s1", full_name="A", email="a@x.id", student_number="1", password_hash="x"),
-                Course(course_id="c1", course_code="TC1", course_name="Struktur Data", study_program="S1"),
-                Course(course_id="c2", course_code="TC2", course_name="Kalkulus", study_program="S1")])
+    me = Student(student_id="s1", full_name="A", email="a@x.id", student_number="1", password_hash="x")
+    db.add_all([me, Course(course_id="c1", course_code="TC1", course_name="Struktur Data", study_program="S1"),
+                Course(course_id="c2", course_code="TC2", course_name="Kalkulus 1", study_program="S1")])
     db.commit()
 
     def data(course):
         return StudyIntentCreate(course_id=course, topics="Binary Tree", learning_goal="UNDERSTAND",
-                                 collaboration_style="DISCUSSION", earliest_date="2026-11-12", latest_date="2026-11-18",
+                                 collaboration_style="DISCUSSION", learning_mode="OFFLINE",
+                                 earliest_date="2026-11-12", latest_date="2026-11-18",
                                  availabilities=[dict(day_or_date="Rabu", start_time="09:00", end_time="12:00")])
-    first = Intents.create_intent(db, "s1", data("c1")).intent_id
-    Intents.create_intent(db, "s1", data("c2"))  # mata kuliah lain boleh
-    for call in (lambda: Intents.create_intent(db, "s1", data("c1")),
-                 lambda: Intents.update_intent(db, first, "s1", StudyIntentUpdate(earliest_date="2026-12-01")),
-                 lambda: Intents.update_intent(db, first, "s1", StudyIntentUpdate(min_group_size=4, max_group_size=3))):
-        try:
-            call()
-            assert False, "harus ditolak"
-        except HTTPException as error:
-            assert error.status_code == 400
-    assert Intents.get_intent_by_id(db, first).earliest_date == "2026-11-12"  # perubahan yang ditolak tidak tersimpan
-    Intents.cancel_intent(db, first, "s1")
-    Intents.create_intent(db, "s1", data("c1"))  # setelah dibatalkan boleh membuat lagi
+    first = R.create_study_intent(data("c1"), me, db).intent_id
+    R.create_study_intent(data("c2"), me, db)  # mata kuliah lain boleh
+    try:
+        R.create_study_intent(data("c1"), me, db)
+        assert False, "harus ditolak"
+    except HTTPException as error:
+        assert error.status_code == 400
+    R.cancel_study_intent(first, me, db)
+    R.create_study_intent(data("c1"), me, db)  # setelah dibatalkan boleh membuat lagi
 
 
 def test_date_score():

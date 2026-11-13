@@ -23,10 +23,10 @@ from sqlalchemy.pool import StaticPool
 
 import app.models  # noqa: F401, mendaftarkan semua tabel ke Base
 from app.database import Base
-from app.schemas.outcome import SessionFeedbackIn
-from app.services import group_formation as G
-from app.services import matching as M
-from app.services.outcome import OutcomeService as S, _now
+from app.schemas import SessionFeedbackIn
+from app import group_formation as G
+from app import matching as M
+from app.outcome import OutcomeService as S, _now
 
 RABU = {"day": "Wednesday", "start": "09:00", "end": "12:00", "rank": 1}
 JUMAT = {"day": "Friday", "start": "13:00", "end": "16:00", "rank": 2}

@@ -1,0 +1,10 @@
+{
+  "labels": [
+    "course",
+    "topic",
+    "learning_goal",
+    "schedule",
+    "group_size",
+    "study_mode"
+  ]
+}

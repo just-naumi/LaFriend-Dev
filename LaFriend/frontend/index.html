@@ -1,16 +1,240 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="id">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0c1424">
-<title>LaFriend</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Geist:wght@400;500;600&family=UnifrakturMaguntia&display=swap" rel="stylesheet">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LaFriend — Platform Kolaborasi Belajar</title>
+  <!-- Google Fonts: Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <style>
+    /* ==============================================================
+       ONBOARDING SCREEN STYLING (LAFRIEND BRANDING & DUAL BUTTONS)
+       ============================================================== */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #CBD5E1;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 24px 0;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Frame Mockup Smartphone */
+    .app-viewport {
+      width: 100%;
+      max-width: 360px;
+      height: 720px;
+      background-color: #FFFFFF;
+      border-radius: 38px;
+      border: 8px solid #1E1B4B;
+      box-shadow: 0 25px 60px -15px rgba(30, 27, 75, 0.35);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    @media (max-width: 400px) {
+      body {
+        padding: 0;
+      }
+      .app-viewport {
+        border-radius: 0;
+        border: none;
+        height: 100vh;
+        max-width: 100%;
+      }
+    }
+
+    .onboarding-screen {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      background-color: #FFFFFF;
+    }
+
+    /* BAGIAN ATAS: Ilustrasi 3D Mahasiswa Belajar */
+    .onboarding-hero-wrapper {
+      width: 100%;
+      height: 380px;
+      position: relative;
+      background-color: #ABBFF2;
+      border-bottom-right-radius: 54px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      padding: 24px 16px 8px 16px;
+    }
+
+    .onboarding-hero-img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      object-position: center bottom;
+      display: block;
+    }
+
+    /* BAGIAN BAWAH: Konten Teks & Tombol */
+    .onboarding-bottom-content {
+      flex: 1;
+      background-color: #FFFFFF;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 20px 24px 32px 24px;
+    }
+
+    /* Judul Utama */
+    .onboarding-title {
+      font-size: 1.45rem;
+      font-weight: 800;
+      color: #1E1B4B;
+      line-height: 1.25;
+      margin-bottom: 10px;
+      letter-spacing: -0.4px;
+      max-width: 280px;
+    }
+
+    /* Subtitle Ringkas */
+    .onboarding-sub {
+      font-size: 0.88rem;
+      color: #64748B;
+      line-height: 1.45;
+      margin-bottom: 28px;
+      max-width: 270px;
+      font-weight: 500;
+    }
+
+    /* Group Tombol Aksi */
+    .buttons-group {
+      width: 100%;
+      max-width: 280px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* Tombol Utama Ungu: Login */
+    .btn-login-main {
+      background: linear-gradient(135deg, #8B5CF6, #7C3AED);
+      color: #FFFFFF;
+      font-size: 0.95rem;
+      font-weight: 700;
+      padding: 13px 20px;
+      border-radius: 14px;
+      border: none;
+      cursor: pointer;
+      text-decoration: none;
+      display: block;
+      width: 100%;
+      box-shadow: 0 8px 20px -4px rgba(124, 58, 237, 0.4);
+      transition: all 0.2s ease;
+      letter-spacing: -0.2px;
+      text-align: center;
+    }
+
+    .btn-login-main:hover {
+      background: linear-gradient(135deg, #7C3AED, #6D28D9);
+      color: #FFFFFF;
+      transform: translateY(-2px);
+      box-shadow: 0 10px 24px -2px rgba(124, 58, 237, 0.5);
+    }
+
+    .btn-login-main:active {
+      transform: translateY(0);
+    }
+
+    /* Tombol Kedua Outline / Soft: Sign In */
+    .btn-signin-secondary {
+      background: #F5F3FF;
+      color: #7C3AED;
+      font-size: 0.95rem;
+      font-weight: 700;
+      padding: 12px 20px;
+      border-radius: 14px;
+      border: 1.5px solid #DDD6FE;
+      cursor: pointer;
+      text-decoration: none;
+      display: block;
+      width: 100%;
+      transition: all 0.2s ease;
+      letter-spacing: -0.2px;
+      text-align: center;
+    }
+
+    .btn-signin-secondary:hover {
+      background: #EDE9FE;
+      border-color: #C4B5FD;
+      color: #6D28D9;
+      transform: translateY(-1px);
+    }
+
+    .btn-signin-secondary:active {
+      transform: translateY(0);
+    }
+  </style>
 </head>
 <body>
-<div id="root"></div>
-<script type="module" src="/src/main.jsx"></script>
+
+  <!-- MOBILE PHONE FRAME -->
+  <div class="app-viewport">
+    
+    <div class="onboarding-screen">
+      
+      <!-- BAGIAN ATAS: ILUSTRASI 3D BELAJAR HD -->
+      <div class="onboarding-hero-wrapper">
+        <img 
+          id="heroImg"
+          src="img/study-hero-hd.png" 
+          alt="Dua Mahasiswa Belajar dengan Laptop di LaFriend" 
+          class="onboarding-hero-img"
+        >
+      </div>
+
+      <!-- BAGIAN BAWAH: KONTEN LAFRIEND & TOMBOL LOGIN / SIGN IN -->
+      <div class="onboarding-bottom-content">
+        
+        <!-- Judul Bertema LaFriend -->
+        <h1 class="onboarding-title">
+          Temukan Partner Belajar di LaFriend.
+        </h1>
+
+        <!-- Subtitle Ringkas & Padat -->
+        <p class="onboarding-sub">
+          Belajar bareng rekan sefrekuensi jadi lebih seru dan terarah.
+        </p>
+
+        <!-- Tombol Aksi: Login dan Sign In -->
+        <div class="buttons-group">
+          <a href="login.html" class="btn-login-main">
+            Login
+          </a>
+          <a href="login.html" class="btn-signin-secondary">
+            Sign In
+          </a>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <script src="js/app.js"></script>
 </body>
 </html>

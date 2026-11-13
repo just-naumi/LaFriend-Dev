@@ -14,11 +14,11 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.main import app
-from app.core.security import create_access_token, hash_password
-from app.models.outcome import Feedback
-from app.models.student import Student
-from app.schemas.outcome import SessionFeedbackIn, Weights
-from app.services.outcome import OutcomeService as S, DEFAULT_WEIGHTS
+from app.routes import create_token, hash_password
+from app.models import Feedback
+from app.models import Student
+from app.schemas import SessionFeedbackIn, Weights
+from app.outcome import OutcomeService as S, DEFAULT_WEIGHTS
 
 NOW = datetime.now(timezone.utc).replace(tzinfo=None)
 PAST = NOW - timedelta(days=1)
@@ -172,8 +172,8 @@ def test_http():
     db, u = new_db()
     app.dependency_overrides[get_db] = lambda: db
     client = TestClient(app)
-    andi = {"Authorization": "Bearer " + create_access_token(data={"sub": u["andi"]})}
-    nadia = {"Authorization": "Bearer " + create_access_token(data={"sub": u["nadia"]})}
+    andi = {"Authorization": "Bearer " + create_token(u["andi"], "andi@x.id")}
+    nadia = {"Authorization": "Bearer " + create_token(u["nadia"], "nadia@x.id")}
     try:
         assert client.get("/api/v1/outcomes/metrics").status_code == 401
 
