@@ -9,13 +9,14 @@ Pembaruan Sesuai Feedback Revisi:
 2. Pemisahan Total Template Training vs Validation:
    - Template Validasi menggunakan struktur sintaks dan kosakata yang berbeda
      untuk benar-benar menguji generalisasi model terhadap unseen sentence patterns.
-3. Gaya Bahasa Mahasiswa Tel-U Asli & Alami:
-   - Mencakup kalimat tanya, kalimat informal/gaul, kalimat tidak lengkap (hanya matkul+topik,
-     atau matkul+jadwal), spot populer kampus (TULT, Oplib, Selasar FTE, Sukabirus),
-     serta variasi tujuan belajar (UAS, UTS, Tubes, Kuis, Latihan Soal, Pemahaman).
+3. Zero-Ambiguity Exact Offset Generation:
+   - Menggantikan fungsi 'text.find()' dengan token-stream construction.
+   - Posisi karakter start & end dihitung secara deterministik saat perakitan string,
+     menghilangkan 100% resiko kesalahan anotasi akibat kemunculan ganda sebuah kata.
 ==============================================================================
 """
 
+import re
 import json
 import random
 from pathlib import Path
@@ -443,37 +444,32 @@ COURSES_DATA = [
     }
 ]
 
-# Entitas Tujuan Belajar (Learning Goal)
+# Entitas Tujuan Belajar (learning_goal)
 LEARNING_GOALS = [
-    # Ujian & Asesmen
     "persiapan UAS", "persiapan UTS", "kuis praktikum", "responsi lab",
     "asessment 1", "asessment 2", "tes awal praktikum", "ujian susulan",
-    # Latihan & Praktik
     "latihan soal", "latihan ngoding", "latihan koding bareng", "solve problem",
-    # Tugas & Proyek
     "ngerjain tubes", "nyicil tubes", "tugas besar", "laporan praktikum", "tugas mingguan",
-    # Konsep & Diskusi
     "pahami materi dasar", "belajar konsep awal", "diskusi materi", "bedah konsep"
 ]
 
-# Hari & Waktu Khas Tel-U
-DAYS = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
-TIMES = [
-    "jam 9 sampai 12",
-    "jam 09:00 - 12:00",
-    "pukul 13:00 - 15:00",
-    "jam 10 sampai 12",
-    "jam 14:00 s/d 16:30",
-    "jam 8 pagi sampai 11",
-    "jam 13 sampai 15",
-    "jam 16 sampai 18 sore",
-    "jam 19 sampai 21 malam",
-    "pas jam kosong jam 10",
-    "pukul 08:30 - 11:30"
+# Hari & Waktu Khas Tel-U (Disatukan sebagai rentang {schedule} utuh)
+SCHEDULES = [
+    "hari Rabu jam 9 sampai 12",
+    "hari Kamis jam 09:00 - 12:00",
+    "hari Jumat pukul 13:00 - 15:00",
+    "hari Selasa jam 10 sampai 12",
+    "hari Senin jam 14:00 s/d 16:30",
+    "hari Sabtu jam 8 pagi sampai 11",
+    "hari Minggu jam 13 sampai 15",
+    "hari Rabu jam 16 sampai 18 sore",
+    "hari Kamis jam 19 sampai 21 malam",
+    "hari Selasa pas jam kosong jam 10",
+    "hari Jumat pukul 08:30 - 11:30"
 ]
 
-# Spot Belajar Kampus Tel-U & Mode
-SPOTS_AND_MODES = [
+# Spot Belajar Kampus Tel-U & Mode (study_mode)
+STUDY_MODES = [
     "tatap muka di Open Library",
     "di Mezzanine Oplib",
     "Discussion Room Open Library",
@@ -492,7 +488,7 @@ SPOTS_AND_MODES = [
     "selasar Lab Komputer FTE"
 ]
 
-# Ukuran Kelompok (Tanpa pengulangan kata "kelompok kelompok")
+# Ukuran Kelompok (group_size)
 GROUP_SIZES = [
     "2 sampai 4 orang",
     "3 orang",
@@ -511,153 +507,124 @@ GROUP_SIZES = [
 # ==============================================================================
 TRAIN_TEMPLATES = [
     # Pola 1: Kalimat standar lengkap
-    "Saya mau belajar {topic} buat {goal} {course} hari {day} {time} bareng {group} {mode}.",
-    "Mau diskusi materi {topic} mata kuliah {course} {group} secara {mode} hari {day} {time}.",
-    "Ada yang mau ngoding bareng {topic} untuk {course} {goal}? Yuk kumpul {mode} {day} {time} {group}.",
-    "Latihan soal {topic} persiapan kuis {course} yuk, jadwalnya hari {day} {time} bareng {group} {mode}.",
-    "Cari temen belajar {course} bab {topic} buat {goal}, preferensi {mode} hari {day} {time} {group}.",
-    "Butuh partner diskusi {topic} mata kuliah {course} hari {day} {time} {mode} untuk {group}.",
-    "Yuk bedah materi {topic} {course} {goal} hari {day} {time} {mode} {group}.",
-    "Bahas tuntas {topic} matkul {course} buat {goal} kelompok {group} {mode} hari {day} {time}.",
-    "Mau nyicil {goal} {course} khususnya bab {topic} hari {day} {time} bareng {group} di {mode}.",
-    "Siapa yang mau belajar bareng {topic} {course} hari {day} {time} {group} {mode}?",
+    "Saya mau belajar {topic} buat {learning_goal} {course} {schedule} bareng {group_size} {study_mode}.",
+    "Mau diskusi materi {topic} mata kuliah {course} bareng {group_size} secara {study_mode} {schedule}.",
+    "Ada yang mau ngoding bareng {topic} untuk {course} {learning_goal}? Yuk kumpul {study_mode} {schedule} {group_size}.",
+    "Latihan soal {topic} persiapan kuis {course} yuk, jadwalnya {schedule} bareng {group_size} {study_mode}.",
+    "Cari temen belajar {course} bab {topic} buat {learning_goal}, preferensi {study_mode} {schedule} bareng {group_size}.",
+    "Butuh partner diskusi {topic} mata kuliah {course} {schedule} {study_mode} untuk {group_size}.",
+    "Yuk bedah materi {topic} {course} buat {learning_goal} {schedule} {study_mode} {group_size}.",
+    "Bahas tuntas {topic} matkul {course} buat {learning_goal} kelompok {group_size} {study_mode} {schedule}.",
+    "Mau nyicil {learning_goal} {course} khususnya bab {topic} {schedule} bareng {group_size} di {study_mode}.",
+    "Siapa yang mau belajar bareng {topic} {course} {schedule} {group_size} {study_mode}?",
     
     # Pola 2: Gaya obrolan santai & tanya rekan
-    "Bro, ada yang mau bahas {topic}? Gue masih bingung materi {course} buat {goal} {schedule} {mode}.",
-    "Gais, besok ada {goal} {course}, pengen belajar bareng {group} {mode} {schedule}.",
-    "Kuy yang mau ngulik {topic} {course} {schedule} kumpul di {mode} bareng {group}.",
-    "Ada yang paham {topic} {course}? Mau diajarin dong {schedule} {mode} {group}.",
-    "Nyari temen buat {goal} {course} bab {topic}, enaknya {mode} {schedule} {group}.",
-    "Lagi butuh partner buat {goal} {course} {schedule} di {mode} {group}.",
-    "Yuk nyicil {goal} {course} {schedule} {group} di {mode}.",
+    "Bro, ada yang mau bahas {topic}? Gue masih bingung materi {course} buat {learning_goal} {schedule} {study_mode}.",
+    "Gais, besok ada {learning_goal} {course}, pengen belajar bareng {group_size} {study_mode} {schedule}.",
+    "Kuy yang mau ngulik {topic} {course} {schedule} kumpul di {study_mode} bareng {group_size}.",
+    "Ada yang paham {topic} {course}? Mau diajarin dong {schedule} {study_mode} {group_size}.",
+    "Nyari temen buat {learning_goal} {course} bab {topic}, enaknya {study_mode} {schedule} bareng {group_size}.",
+    "Lagi butuh partner buat {learning_goal} {course} {schedule} di {study_mode} bareng {group_size}.",
+    "Yuk nyicil {learning_goal} {course} {schedule} bareng {group_size} di {study_mode}.",
     
     # Pola 3: Jadwal atau lokasi terlebih dahulu
-    "Hari {day} {time} ada yang kosong? Mau belajar {topic} {course} buat {goal} {mode}.",
-    "Lagi di {mode} nih, ada yang mau bareng belajar {topic} {course} {group}?",
-    "Kosong {schedule}, mau fokus {goal} {course} materi {topic} {group} {mode}.",
-    "Ketemu di {mode} yuk {schedule} buat bahas {topic} {course} bareng {group}.",
+    "{schedule} ada yang kosong? Mau belajar {topic} {course} buat {learning_goal} {study_mode}.",
+    "Lagi di {study_mode} nih, ada yang mau bareng belajar {topic} {course} bareng {group_size}?",
+    "Kosong {schedule}, mau fokus {learning_goal} {course} materi {topic} bareng {group_size} {study_mode}.",
+    "Ketemu di {study_mode} yuk {schedule} buat bahas {topic} {course} bareng {group_size}.",
     
     # Pola 4: Kalimat tidak lengkap (Hanya matkul + topik + tujuan)
-    "Mau belajar {course} khususnya {topic} buat persiapan {goal}.",
-    "Cari temen ngerjain {goal} {course} bab {topic} {group}.",
-    "Fokus {goal} matkul {course} materi {topic}.",
-    "Bahas soal {topic} {course} bareng {group} di {mode}.",
+    "Mau belajar {course} khususnya {topic} buat {learning_goal}.",
+    "Cari temen ngerjain {learning_goal} {course} bab {topic} bareng {group_size}.",
+    "Fokus {learning_goal} matkul {course} materi {topic}.",
+    "Bahas soal {topic} {course} bareng {group_size} di {study_mode}.",
     
     # Pola 5: Kalimat ringkas fokus tugas/ujian
-    "Persiapan {goal} {course} topik {topic} {schedule} {mode}.",
-    "Nyicil {goal} {course} {schedule} {group} di {mode}.",
+    "Persiapan {learning_goal} {course} topik {topic} {schedule} {study_mode}.",
+    "Nyicil {learning_goal} {course} {schedule} bareng {group_size} di {study_mode}.",
     "Belajar bareng {topic} {course} {schedule}.",
-    "Diskusi {topic} {course} {group} {mode}."
+    "Diskusi {topic} {course} bareng {group_size} {study_mode}."
 ]
 
 # ==============================================================================
-# TEMPLATES UNTUK DATASET VALIDASI (VALIDATION) - 20 Pola Kalimat Sintaks BERBEDA
+# TEMPLATES UNTUK DATASET VALIDASI (VALIDATION) - 20 Pola Kalimat Sintaks BERBEDA (UNSEEN)
 # ==============================================================================
 VAL_TEMPLATES = [
     # Struktur pertanyaan & konfirmasi yang belum pernah ada di training
-    "Halo teman-teman, apakah ada yang ingin belajar {topic} untuk {course}? Rencananya {schedule} {mode} {group}.",
-    "Teman-teman ada yang mau review bareng materi {topic} {course} buat {goal}? Bisa {schedule} {mode}.",
-    "Butuh bantuan buat memahami {topic} di matkul {course}. Ada yang free {schedule}? Prefer {mode} {group}.",
-    "Materi {topic} {course} susah banget, yuk latihan {goal} bareng {group} {schedule} di {mode}.",
-    "Aku ada waktu luang {schedule}, barangkali ada yang mau {goal} {course} bab {topic} {mode}.",
-    "Bisa join belajar {topic} {course}? Buat {goal} kelompok {group} hari {day} {time} {mode}.",
-    "Pengen sharing materi {topic} mata kuliah {course} nih, siapa mau gabung {group} {schedule} {mode}?",
-    "Siap-siap menghadapi {goal} {course}, mau ajak {group} belajar materi {topic} {schedule} di {mode}.",
-    "Adakah yang berminat bedah soal {topic} {course}? Agendanya {schedule} {mode} {group}.",
-    "Tolong ajarin dong bab {topic} di {course}, butuh buat {goal} {schedule} bareng {group}.",
+    "Halo teman-teman, apakah ada yang ingin belajar {topic} untuk {course}? Rencananya {schedule} {study_mode} bareng {group_size}.",
+    "Teman-teman ada yang mau review bareng materi {topic} {course} buat {learning_goal}? Bisa {schedule} {study_mode}.",
+    "Butuh bantuan buat memahami {topic} di matkul {course}. Ada yang free {schedule}? Prefer {study_mode} bareng {group_size}.",
+    "Materi {topic} {course} susah banget, yuk latihan {learning_goal} bareng {group_size} {schedule} di {study_mode}.",
+    "Aku ada waktu luang {schedule}, barangkali ada yang mau {learning_goal} {course} bab {topic} {study_mode}.",
+    "Bisa join belajar {topic} {course}? Buat {learning_goal} bareng {group_size} {schedule} {study_mode}.",
+    "Pengen sharing materi {topic} mata kuliah {course} nih, siapa mau gabung bareng {group_size} {schedule} {study_mode}?",
+    "Siap-siap menghadapi {learning_goal} {course}, mau ajak {group_size} belajar materi {topic} {schedule} di {study_mode}.",
+    "Adakah yang berminat bedah soal {topic} {course}? Agendanya {schedule} {study_mode} bareng {group_size}.",
+    "Tolong ajarin dong bab {topic} di {course}, butuh buat {learning_goal} {schedule} bareng {group_size}.",
     
     # Variasi struktur terbalik & informal berbeda
-    "Rencana {schedule} mau ngerjain {goal} {course} tentang {topic} {mode} bareng {group}.",
-    "Bagi yang belum paham {topic} {course}, kita kumpul {mode} {schedule} {group} ya.",
-    "Ayo kelompokan {group} buat {goal} {course} materi {topic} {schedule} di {mode}.",
-    "Target kelar {topic} {course} sebelum {goal}, kumpul {schedule} {mode} {group}.",
-    "Nyari teman sekelas yang mau diskusi {topic} {course} {schedule} {mode}.",
-    "Merapat ke {mode} yuk {schedule}, kita bahas tuntas {topic} {course} buat {goal}.",
-    "Ada slot untuk {group} yang mau {goal} {course} bab {topic} {schedule} {mode}.",
-    "Belajar santai materi {topic} {course} {schedule} bareng {group} di {mode}.",
-    "Persiapan matang {goal} {course} topik {topic} hari {day} {time} {mode}.",
-    "Mau perdalam {topic} {course} bareng {group} secara {mode} {schedule}."
+    "Rencana {schedule} mau ngerjain {learning_goal} {course} tentang {topic} {study_mode} bareng {group_size}.",
+    "Bagi yang belum paham {topic} {course}, kita kumpul {study_mode} {schedule} bareng {group_size} ya.",
+    "Ayo kelompokan {group_size} buat {learning_goal} {course} materi {topic} {schedule} di {study_mode}.",
+    "Target kelar {topic} {course} sebelum {learning_goal}, kumpul {schedule} {study_mode} bareng {group_size}.",
+    "Nyari teman sekelas yang mau diskusi {topic} {course} {schedule} {study_mode}.",
+    "Merapat ke {study_mode} yuk {schedule}, kita bahas tuntas {topic} {course} buat {learning_goal}.",
+    "Ada slot untuk {group_size} yang mau {learning_goal} {course} bab {topic} {schedule} {study_mode}.",
+    "Belajar santai materi {topic} {course} {schedule} bareng {group_size} di {study_mode}.",
+    "Persiapan matang {learning_goal} {course} topik {topic} {schedule} {study_mode}.",
+    "Mau perdalam {topic} {course} bareng {group_size} secara {study_mode} {schedule}."
 ]
 
 
-def generate_sample_from_template(tmpl):
-    """Menghasilkan satu kalimat data teranotasi span secara presisi tanpa tumpang tindih."""
+def generate_sample_from_template_exact(tmpl: str) -> dict:
+    """
+    Menghasilkan satu kalimat data teranotasi span secara matematis presisi:
+    Menggunakan token-stream parser untuk menghitung karakter offset start & end secara deterministik.
+    Tidak ada pencarian 'text.find()' sehingga 100% bebas dari ambiguitas kemunculan ganda.
+    """
     mk_info = random.choice(COURSES_DATA)
-    course_name = mk_info["name"] if random.random() > 0.40 else random.choice(mk_info["aliases"])
-    topic = random.choice(mk_info["topics"])
-    day = random.choice(DAYS)
-    time = random.choice(TIMES)
-    schedule = f"{day} {time}"
-    group = random.choice(GROUP_SIZES)
-    mode = random.choice(SPOTS_AND_MODES)
-    goal = random.choice(LEARNING_GOALS)
+    course_val = mk_info["name"] if random.random() > 0.40 else random.choice(mk_info["aliases"])
+    topic_val = random.choice(mk_info["topics"])
+    schedule_val = random.choice(SCHEDULES)
+    group_val = random.choice(GROUP_SIZES)
+    mode_val = random.choice(STUDY_MODES)
+    goal_val = random.choice(LEARNING_GOALS)
 
-    text = tmpl.format(
-        course=course_name,
-        topic=topic,
-        day=day,
-        time=time,
-        schedule=schedule,
-        group=group,
-        mode=mode,
-        goal=goal
-    )
+    values_map = {
+        "course": course_val,
+        "topic": topic_val,
+        "learning_goal": goal_val,
+        "schedule": schedule_val,
+        "group_size": group_val,
+        "study_mode": mode_val
+    }
 
-    entities = []
+    # Pisahkan template berdasarkan token placeholder {key}
+    parts = re.split(r"(\{[a-zA-Z_]+\})", tmpl)
     
-    # Cari posisi kemunculan masing-masing entitas pada teks kalimat
-    def add_span(value, label):
-        idx = text.find(value)
-        if idx != -1:
-            entities.append({
-                "start": idx,
-                "end": idx + len(value),
-                "label": label,
-                "text": value
-            })
+    constructed_text = ""
+    spans = []
 
-    add_span(course_name, "course")
-    add_span(topic, "topic")
-    add_span(goal, "learning_goal")
-    
-    # Cek apakah template menggunakan {schedule} atau pecahan {day}/{time}
-    if "{schedule}" in tmpl:
-        add_span(schedule, "schedule")
-    else:
-        if "{day}" in tmpl and "{time}" in tmpl:
-            # Cari rentang dari day s/d akhir time jika berdekatan
-            s_day = text.find(day)
-            s_time = text.find(time)
-            if s_day != -1 and s_time != -1 and s_day < s_time and (s_time - (s_day + len(day))) <= 2:
-                entities.append({
-                    "start": s_day,
-                    "end": s_time + len(time),
-                    "label": "schedule",
-                    "text": text[s_day : s_time + len(time)]
+    for part in parts:
+        if part.startswith("{") and part.endswith("}"):
+            placeholder_key = part[1:-1]
+            if placeholder_key in values_map:
+                val = values_map[placeholder_key]
+                start_offset = len(constructed_text)
+                end_offset = start_offset + len(val)
+                spans.append({
+                    "start": start_offset,
+                    "end": end_offset,
+                    "label": placeholder_key,
+                    "text": val
                 })
-            else:
-                if s_day != -1:
-                    entities.append({"start": s_day, "end": s_day + len(day), "label": "schedule", "text": day})
-                if s_time != -1:
-                    entities.append({"start": s_time, "end": s_time + len(time), "label": "schedule", "text": time})
-
-    add_span(group, "group_size")
-    add_span(mode, "study_mode")
-
-    # Sort spans by start index
-    entities.sort(key=lambda x: x["start"])
-
-    # Buang span yang bertabrakan (non-overlapping)
-    clean_spans = []
-    last_end = -1
-    for s in entities:
-        if s["start"] >= last_end:
-            clean_spans.append(s)
-            last_end = s["end"]
+                constructed_text += val
+        else:
+            constructed_text += part
 
     return {
-        "text": text,
-        "spans": clean_spans
+        "text": constructed_text,
+        "spans": spans
     }
 
 
@@ -666,7 +633,7 @@ def main():
     random.seed(42)
 
     print("=" * 70)
-    print(">> MEMBANGUN DATASET SPAN-LEVEL GLINER DENGAN TEMPLATE TERPISAH...")
+    print(">> MEMBANGUN DATASET SPAN-LEVEL GLINER DENGAN EXACT TOKEN BUILDER...")
     print("=" * 70)
 
     # 1. Buat Training Set (800 sampel unik dari TRAIN_TEMPLATES)
@@ -676,7 +643,7 @@ def main():
     while len(train_samples) < 800 and attempts < 4000:
         attempts += 1
         tmpl = random.choice(TRAIN_TEMPLATES)
-        sample = generate_sample_from_template(tmpl)
+        sample = generate_sample_from_template_exact(tmpl)
         if sample["text"] not in train_texts:
             train_texts.add(sample["text"])
             train_samples.append(sample)
@@ -688,8 +655,7 @@ def main():
     while len(val_samples) < 200 and attempts < 2000:
         attempts += 1
         tmpl = random.choice(VAL_TEMPLATES)
-        sample = generate_sample_from_template(tmpl)
-        # Pastikan tidak ada overlap teks dengan training maupun internal val
+        sample = generate_sample_from_template_exact(tmpl)
         if sample["text"] not in train_texts and sample["text"] not in val_texts:
             val_texts.add(sample["text"])
             val_samples.append(sample)

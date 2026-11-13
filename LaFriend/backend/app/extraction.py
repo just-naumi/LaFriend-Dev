@@ -269,8 +269,31 @@ def extract_collaboration_style(text_lower: str) -> Optional[str]:
     return None
 
 
+LOCATION_PATTERNS = {
+    "Open Library": ["open library", "oplib", "mezzanine oplib", "mezzanine", "discussion room"],
+    "TULT Lantai 5": ["tult lantai 5", "tult lt 5", "tult"],
+    "Kantin TULT": ["kantin tult"],
+    "Selasar FTE": ["selasar fte", "lab komputer fte", "fte"],
+    "Selasar Gd B": ["selasar gd b", "gedung b"],
+    "Sukabirus": ["sukabirus", "kosan sukabirus", "cafe sukabirus"],
+    "Sukapura": ["sukapura", "kosan sukapura"],
+    "Google Meet": ["google meet", "gmeet"],
+    "Discord": ["discord"],
+    "Zoom": ["zoom"]
+}
+
+
+def extract_preferred_location(text_lower: str) -> Optional[str]:
+    """Mengekstrak lokasi spesifik kampus atau platform online terpisah dari learning_mode."""
+    for loc_name, keywords in LOCATION_PATTERNS.items():
+        for kw in keywords:
+            if re.search(r"\b" + re.escape(kw) + r"\b", text_lower):
+                return loc_name
+    return None
+
+
 def extract_learning_mode(text_lower: str, ai_entities: Optional[List[dict]] = None) -> Optional[str]:
-    """Mendeteksi mode belajar (offline/online/hybrid) tanpa default palsu."""
+    """Mendeteksi mode belajar (offline/online/hybrid) murni tanpa mencampur aduk lokasi."""
     if "tidak mau online" in text_lower or "bukan online" in text_lower or "jangan online" in text_lower:
         return "OFFLINE"
     if "tidak mau offline" in text_lower or "bukan offline" in text_lower or "jangan offline" in text_lower:
@@ -297,7 +320,6 @@ def extract_learning_mode(text_lower: str, ai_entities: Optional[List[dict]] = N
 
 def extract_group_size(text: str, ai_entities: Optional[List[dict]] = None) -> Tuple[Optional[int], Optional[int]]:
     """Mendeteksi ukuran kelompok belajar tanpa default palsu."""
-    # 1. Cek dari entitas AI jika ada
     target_text = text
     if ai_entities:
         for ent in ai_entities:
@@ -334,7 +356,11 @@ def extract_group_size(text: str, ai_entities: Optional[List[dict]] = None) -> T
 
 
 def extract_availabilities(text: str, ai_entities: Optional[List[dict]] = None) -> List[Dict[str, Any]]:
-    """Mengekstrak hari dan jam ketersediaan waktu. Mengembalikan list kosong jika tidak ada."""
+    """
+    Mengekstrak hari dan jam ketersediaan waktu secara jujur.
+    Tidak ada pengisian jam 09:00-11:00 palsu jika mahasiswa hanya sebut hari,
+    dan tidak ada pengisian hari 'Fleksibel' palsu jika mahasiswa hanya sebut jam.
+    """
     results = []
     text_lower = text.lower()
 
@@ -371,25 +397,41 @@ def extract_availabilities(text: str, ai_entities: Optional[List[dict]] = None) 
                 start_time = f"{s_hour:02d}:{s_min}"
                 end_time = f"{(s_hour + 2) % 24:02d}:{s_min}"
 
-    # Jika tidak ada hari maupun jam yang ditemukan, KOSONGKAN (jangan karang jadwal palsu)
+    # Jika tidak ada hari maupun jam yang ditemukan, return list kosong (MISSING)
     if not found_days and not start_time:
         return []
 
-    # Jika ada hari tapi tidak ada jam, gunakan jam standar 2 jam
-    if not start_time:
-        start_time = "09:00"
-        end_time = "11:00"
+    # Jika ada hari tapi tidak ada jam: jangan mengarang jam palsu! Biarkan kosong untuk diisi user
+    if found_days and not start_time:
+        for idx, d in enumerate(found_days):
+            results.append({
+                "day_or_date": d,
+                "start_time": "",
+                "end_time": "",
+                "priority_rank": idx + 1,
+                "status": "NEEDS_TIME"
+            })
+        return results
 
-    # Jika ada jam tapi tidak ada hari, default ke hari ini/besok atau kosongkan
-    if not found_days:
-        found_days = ["Fleksibel"]
+    # Jika ada jam tapi tidak ada hari: jangan mengarang hari palsu!
+    if start_time and not found_days:
+        results.append({
+            "day_or_date": "",
+            "start_time": start_time,
+            "end_time": end_time,
+            "priority_rank": 1,
+            "status": "NEEDS_DAY"
+        })
+        return results
 
+    # Jika lengkap (ada hari DAN jam)
     for idx, d in enumerate(found_days):
         results.append({
             "day_or_date": d,
             "start_time": start_time,
             "end_time": end_time,
-            "priority_rank": idx + 1
+            "priority_rank": idx + 1,
+            "status": "COMPLETE"
         })
 
     return results
@@ -474,13 +516,14 @@ def process_chat_for_study_intent(raw_text: str, db: Session) -> Dict[str, Any]:
     # 3. Deteksi Topik Materi (Dipadukan dengan AI Entities)
     topics = extract_topics(cleaned_text, course_name, ai_entities)
 
-    # 4. Deteksi Parameter Tujuan, Gaya, Mode, dan Ukuran Grup (Tanpa Default Palsu)
+    # 4. Deteksi Parameter Tujuan, Gaya, Mode, Lokasi, dan Ukuran Grup (Tanpa Default Palsu)
     learning_goal = extract_learning_goal(text_lower, ai_entities)
     collaboration_style = extract_collaboration_style(text_lower)
     learning_mode = extract_learning_mode(text_lower, ai_entities)
+    preferred_location = extract_preferred_location(text_lower)
     min_size, max_size = extract_group_size(cleaned_text, ai_entities)
 
-    # 5. Deteksi Jadwal Waktu Ketersediaan (Kosong jika tidak disebut)
+    # 5. Deteksi Jadwal Waktu Ketersediaan (Jujur: tidak mengisi jam jika tidak ada)
     availabilities = extract_availabilities(cleaned_text, ai_entities)
 
     # 6. Status parameter (Transparansi: EXTRACTED vs MISSING)
@@ -490,15 +533,16 @@ def process_chat_for_study_intent(raw_text: str, db: Session) -> Dict[str, Any]:
         "learning_goal": "EXTRACTED" if learning_goal else "MISSING",
         "collaboration_style": "EXTRACTED" if collaboration_style else "MISSING",
         "learning_mode": "EXTRACTED" if learning_mode else "MISSING",
+        "preferred_location": "EXTRACTED" if preferred_location else "MISSING",
         "group_size": "EXTRACTED" if min_size is not None else "MISSING",
-        "schedule": "EXTRACTED" if len(availabilities) > 0 else "MISSING",
+        "schedule": "EXTRACTED" if (availabilities and all(s.get("status") == "COMPLETE" for s in availabilities)) else ("NEEDS_REVIEW" if availabilities else "MISSING"),
     }
 
-    # 7. Rentang Tanggal
-    today = datetime.now().strftime("%Y-%m-%d")
-    next_week = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+    # 7. Rentang Tanggal Default: Dikosongkan jika tidak disebut spesifik
+    earliest_date = None
+    latest_date = None
 
-    # 8. Format data balasan terstruktur
+    # 8. Format data balasan terstruktur bersih
     return {
         "status": "success",
         "course_id": course_id,
@@ -507,8 +551,9 @@ def process_chat_for_study_intent(raw_text: str, db: Session) -> Dict[str, Any]:
         "learning_goal": learning_goal,
         "collaboration_style": collaboration_style,
         "learning_mode": learning_mode,
-        "earliest_date": today,
-        "latest_date": next_week,
+        "preferred_location": preferred_location,
+        "earliest_date": earliest_date,
+        "latest_date": latest_date,
         "min_group_size": min_size,
         "max_group_size": max_size,
         "availabilities": availabilities,
@@ -516,18 +561,4 @@ def process_chat_for_study_intent(raw_text: str, db: Session) -> Dict[str, Any]:
         "ai_model": model_name_tag,
         "ai_raw_entities": ai_entities,
         "message": "Informasi berhasil diproses dengan aman (parameter tidak disebut dibiarkan kosong)."
-    }
-        "availabilities": availabilities,
-        "extracted_summary": {
-            "course": "EXTRACTED" if course else "MISSING",
-            "topics": "EXTRACTED" if topics else "MISSING",
-            "learning_goal": "EXTRACTED",
-            "collaboration_style": "EXTRACTED",
-            "learning_mode": "EXTRACTED",
-            "availability": "EXTRACTED" if availabilities else "MISSING",
-            "group_size": "EXTRACTED"
-        },
-        "ai_model": model_name_tag,
-        "ai_raw_entities": ai_entities,
-        "message": "Informasi berhasil diekstrak oleh AI. Silakan verifikasi dan sesuaikan di formulir bawah ini."
     }

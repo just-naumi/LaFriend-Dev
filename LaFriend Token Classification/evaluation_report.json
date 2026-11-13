@@ -1,0 +1,51 @@
+{
+  "evaluation_timestamp": "2026-11-13T20:28:25.721762",
+  "model_path": "D:\\My Project\\Hackathon\\LaFriend-Dev\\LaFriend Token Classification\\checkpoints\\best_gliner_telkom",
+  "validation_samples_count": 200,
+  "metric_type": "Strict Exact Span Match (Exact Boundary & Exact Text)",
+  "per_entity_metrics": {
+    "course": {
+      "precision": 80.18,
+      "recall": 89.0,
+      "f1_score": 84.36,
+      "support": 200
+    },
+    "topic": {
+      "precision": 93.97,
+      "recall": 93.5,
+      "f1_score": 93.73,
+      "support": 200
+    },
+    "learning_goal": {
+      "precision": 68.83,
+      "recall": 88.33,
+      "f1_score": 77.37,
+      "support": 120
+    },
+    "schedule": {
+      "precision": 100.0,
+      "recall": 100.0,
+      "f1_score": 100.0,
+      "support": 200
+    },
+    "group_size": {
+      "precision": 94.48,
+      "recall": 94.48,
+      "f1_score": 94.48,
+      "support": 145
+    },
+    "study_mode": {
+      "precision": 94.92,
+      "recall": 99.47,
+      "f1_score": 97.14,
+      "support": 188
+    }
+  },
+  "summary": {
+    "macro_f1": 91.18,
+    "micro_precision": 89.08,
+    "micro_recall": 94.49,
+    "micro_f1": 91.71,
+    "total_entities_evaluated": 1053
+  }
+}

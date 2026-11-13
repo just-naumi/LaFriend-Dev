@@ -4,7 +4,7 @@
 Domain: Kurikulum S1 Teknik Komputer Telkom University (Semester 1 s/d 8)
 ==============================================================================
 Pembaruan Sesuai Feedback Revisi:
-1. Training 3 Epoch Penuh (600 steps untuk 800 sampel, batch_size=4).
+1. Training 2 Epoch Penuh (400 steps untuk 800 sampel, batch_size=4).
 2. Evaluasi Validation Loss pada SELURUH 200 sampel dataset validasi setiap epoch.
 3. Checkpoint Selection Nyata: Model hanya disimpan jika menghasilkan val_loss terendah (best_val_loss).
 4. Taxonomy Label Konsisten: ['course', 'topic', 'learning_goal', 'schedule', 'group_size', 'study_mode'].
