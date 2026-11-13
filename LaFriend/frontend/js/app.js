@@ -263,12 +263,14 @@ async function initDashboardPage() {
   const aiNeedInput = document.getElementById("aiNeedInput");
   const btnDashboardAiSubmit = document.getElementById("btnDashboardAiSubmit");
 
-  function submitAiPrompt() {
+  async function submitAiPrompt() {
     const promptText = aiNeedInput ? aiNeedInput.value.trim() : "";
-    if (promptText) {
-      sessionStorage.setItem("lafriend_ai_prompt", promptText);
+    if (!promptText) {
+      window.location.href = "create-intent.html";
+      return;
     }
-    window.location.href = "create-intent.html";
+    // Jalankan animasi timeline loading turun ke bawah seperti di LaQris
+    await runAiTimelineLoader(promptText);
   }
 
   if (btnDashboardAiSubmit) {
@@ -289,6 +291,98 @@ async function initDashboardPage() {
       filterDashboardItems(q);
     });
   }
+
+  // Animasi Step Timeline Loader AI (Referensi LaQris)
+  async function runAiTimelineLoader(promptText) {
+    const overlay = document.getElementById("aiLoadingModal");
+    if (!overlay) {
+      sessionStorage.setItem("lafriend_ai_prompt", promptText);
+      window.location.href = "create-intent.html";
+      return;
+    }
+
+    // Tampilkan overlay loading
+    overlay.classList.remove("d-none");
+
+    const delay = (ms) => new Promise(r => setTimeout(r, ms));
+
+    function setStepState(stepNum, state) {
+      const stepEl = document.getElementById(`step${stepNum}`);
+      const nodeEl = document.getElementById(`node${stepNum}`);
+      if (stepEl) {
+        if (state === "active") {
+          stepEl.className = "timeline-step active";
+          if (nodeEl) {
+            nodeEl.innerHTML = `<svg class="node-spinner-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12" stroke-linecap="round"></circle></svg>`;
+          }
+        } else if (state === "completed") {
+          stepEl.className = "timeline-step completed";
+          if (nodeEl) {
+            nodeEl.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+          }
+        }
+      }
+      updateLineProgress(stepNum);
+    }
+
+    function updateLineProgress(activeStepNum) {
+      const activeNode = document.getElementById(`node${activeStepNum}`);
+      const container = document.querySelector(".timeline-container");
+      const lineEl = document.getElementById("timelineLineProgress");
+      if (activeNode && container && lineEl) {
+        const containerRect = container.getBoundingClientRect();
+        const nodeRect = activeNode.getBoundingClientRect();
+        const heightPx = (nodeRect.top + (nodeRect.height / 2)) - containerRect.top;
+        lineEl.style.height = `${Math.max(0, heightPx)}px`;
+      }
+    }
+
+    // Mulai Step 1: Pesan Belajar Diterima
+    setStepState(1, "active");
+    await delay(350);
+
+    // Jalankan request ekstraksi AI ke backend secara paralel di background
+    let extractPromise = app.request("/study-intents/extract-ai", {
+      method: "POST",
+      body: JSON.stringify({ raw_text: promptText }),
+    }).catch(err => {
+      console.error("Gagal ekstraksi AI di background:", err);
+      return null;
+    });
+
+    // Step 2: Ekstraksi Span NLP (GLiNER)
+    setStepState(1, "completed");
+    setStepState(2, "active");
+    await delay(450);
+
+    // Step 3: Validasi Kurikulum Telkom University
+    setStepState(2, "completed");
+    setStepState(3, "active");
+    await delay(450);
+
+    // Tunggu hasil ekstraksi dari backend jika belum selesai
+    const extractionResult = await extractPromise;
+
+    // Step 4: Normalisasi Waktu & Lokasi
+    setStepState(3, "completed");
+    setStepState(4, "active");
+    await delay(400);
+
+    // Step 5: Formulir Siap Digunakan
+    setStepState(4, "completed");
+    setStepState(5, "completed");
+    await delay(350);
+
+    // Simpan hasil ekstraksi ke sessionStorage agar form create-intent langsung terisi instan
+    if (extractionResult) {
+      sessionStorage.setItem("lafriend_ai_extraction_result", JSON.stringify(extractionResult));
+    }
+    sessionStorage.setItem("lafriend_ai_prompt", promptText);
+
+    // Alihkan ke formulir create-intent
+    window.location.href = "create-intent.html";
+  }
+
 
   // Fungsi helper untuk quick chip suggestion
   window.quickFillPrompt = function(text) {
@@ -537,12 +631,24 @@ async function initCreateIntentPage() {
   addTimeSlotRow("Rabu", "09:00", "12:00", 1);
   addTimeSlotRow("Kamis", "13:00", "16:00", 2);
 
-  // Jika ada prompt AI yang dikirim langsung dari input Dashboard
+  // Jika ada hasil ekstraksi AI yang sudah disiapkan dari Dashboard
+  const cachedResultStr = sessionStorage.getItem("lafriend_ai_extraction_result");
   const storedPrompt = sessionStorage.getItem("lafriend_ai_prompt");
-  if (storedPrompt) {
+
+  if (cachedResultStr) {
+    sessionStorage.removeItem("lafriend_ai_extraction_result");
+    if (storedPrompt) sessionStorage.removeItem("lafriend_ai_prompt");
+    try {
+      const res = JSON.parse(cachedResultStr);
+      applyAIExtractionResult(res);
+    } catch (e) {
+      console.error("Gagal parse cached AI result:", e);
+    }
+  } else if (storedPrompt) {
     sessionStorage.removeItem("lafriend_ai_prompt");
     extractAndApplyPrompt(storedPrompt);
   }
+
 
   // Tombol tambah slot waktu
   const btnAddSlot = document.getElementById("btnAddSlot");

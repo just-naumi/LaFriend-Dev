@@ -303,7 +303,70 @@
     <main class="white-sheet-container">
     </main>
 
+    <!-- ANIMATED STEP TIMELINE LOADING OVERLAY (REFERENSI LAQRIS) -->
+    <div id="aiLoadingModal" class="ai-loading-overlay d-none">
+      <div class="ai-loading-card">
+        <div class="text-center mb-3">
+          <div class="ai-loading-badge">
+            <i class="bi bi-stars"></i> AI Study Intent Engine
+          </div>
+          <div class="timeline-main-title">Menganalisis Kebutuhan Belajar</div>
+          <p class="timeline-main-sub">Model AI GLiNER sedang mengekstrak entitas & mencocokkan kurikulum Tel-U</p>
+        </div>
+
+        <div class="timeline-container">
+          <div class="timeline-line-progress" id="timelineLineProgress"></div>
+
+          <!-- Step 1 -->
+          <div class="timeline-step" id="step1">
+            <div class="timeline-node" id="node1">1</div>
+            <div class="timeline-content">
+              <div class="timeline-title">Pesan Belajar Diterima</div>
+              <div class="timeline-desc">Membaca teks kebutuhan belajar dari mahasiswa...</div>
+            </div>
+          </div>
+
+          <!-- Step 2 -->
+          <div class="timeline-step" id="step2">
+            <div class="timeline-node" id="node2">2</div>
+            <div class="timeline-content">
+              <div class="timeline-title">Ekstraksi Span NLP (GLiNER)</div>
+              <div class="timeline-desc">Mendeteksi entitas mata kuliah, materi, dan tujuan belajar...</div>
+            </div>
+          </div>
+
+          <!-- Step 3 -->
+          <div class="timeline-step" id="step3">
+            <div class="timeline-node" id="node3">3</div>
+            <div class="timeline-content">
+              <div class="timeline-title">Validasi Kurikulum Tel-U</div>
+              <div class="timeline-desc">Mencocokkan silabus resmi 46 mata kuliah S1 Teknik Komputer...</div>
+            </div>
+          </div>
+
+          <!-- Step 4 -->
+          <div class="timeline-step" id="step4">
+            <div class="timeline-node" id="node4">4</div>
+            <div class="timeline-content">
+              <div class="timeline-title">Normalisasi Waktu & Lokasi</div>
+              <div class="timeline-desc">Menyusun slot jadwal ketersediaan dan mode belajar...</div>
+            </div>
+          </div>
+
+          <!-- Step 5 -->
+          <div class="timeline-step" id="step5">
+            <div class="timeline-node" id="node5">5</div>
+            <div class="timeline-content">
+              <div class="timeline-title">Formulir Siap Digunakan</div>
+              <div class="timeline-desc">Mengalihkan ke formulir Study Intent secara otomatis...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
+
 
   <script src="js/app.js"></script>
 </body>
