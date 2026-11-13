@@ -810,147 +810,182 @@ async function extractAndApplyPrompt(rawText) {
 }
 
 // ==============================================================================
-// KOMPONEN AUDIT TRANSPARANSI HASIL EKSTRAKSI AI (DAY 11.1 - 3 STATUS LEVEL)
+// KOMPONEN AUDIT TRANSPARANSI HASIL EKSTRAKSI AI (ENAK DIBACA & USER-FRIENDLY)
 // ==============================================================================
 function renderAiExtractionReviewBox(res) {
   const box = document.getElementById("aiExtractionReviewBox");
   if (!box) return;
 
   const statuses = res.extraction_status || {};
-  const params = res.extracted_parameters || {};
 
-  function getBadgeData(statusKey, rawVal, customNote = null) {
-    const st = (statuses[statusKey] || (rawVal ? "EXTRACTED" : "MISSING")).toUpperCase();
-    let badgeClass = "missing";
-    let badgeLabel = "MISSING";
-    let note = customNote || (rawVal ? String(rawVal) : "Belum disebutkan di percakapan.");
-
-    if (st === "EXTRACTED") {
-      badgeClass = "extracted";
-      badgeLabel = "EXTRACTED";
-    } else if (st === "NEEDS_REVIEW") {
-      badgeClass = "needs-review";
-      badgeLabel = "NEEDS_REVIEW";
-    } else {
-      badgeClass = "missing";
-      badgeLabel = "MISSING";
+  // Helper untuk menentukan badge tampilan yang bersahabat bagi pengguna
+  function resolveStatusBadge(statusKey, hasValue, isNeedsReview = false) {
+    const rawStatus = (statuses[statusKey] || (hasValue ? "EXTRACTED" : "MISSING")).toUpperCase();
+    if (isNeedsReview || rawStatus === "NEEDS_REVIEW") {
+      return {
+        badgeClass: "needs-review",
+        badgeLabel: "⚠️ Cek Ulang"
+      };
     }
-
-    return { badgeClass, badgeLabel, note };
+    if (rawStatus === "EXTRACTED" && hasValue) {
+      return {
+        badgeClass: "extracted",
+        badgeLabel: "✓ Terisi"
+      };
+    }
+    return {
+      badgeClass: "missing",
+      badgeLabel: "Belum Ada"
+    };
   }
 
   // 1. Mata Kuliah
-  const courseInfo = getBadgeData(
-    "course",
-    res.course_name,
-    res.course_name ? `${res.course_name} (${res.course_code || 'Tel-U'})` : "Belum terdeteksi. Silakan pilih di dropdown."
-  );
+  const hasCourse = Boolean(res.course_id || res.course_name);
+  const courseBadge = resolveStatusBadge("course", hasCourse);
+  const courseDisplay = hasCourse
+    ? (res.course_name ? `${res.course_name} (${res.course_code || 'Tel-U'})` : res.course_id)
+    : `<span class="empty-val">Belum ditentukan</span>`;
 
   // 2. Topik
-  const topicInfo = getBadgeData(
-    "topic",
-    res.topics,
-    res.topics ? res.topics : "Belum terdeteksi. Silakan ketik materi belajar."
-  );
+  const hasTopic = Boolean(res.topics && res.topics.trim());
+  const topicBadge = resolveStatusBadge("topic", hasTopic);
+  const topicDisplay = hasTopic
+    ? escapeHtml(res.topics)
+    : `<span class="empty-val">Belum ditentukan</span>`;
 
   // 3. Tujuan Belajar
-  const goalInfo = getBadgeData(
-    "learning_goal",
-    res.learning_goal,
-    res.learning_goal ? `Tujuan: ${res.learning_goal}` : "Belum terdeteksi. Silakan pilih salah satu opsi di bawah."
-  );
+  const goalMap = {
+    "EXAM_PREP": "Persiapan Ujian / Latihan Soal",
+    "ASSIGNMENT": "Pengerjaan Tugas / Praktikum",
+    "CONCEPT": "Pemahaman Konsep & Teori",
+    "UNDERSTAND": "Pemahaman Materi & Diskusi",
+    "PROJECT": "Pengerjaan Proyek Belajar"
+  };
+  const hasGoal = Boolean(res.learning_goal);
+  const goalBadge = resolveStatusBadge("learning_goal", hasGoal);
+  const goalDisplay = hasGoal
+    ? (goalMap[(res.learning_goal || "").toUpperCase()] || res.learning_goal)
+    : `<span class="empty-val">Belum ditentukan</span>`;
 
   // 4. Mode & Lokasi
-  let modeDesc = res.learning_mode ? res.learning_mode : "Belum ditentukan";
-  if (res.physical_location) modeDesc += ` (Lokasi: ${res.physical_location})`;
-  if (res.online_platform) modeDesc += ` (Platform: ${res.online_platform})`;
-  const modeInfo = getBadgeData("study_mode", res.learning_mode, modeDesc);
+  const modeStatusKey = statuses.learning_mode ? "learning_mode" : "study_mode";
+  const hasMode = Boolean(res.learning_mode || res.physical_location || res.online_platform);
+  let modeParts = [];
+  if (res.learning_mode === "ONLINE") modeParts.push("Daring (Online)");
+  else if (res.learning_mode === "OFFLINE") modeParts.push("Tatap Muka (Offline)");
+  else if (res.learning_mode === "HYBRID" || res.learning_mode === "BOTH") modeParts.push("Fleksibel (Online / Offline)");
+  else if (res.learning_mode) modeParts.push(res.learning_mode);
 
-  // 5. Jadwal Ketersediaan
-  let schedDesc = "Jadwal belum disebutkan di percakapan.";
-  let schedStKey = "schedule";
-  let isSchedNeedsReview = false;
-  if (res.availabilities && res.availabilities.length > 0) {
-    const slotsTxt = res.availabilities.map(s => `${s.day_or_date} (${s.start_time}-${s.end_time})`).join(", ");
-    schedDesc = slotsTxt;
-    if ((statuses.schedule || "").toUpperCase() === "NEEDS_REVIEW") {
-      isSchedNeedsReview = true;
-      schedDesc += ` — <span class="text-warning fw-bold">Perkiraan waktu (perlu diperiksa & disesuaikan)</span>`;
-    }
+  let locDetails = [];
+  if (res.physical_location) locDetails.push(res.physical_location);
+  if (res.online_platform) locDetails.push(res.online_platform);
+  if (locDetails.length > 0) {
+    modeParts.push(`(${locDetails.join(", ")})`);
   }
-  const schedInfo = getBadgeData(schedStKey, res.availabilities && res.availabilities.length > 0 ? schedDesc : null, schedDesc);
-  if (isSchedNeedsReview) {
-    schedInfo.badgeClass = "needs-review";
-    schedInfo.badgeLabel = "NEEDS_REVIEW";
+  const modeBadge = resolveStatusBadge(modeStatusKey, hasMode);
+  const modeDisplay = hasMode
+    ? modeParts.join(" ")
+    : `<span class="empty-val">Belum ditentukan</span>`;
+
+  // 5. Jadwal Belajar
+  const schedStatus = (statuses.availability || statuses.schedule || "").toUpperCase();
+  const hasSchedule = Boolean(res.availabilities && res.availabilities.length > 0);
+  let isSchedReview = schedStatus === "NEEDS_REVIEW";
+  let schedFormatted = "";
+
+  if (hasSchedule) {
+    schedFormatted = res.availabilities.map(s => {
+      const day = s.day_or_date || s.day || "Hari belum ditentukan";
+      let time = "";
+      if (s.start_time && s.end_time) {
+        time = `${s.start_time}–${s.end_time}`;
+      } else if (s.start_time) {
+        time = `${s.start_time}`;
+      } else {
+        time = "Waktu belum spesifik";
+        isSchedReview = true;
+      }
+      return `${day} (${time})`;
+    }).join(", ");
   }
+
+  const schedBadge = resolveStatusBadge("availability", hasSchedule, isSchedReview);
+  const schedDisplay = hasSchedule
+    ? schedFormatted
+    : `<span class="empty-val">Belum ditentukan</span>`;
 
   // 6. Ukuran Kelompok
-  const groupDesc = (res.min_group_size && res.max_group_size)
-    ? `${res.min_group_size} – ${res.max_group_size} orang`
-    : "Belum disebutkan di percakapan. Rekomendasi standar 2–4 orang.";
-  const groupInfo = getBadgeData(
-    "group_size",
-    (res.min_group_size && res.max_group_size) ? groupDesc : null,
-    groupDesc
-  );
+  const hasGroup = Boolean(res.min_group_size || res.max_group_size);
+  const groupBadge = resolveStatusBadge("group_size", hasGroup);
+  let groupDisplay = `<span class="empty-val">Belum ditentukan</span>`;
+  if (hasGroup) {
+    if (res.min_group_size && res.max_group_size) {
+      groupDisplay = res.min_group_size === res.max_group_size
+        ? `${res.min_group_size} Orang`
+        : `${res.min_group_size} – ${res.max_group_size} Orang`;
+    } else if (res.max_group_size) {
+      groupDisplay = `Maks. ${res.max_group_size} Orang`;
+    } else if (res.min_group_size) {
+      groupDisplay = `Min. ${res.min_group_size} Orang`;
+    }
+  }
 
   box.innerHTML = `
     <div class="ai-review-card">
       <div class="ai-review-header">
         <div class="ai-review-title">
-          <i class="bi bi-stars text-primary"></i> Transparansi Hasil Ekstraksi AI
+          <i class="bi bi-stars" style="color: #7C3AED;"></i> Ringkasan Kebutuhan Belajar
         </div>
-        <span class="ai-review-badge-top">Day 11.1 Verification</span>
+        <p class="ai-review-sub">Informasi di bawah terisi otomatis dari pesanmu. Silakan periksa atau lengkapi bagian yang belum ada.</p>
       </div>
-      <p class="ai-review-sub">Periksa kelengkapan data sebelum menyimpan. Sistem menandai informasi yang pasti, estimasi, dan yang belum tersedia:</p>
 
       <div class="ai-status-table">
         <div class="ai-status-row">
           <div class="ai-status-info">
-            <div class="ai-status-label"><i class="bi bi-book-half me-1 text-primary"></i> 1. Mata Kuliah</div>
-            <div class="ai-status-val">${courseInfo.note}</div>
+            <div class="ai-status-label"><i class="bi bi-book me-1 text-primary"></i> Mata Kuliah</div>
+            <div class="ai-status-val">${courseDisplay}</div>
           </div>
-          <span class="badge-tag-status ${courseInfo.badgeClass}">${courseInfo.badgeLabel}</span>
+          <span class="badge-tag-status ${courseBadge.badgeClass}">${courseBadge.badgeLabel}</span>
         </div>
 
         <div class="ai-status-row">
           <div class="ai-status-info">
-            <div class="ai-status-label"><i class="bi bi-tag-fill me-1 text-primary"></i> 2. Topik Belajar</div>
-            <div class="ai-status-val">${topicInfo.note}</div>
+            <div class="ai-status-label"><i class="bi bi-tag me-1 text-primary"></i> Topik Belajar</div>
+            <div class="ai-status-val">${topicDisplay}</div>
           </div>
-          <span class="badge-tag-status ${topicInfo.badgeClass}">${topicInfo.badgeLabel}</span>
+          <span class="badge-tag-status ${topicBadge.badgeClass}">${topicBadge.badgeLabel}</span>
         </div>
 
         <div class="ai-status-row">
           <div class="ai-status-info">
-            <div class="ai-status-label"><i class="bi bi-bullseye me-1 text-primary"></i> 3. Tujuan Belajar</div>
-            <div class="ai-status-val">${goalInfo.note}</div>
+            <div class="ai-status-label"><i class="bi bi-bullseye me-1 text-primary"></i> Tujuan Belajar</div>
+            <div class="ai-status-val">${goalDisplay}</div>
           </div>
-          <span class="badge-tag-status ${goalInfo.badgeClass}">${goalInfo.badgeLabel}</span>
+          <span class="badge-tag-status ${goalBadge.badgeClass}">${goalBadge.badgeLabel}</span>
         </div>
 
         <div class="ai-status-row">
           <div class="ai-status-info">
-            <div class="ai-status-label"><i class="bi bi-geo-alt-fill me-1 text-primary"></i> 4. Mode & Lokasi</div>
-            <div class="ai-status-val">${modeInfo.note}</div>
+            <div class="ai-status-label"><i class="bi bi-geo-alt me-1 text-primary"></i> Mode & Lokasi</div>
+            <div class="ai-status-val">${modeDisplay}</div>
           </div>
-          <span class="badge-tag-status ${modeInfo.badgeClass}">${modeInfo.badgeLabel}</span>
+          <span class="badge-tag-status ${modeBadge.badgeClass}">${modeBadge.badgeLabel}</span>
         </div>
 
         <div class="ai-status-row">
           <div class="ai-status-info">
-            <div class="ai-status-label"><i class="bi bi-clock-fill me-1 text-primary"></i> 5. Jadwal Belajar</div>
-            <div class="ai-status-val">${schedInfo.note}</div>
+            <div class="ai-status-label"><i class="bi bi-calendar-event me-1 text-primary"></i> Jadwal Belajar</div>
+            <div class="ai-status-val">${schedDisplay}</div>
           </div>
-          <span class="badge-tag-status ${schedInfo.badgeClass}">${schedInfo.badgeLabel}</span>
+          <span class="badge-tag-status ${schedBadge.badgeClass}">${schedBadge.badgeLabel}</span>
         </div>
 
         <div class="ai-status-row">
           <div class="ai-status-info">
-            <div class="ai-status-label"><i class="bi bi-people-fill me-1 text-primary"></i> 6. Ukuran Kelompok</div>
-            <div class="ai-status-val">${groupInfo.note}</div>
+            <div class="ai-status-label"><i class="bi bi-people me-1 text-primary"></i> Ukuran Kelompok</div>
+            <div class="ai-status-val">${groupDisplay}</div>
           </div>
-          <span class="badge-tag-status ${groupInfo.badgeClass}">${groupInfo.badgeLabel}</span>
+          <span class="badge-tag-status ${groupBadge.badgeClass}">${groupBadge.badgeLabel}</span>
         </div>
       </div>
     </div>
