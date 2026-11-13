@@ -917,7 +917,13 @@ body {
 /* ==============================================================================
    AI STEP TIMELINE LOADER (REFERENSI LAQRIS - TURUN KE BAWAH DENGAN INFORMASI)
    ============================================================================== */
+.loading-timeline-wrapper {
+  padding: 16px 8px 30px 8px;
+  animation: slideDownFade 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 .ai-loading-overlay {
+
   position: fixed;
   inset: 0;
   z-index: 99999;
