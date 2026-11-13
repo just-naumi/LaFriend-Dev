@@ -339,7 +339,7 @@ async function initDashboardPage() {
 
     // Step 1: Pesan Belajar Diterima
     setStepState(1, "active");
-    await delay(750);
+    await delay(380);
 
     // Jalankan request ekstraksi AI ke backend secara paralel di background
     let extractPromise = app.request("/study-intents/extract-ai", {
@@ -353,12 +353,12 @@ async function initDashboardPage() {
     // Step 2: Ekstraksi Span NLP (GLiNER)
     setStepState(1, "completed");
     setStepState(2, "active");
-    await delay(800);
+    await delay(420);
 
     // Step 3: Validasi Kurikulum Telkom University
     setStepState(2, "completed");
     setStepState(3, "active");
-    await delay(850);
+    await delay(450);
 
     // Tunggu hasil ekstraksi dari backend jika belum selesai
     const extractionResult = await extractPromise;
@@ -366,20 +366,25 @@ async function initDashboardPage() {
     // Step 4: Normalisasi Waktu & Lokasi
     setStepState(3, "completed");
     setStepState(4, "active");
-    await delay(750);
+    await delay(380);
 
     // Step 5: Formulir Siap Digunakan
     setStepState(4, "completed");
     setStepState(5, "active");
-    await delay(700);
+    await delay(350);
     setStepState(5, "completed");
-    await delay(600);
+    await delay(300);
 
     // Simpan hasil ekstraksi ke sessionStorage agar form create-intent langsung terisi instan
     if (extractionResult) {
       sessionStorage.setItem("lafriend_ai_extraction_result", JSON.stringify(extractionResult));
     }
     sessionStorage.setItem("lafriend_ai_prompt", promptText);
+
+    // Fade out overlay halus sebelum redirect
+    overlay.style.transition = "opacity 0.22s ease";
+    overlay.style.opacity = "0";
+    await delay(220);
 
     // Alihkan mulus ke formulir create-intent
     window.location.href = "create-intent.html";
@@ -716,7 +721,7 @@ async function extractWithTimelineAnimation(rawText) {
 
     // Step 1: Pesan Belajar Diterima
     setStepState(1, "active");
-    await delay(750);
+    await delay(380);
 
     // Jalankan request ke backend AI secara paralel di background
     let extractPromise = app.request("/study-intents/extract-ai", {
@@ -730,12 +735,12 @@ async function extractWithTimelineAnimation(rawText) {
     // Step 2: Ekstraksi Span NLP (GLiNER)
     setStepState(1, "completed");
     setStepState(2, "active");
-    await delay(800);
+    await delay(420);
 
     // Step 3: Validasi Kurikulum Tel-U
     setStepState(2, "completed");
     setStepState(3, "active");
-    await delay(850);
+    await delay(450);
 
     // Tunggu hasil ekstraksi dari backend jika belum selesai
     const res = await extractPromise;
@@ -743,23 +748,32 @@ async function extractWithTimelineAnimation(rawText) {
     // Step 4: Normalisasi Waktu & Lokasi
     setStepState(3, "completed");
     setStepState(4, "active");
-    await delay(750);
+    await delay(380);
 
     // Step 5: Formulir Siap Digunakan
     setStepState(4, "completed");
     setStepState(5, "active");
-    await delay(700);
+    await delay(350);
     setStepState(5, "completed");
-    await delay(600);
+    await delay(300);
 
     // Terapkan hasil ekstraksi ke formulir
     if (res) {
       applyAIExtractionResult(res);
     }
 
-    // Transisi: Sembunyikan loader dan tampilkan formulir
+    // Fade out loader dan munculkan formulir
+    loaderEl.style.transition = "opacity 0.22s ease";
+    loaderEl.style.opacity = "0";
+    await delay(220);
+
     loaderEl.classList.add("d-none");
     formEl.classList.remove("d-none");
+    formEl.style.opacity = "0";
+    formEl.style.transition = "opacity 0.25s ease";
+    requestAnimationFrame(() => {
+      formEl.style.opacity = "1";
+    });
 
     // Scroll halus ke formulir
     formEl.scrollIntoView({ behavior: "smooth", block: "start" });
