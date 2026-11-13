@@ -1026,9 +1026,10 @@ body {
 .timeline-step {
   position: relative;
   margin-bottom: 22px;
-  opacity: 0.35;
-  transform: translateY(6px);
-  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  opacity: 0;
+  transform: translateY(12px);
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
 }
 
 .timeline-step:last-child {
@@ -1039,6 +1040,7 @@ body {
 .timeline-step.completed {
   opacity: 1;
   transform: translateY(0);
+  pointer-events: auto;
 }
 
 .timeline-node {

@@ -152,6 +152,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Middleware anti-cache untuk memastikan browser selalu memuat versi frontend terbaru
+@app.middleware("http")
+async def add_no_cache_headers(request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if any(path.endswith(ext) for ext in [".html", ".js", ".css", "/"]) or path == "":
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
 # Hubungkan seluruh endpoint API dari routes.py
 app.include_router(api_router)
 
