@@ -2,14 +2,9 @@
   "labels": [
     "course",
     "topic",
-    "exam_prep",
+    "learning_goal",
     "schedule",
     "group_size",
     "study_mode"
-  ],
-  "target_major": "S1 Teknik Komputer (Fakultas Teknik Elektro, Telkom University)",
-  "coverage": "Semester 1 s/d Semester 8 + Mata Kuliah Peminatan",
-  "total_courses": 41,
-  "total_train": 600,
-  "total_val": 120
+  ]
 }

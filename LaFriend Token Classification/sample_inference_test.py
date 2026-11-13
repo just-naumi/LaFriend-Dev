@@ -27,7 +27,7 @@ def run_sample_tests():
         "Bahas tuntas Subnetting IPv4 dan VLSM matkul Jaringan Komputer hari Jumat jam 14:00 s/d 16:30 di kosan Sukabirus"
     ]
 
-    labels = ["course", "topic", "exam_prep", "schedule", "group_size", "study_mode"]
+    labels = ["course", "topic", "learning_goal", "schedule", "group_size", "study_mode"]
 
     for idx, text in enumerate(test_cases, 1):
         print("=" * 75)

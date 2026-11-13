@@ -228,7 +228,9 @@ def match_course_from_database(text_lower: str, db: Session, ai_entities: Option
         "kalkulus": "Kalkulus"
     }
     for alias, full_name in keyword_alias.items():
-        if alias in text_lower:
+        # Gunakan word boundary regex agar alias pendek (ai, ta, rl, ml) tidak salah tangkap substring kata lain
+        pattern = r"\b" + re.escape(alias) + r"\b"
+        if re.search(pattern, text_lower):
             matched = db.query(Course).filter(Course.course_name.ilike(f"%{full_name}%")).first()
             if matched:
                 return matched
@@ -236,44 +238,77 @@ def match_course_from_database(text_lower: str, db: Session, ai_entities: Option
     return None
 
 
-def extract_learning_goal(text_lower: str) -> str:
-    """Mendeteksi tujuan belajar dari teks."""
+def extract_learning_goal(text_lower: str, ai_entities: Optional[List[dict]] = None) -> Optional[str]:
+    """Mendeteksi tujuan belajar dari teks tanpa default palsu."""
+    # 1. Periksa entitas yang diprediksi oleh AI
+    if ai_entities:
+        for ent in ai_entities:
+            if ent.get("label") in ["learning_goal", "goal", "exam_prep"]:
+                txt = ent.get("text", "").lower()
+                for goal, keywords in GOAL_PATTERNS.items():
+                    for kw in keywords:
+                        if kw in txt:
+                            return goal
+
+    # 2. Periksa kecocokan kata kunci langsung dengan word-boundary
     for goal, keywords in GOAL_PATTERNS.items():
         for kw in keywords:
-            if kw in text_lower:
+            if re.search(r"\b" + re.escape(kw) + r"\b", text_lower):
                 return goal
-    return "UNDERSTAND"
+
+    # Tidak ditemukan -> return None (MISSING)
+    return None
 
 
-def extract_collaboration_style(text_lower: str) -> str:
-    """Mendeteksi gaya belajar dari teks."""
+def extract_collaboration_style(text_lower: str) -> Optional[str]:
+    """Mendeteksi gaya belajar dari teks tanpa default palsu."""
     for style, keywords in STYLE_PATTERNS.items():
         for kw in keywords:
-            if kw in text_lower:
+            if re.search(r"\b" + re.escape(kw) + r"\b", text_lower):
                 return style
-    return "DISCUSSION"
+    return None
 
 
-def extract_learning_mode(text_lower: str) -> str:
-    """Mendeteksi mode belajar (offline/online/hybrid)."""
-    if "tidak mau online" in text_lower or "bukan online" in text_lower:
+def extract_learning_mode(text_lower: str, ai_entities: Optional[List[dict]] = None) -> Optional[str]:
+    """Mendeteksi mode belajar (offline/online/hybrid) tanpa default palsu."""
+    if "tidak mau online" in text_lower or "bukan online" in text_lower or "jangan online" in text_lower:
         return "OFFLINE"
-    if "tidak mau offline" in text_lower or "bukan offline" in text_lower:
+    if "tidak mau offline" in text_lower or "bukan offline" in text_lower or "jangan offline" in text_lower:
         return "ONLINE"
 
+    # 1. Cek dari entitas AI
+    if ai_entities:
+        for ent in ai_entities:
+            if ent.get("label") in ["study_mode", "mode"]:
+                txt = ent.get("text", "").lower()
+                for mode, keywords in MODE_PATTERNS.items():
+                    for kw in keywords:
+                        if re.search(r"\b" + re.escape(kw) + r"\b", txt):
+                            return mode
+
+    # 2. Cek kecocokan kata kunci
     for mode, keywords in MODE_PATTERNS.items():
         for kw in keywords:
-            if kw in text_lower:
+            if re.search(r"\b" + re.escape(kw) + r"\b", text_lower):
                 return mode
-    return "OFFLINE"
+
+    return None
 
 
-def extract_group_size(text: str) -> (int, int):
-    """Mendeteksi ukuran kelompok belajar (misal: 2-4 orang, 3 orang)."""
+def extract_group_size(text: str, ai_entities: Optional[List[dict]] = None) -> Tuple[Optional[int], Optional[int]]:
+    """Mendeteksi ukuran kelompok belajar tanpa default palsu."""
+    # 1. Cek dari entitas AI jika ada
+    target_text = text
+    if ai_entities:
+        for ent in ai_entities:
+            if ent.get("label") in ["group_size", "group"]:
+                target_text = ent.get("text", text)
+                break
+
     # Pola rentang: "2 sampai 4 orang" atau "2-4 orang"
     range_match = re.search(
-        r"(?:kelompok|group)?\s*(\d+)\s*(?:sampai|s/d|-|hingga)\s*(\d+)\s*(?:orang|mahasiswa|anggota|anak|teman)",
-        text,
+        r"(?:kelompok|group)?\s*(\d+)\s*(?:sampai|s/d|-|hingga)\s*(\d+)\s*(?:orang|mahasiswa|anggota|anak|teman)?",
+        target_text,
         re.IGNORECASE
     )
     if range_match:
@@ -281,44 +316,37 @@ def extract_group_size(text: str) -> (int, int):
         val2 = int(range_match.group(2))
         return min(val1, val2), max(val1, val2)
 
-    group_range_match = re.search(
-        r"(?:kelompok|group)\s*(\d+)\s*(?:sampai|s/d|-|hingga)\s*(\d+)",
-        text,
-        re.IGNORECASE
-    )
-    if group_range_match:
-        val1 = int(group_range_match.group(1))
-        val2 = int(group_range_match.group(2))
-        return min(val1, val2), max(val1, val2)
-
     # Pola angka tunggal: "3 orang", "kelompok 4", "bertiga"
-    single_match = re.search(r"(\d+)\s*(?:orang|mahasiswa|anggota)", text, re.IGNORECASE)
+    single_match = re.search(r"(\d+)\s*(?:orang|mahasiswa|anggota)", target_text, re.IGNORECASE)
     if single_match:
         val = int(single_match.group(1))
         return val, val
 
-    if "berdua" in text.lower():
+    if "berdua" in target_text.lower():
         return 2, 2
-    if "bertiga" in text.lower():
+    if "bertiga" in target_text.lower():
         return 3, 3
-    if "berempat" in text.lower():
+    if "berempat" in target_text.lower():
         return 4, 4
 
-    return 2, 4
+    # Jika tidak disebutkan, kembalikan None (MISSING)
+    return None, None
 
 
-def extract_availabilities(text: str) -> List[Dict[str, Any]]:
-    """Mengekstrak hari dan jam ketersediaan waktu."""
+def extract_availabilities(text: str, ai_entities: Optional[List[dict]] = None) -> List[Dict[str, Any]]:
+    """Mengekstrak hari dan jam ketersediaan waktu. Mengembalikan list kosong jika tidak ada."""
     results = []
     text_lower = text.lower()
 
+    # 1. Deteksi hari
     found_days = []
     for day in DAYS_LIST:
-        if day.lower() in text_lower:
+        if re.search(r"\b" + re.escape(day.lower()) + r"\b", text_lower):
             found_days.append(day)
 
-    start_time = "09:00"
-    end_time = "12:00"
+    # 2. Deteksi jam
+    start_time = None
+    end_time = None
 
     time_match = re.search(r"(?:jam|pukul)?\s*(\d{1,2})[.:](\d{2})?\s*(?:sampai|s/d|-|hingga)\s*(?:jam|pukul)?\s*(\d{1,2})[.:]?(\d{2})?", text, re.IGNORECASE)
     if time_match:
@@ -326,7 +354,6 @@ def extract_availabilities(text: str) -> List[Dict[str, Any]]:
         s_min = time_match.group(2) or "00"
         e_hour = int(time_match.group(3))
         e_min = time_match.group(4) or "00"
-
         start_time = f"{s_hour:02d}:{s_min}"
         end_time = f"{e_hour:02d}:{e_min}"
     else:
@@ -344,29 +371,33 @@ def extract_availabilities(text: str) -> List[Dict[str, Any]]:
                 start_time = f"{s_hour:02d}:{s_min}"
                 end_time = f"{(s_hour + 2) % 24:02d}:{s_min}"
 
-    if found_days:
-        for idx, d in enumerate(found_days):
-            results.append({
-                "day_or_date": d,
-                "start_time": start_time,
-                "end_time": end_time,
-                "priority_rank": idx + 1
-            })
-    else:
+    # Jika tidak ada hari maupun jam yang ditemukan, KOSONGKAN (jangan karang jadwal palsu)
+    if not found_days and not start_time:
+        return []
+
+    # Jika ada hari tapi tidak ada jam, gunakan jam standar 2 jam
+    if not start_time:
+        start_time = "09:00"
+        end_time = "11:00"
+
+    # Jika ada jam tapi tidak ada hari, default ke hari ini/besok atau kosongkan
+    if not found_days:
+        found_days = ["Fleksibel"]
+
+    for idx, d in enumerate(found_days):
         results.append({
-            "day_or_date": "Rabu",
+            "day_or_date": d,
             "start_time": start_time,
             "end_time": end_time,
-            "priority_rank": 1
+            "priority_rank": idx + 1
         })
 
     return results
 
 
-def extract_topics(raw_text: str, course_name: Optional[str], ai_entities: Optional[List[dict]] = None) -> str:
-    """Mengekstrak topik belajar dengan cerdas memadukan pemahaman konteks dan entitas AI."""
+def extract_topics(raw_text: str, course_name: Optional[str], ai_entities: Optional[List[dict]] = None) -> Optional[str]:
+    """Mengekstrak topik materi belajar tanpa default palsu."""
     # 1. Coba pola kalimat natural mahasiswa terlebih dahulu:
-    # Contoh: "belajar Binary Tree dan AVL Tree buat..." -> "Binary Tree dan AVL Tree"
     match = re.search(
         r"(?:belajar|materi|topik|khususnya|tentang|bahas|diskusi)\s+([^.,;]+?)(?:\s+(?:untuk|buat|karena|pada|secara|hari|jam|kelompok|bareng|persiapan)|[.,;]|$)",
         raw_text,
@@ -386,7 +417,7 @@ def extract_topics(raw_text: str, course_name: Optional[str], ai_entities: Optio
         for ent in ai_entities:
             label = ent.get("label", "")
             text_ent = ent.get("text", "").strip()
-            if label in ["study topic", "topic"]:
+            if label in ["topic", "study topic"]:
                 if course_name and text_ent.lower() in course_name.lower():
                     continue
                 if len(text_ent) >= 3:
@@ -394,7 +425,7 @@ def extract_topics(raw_text: str, course_name: Optional[str], ai_entities: Optio
         if topic_parts:
             return ", ".join(dict.fromkeys(topic_parts))
 
-    return "Pembahasan Materi & Latihan Soal"
+    return None
 
 
 # ==============================================================================
@@ -415,9 +446,10 @@ def process_chat_for_study_intent(raw_text: str, db: Session) -> Dict[str, Any]:
     try:
         model = get_gliner_model()
         if model is not None:
+            # Taxonomy seragam 100% konsisten dengan training & dataset
             raw_preds = model.predict_entities(
                 cleaned_text,
-                ["course", "study topic", "learning goal", "schedule", "group size", "study mode"],
+                ["course", "topic", "learning_goal", "schedule", "group_size", "study_mode"],
                 threshold=0.20
             )
             ai_entities = [
@@ -442,20 +474,31 @@ def process_chat_for_study_intent(raw_text: str, db: Session) -> Dict[str, Any]:
     # 3. Deteksi Topik Materi (Dipadukan dengan AI Entities)
     topics = extract_topics(cleaned_text, course_name, ai_entities)
 
-    # 4. Deteksi Parameter Tujuan, Gaya, Mode, dan Ukuran Grup
-    learning_goal = extract_learning_goal(text_lower)
+    # 4. Deteksi Parameter Tujuan, Gaya, Mode, dan Ukuran Grup (Tanpa Default Palsu)
+    learning_goal = extract_learning_goal(text_lower, ai_entities)
     collaboration_style = extract_collaboration_style(text_lower)
-    learning_mode = extract_learning_mode(text_lower)
-    min_size, max_size = extract_group_size(cleaned_text)
+    learning_mode = extract_learning_mode(text_lower, ai_entities)
+    min_size, max_size = extract_group_size(cleaned_text, ai_entities)
 
-    # 5. Deteksi Jadwal Waktu Ketersediaan
-    availabilities = extract_availabilities(cleaned_text)
+    # 5. Deteksi Jadwal Waktu Ketersediaan (Kosong jika tidak disebut)
+    availabilities = extract_availabilities(cleaned_text, ai_entities)
 
-    # 6. Rentang Tanggal Default: Hari ini s/d 7 hari ke depan
+    # 6. Status parameter (Transparansi: EXTRACTED vs MISSING)
+    extraction_status = {
+        "course": "EXTRACTED" if course_id else "MISSING",
+        "topics": "EXTRACTED" if topics else "MISSING",
+        "learning_goal": "EXTRACTED" if learning_goal else "MISSING",
+        "collaboration_style": "EXTRACTED" if collaboration_style else "MISSING",
+        "learning_mode": "EXTRACTED" if learning_mode else "MISSING",
+        "group_size": "EXTRACTED" if min_size is not None else "MISSING",
+        "schedule": "EXTRACTED" if len(availabilities) > 0 else "MISSING",
+    }
+
+    # 7. Rentang Tanggal
     today = datetime.now().strftime("%Y-%m-%d")
     next_week = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
 
-    # 7. Format data balasan terstruktur
+    # 8. Format data balasan terstruktur
     return {
         "status": "success",
         "course_id": course_id,
@@ -468,6 +511,12 @@ def process_chat_for_study_intent(raw_text: str, db: Session) -> Dict[str, Any]:
         "latest_date": next_week,
         "min_group_size": min_size,
         "max_group_size": max_size,
+        "availabilities": availabilities,
+        "extraction_status": extraction_status,
+        "ai_model": model_name_tag,
+        "ai_raw_entities": ai_entities,
+        "message": "Informasi berhasil diproses dengan aman (parameter tidak disebut dibiarkan kosong)."
+    }
         "availabilities": availabilities,
         "extracted_summary": {
             "course": "EXTRACTED" if course else "MISSING",

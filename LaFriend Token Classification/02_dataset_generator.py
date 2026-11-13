@@ -1,11 +1,18 @@
 """
 ==============================================================================
-02_dataset_generator.py - Pembuat Dataset Token Classification (NER) LaFriend
+02_dataset_generator.py - Pembuat Dataset Span-Level NER / Entity Extraction LaFriend
 Domain Fokus: S1 Teknik Komputer - Semester 1 s/d 8 (Telkom University)
 ==============================================================================
-Script ini menyusun dataset token classification / span-level NER lengkap
-untuk seluruh mata kuliah S1 Teknik Komputer Fakultas Teknik Elektro (FTE)
-Universitas Telkom dari Semester 1 hingga Semester 8 beserta mata kuliah peminatan.
+Pembaruan Sesuai Feedback Revisi:
+1. Taxonomy Label Terstandarisasi 100% Konsisten:
+   ["course", "topic", "learning_goal", "schedule", "group_size", "study_mode"]
+2. Pemisahan Total Template Training vs Validation:
+   - Template Validasi menggunakan struktur sintaks dan kosakata yang berbeda
+     untuk benar-benar menguji generalisasi model terhadap unseen sentence patterns.
+3. Gaya Bahasa Mahasiswa Tel-U Asli & Alami:
+   - Mencakup kalimat tanya, kalimat informal/gaul, kalimat tidak lengkap (hanya matkul+topik,
+     atau matkul+jadwal), spot populer kampus (TULT, Oplib, Selasar FTE, Sukabirus),
+     serta variasi tujuan belajar (UAS, UTS, Tubes, Kuis, Latihan Soal, Pemahaman).
 ==============================================================================
 """
 
@@ -60,10 +67,10 @@ COURSES_DATA = [
     {
         "semester": 1,
         "name": "Logika Matematika",
-        "aliases": ["logika matematika", "logmat", "logika mat"],
+        "aliases": ["logmat", "logika matematika", "discrete logic"],
         "topics": [
-            "Tabel Kebenaran Proposisi", "Tautologi dan Kontradiksi", "Hukum Ekuivalensi Logika",
-            "Kuantor Universal Eksistensial", "Aturan Inferensi Modus Ponens", "Pembuktian Matematis Kontradiksi"
+            "Proposisi dan Tabel Kebenaran", "Ekuivalensi Logis Hukum De Morgan", "Kuantor Universal Eksistensial",
+            "Metode Pembuktian Langsung Kontradiksi", "Aljabar Boolean Penyederhanaan Logika", "Gerbang Logika Dasar"
         ]
     },
     {
@@ -71,8 +78,8 @@ COURSES_DATA = [
         "name": "Pengantar Rekayasa dan Desain",
         "aliases": ["prd", "rekayasa dan desain", "pengantar rekayasa"],
         "topics": [
-            "Engineering Design Process", "Problem Definition Need Analysis", "Pembuatan Prototipe Produk",
-            "Analisis Kelayakan Teknis", "Dokumentasi Teknis Capstone"
+            "Engineering Design Process", "Identifikasi Kebutuhan Pengguna", "Brainstorming Konsep Solusi",
+            "Rapid Prototyping Pembuatan Mockup", "Analisis Kelayakan Teknis", "Presentasi Pitching Rekayasa"
         ]
     },
 
@@ -82,9 +89,8 @@ COURSES_DATA = [
         "name": "Kalkulus 2",
         "aliases": ["kalkulus 2", "kalkul 2"],
         "topics": [
-            "Integral Parsial dan Substitusi", "Pecahan Parsial Aljabar", "Integral Luas Daerah",
-            "Volume Benda Putar Cakram Tabung", "Integral Tak Wajar", "Uji Konvergensi Deret Tak Hingga",
-            "Deret Taylor dan Maclaurin"
+            "Teknik Integrasi Parsial", "Integrasi Pecahan Parsial", "Integral Tak Wajar",
+            "Deret Tak Hingga Uji Konvergensi", "Deret Taylor dan Maclaurin", "Persamaan Parametrik Koordinat Polar"
         ]
     },
     {
@@ -92,37 +98,38 @@ COURSES_DATA = [
         "name": "Fisika 2",
         "aliases": ["fisika 2", "fisdas 2", "fisika dasar 2"],
         "topics": [
-            "Hukum Coulomb dan Gaya Elektrostatik", "Medan Listrik dan Hukum Gauss", "Potensial Listrik dan Kapasitor",
-            "Hukum Ohm dan Hukum Kirchhoff", "Medan Magnetik dan Gaya Lorentz", "Hukum Faraday Induksi Elektromagnetik",
+            "Hukum Coulomb Medan Listrik", "Hukum Gauss Fluks Listrik", "Potensial Listrik dan Kapasitansi",
+            "Arus Hambatan Hukum Ohm", "Medan Magnet Hukum Biot Savart", "Induksi Elektromagnetik Hukum Faraday",
             "Rangkaian Arus Bolak Balik RLC"
         ]
     },
     {
         "semester": 2,
-        "name": "Algoritma dan Pemrograman",
-        "aliases": ["alpro", "algoritma pemrograman", "algoritma"],
+        "name": "Algoritma Pemrograman",
+        "aliases": ["alpro", "algoritma pemrograman", "algoritma dan pemrograman"],
         "topics": [
-            "Percabangan dan Looping", "Fungsi dan Prosedur Parameter", "Rekursif C++",
-            "Array 1D dan 2D Multidimensi", "Binary Search", "Bubble dan Selection Sort",
-            "Merge Sort dan Quick Sort", "Pointer dan Alokasi Memori"
+            "Tipe Data Variabel Ekspresi C++", "Percabangan If Else Switch Case", "Perulangan For While Do While",
+            "Fungsi Modularitas Pass by Reference", "Array 1 Dimensi dan 2 Dimensi", "Pointer dan Alokasi Memori Dinamis",
+            "Rekursi Fibonacci Faktorial", "Sorting Bubble Selection Insertion", "Searching Linear Binary Search"
         ]
     },
     {
         "semester": 2,
         "name": "Matematika Diskrit",
-        "aliases": ["matdis", "matematika diskrit", "diskrit"],
+        "aliases": ["matdis", "matematika diskrit", "discrete math"],
         "topics": [
-            "Relasi Ekuivalensi dan Fungsi", "Prinsip Induksi Matematika", "Kombinatorika dan Permutasi",
-            "Pigeonhole Principle", "Teori Graf Lintasan Euler Hamilton", "Pohon Rentang Spanning Tree"
+            "Teori Himpunan Kardinalitas", "Relasi Refleksif Simetris Transitif", "Fungsi Injektif Surjektif Bijektif",
+            "Prinsip Induksi Matematika", "Kombinatorika Permutasi Kombinasi", "Pigeonhole Principle",
+            "Teori Graf Derajat Pohon Merentang Spanning Tree"
         ]
     },
     {
         "semester": 2,
         "name": "Jaringan Komputer dan Data",
-        "aliases": ["jarkom data", "pengantar jarkom", "dasar jarkom"],
+        "aliases": ["jarkom data", "jaringan data", "pengantar jaringan"],
         "topics": [
-            "Model OSI 7 Layer TCP IP", "Media Transmisi dan Topologi", "Pengalamatan IPv4 Subnetting",
-            "Data Link Layer Framing", "Protokol DNS HTTP FTP", "Analisis Paket Jaringan"
+            "Model Referensi OSI 7 Layer TCP IP", "Transmisi Media Fisik Guided Unguided", "Framing Data Link Error Detection CRC",
+            "Subnetting IPv4 CIDR VLSM", "Protokol ARP ICMP Ping Traceroute", "Dasar Routing Statis Dinamis"
         ]
     },
 
@@ -130,58 +137,63 @@ COURSES_DATA = [
     {
         "semester": 3,
         "name": "Struktur Data",
-        "aliases": ["strukdat", "struktur data"],
+        "aliases": ["strukdat", "struktur data", "data structures"],
         "topics": [
-            "Singly dan Doubly Linked List", "Stack dan Evaluasi Postfix", "Queue dan Priority Queue",
-            "Binary Search Tree BST", "AVL Tree Rotation", "Red-Black Tree",
-            "Heap Sort Max Min Heap", "Graph Dijkstra Shortest Path", "Hash Table dan Collision Handling"
+            "Single dan Double Linked List", "Stack LIFO Evaluasi Polisi Posfix", "Queue FIFO Circular Queue Deque",
+            "Binary Tree Traversal Inorder Preorder Postorder", "Binary Search Tree BST Search Insert Delete",
+            "AVL Tree Self Balancing Rotation", "Heap Priority Queue HeapSort", "Graph Adjacency List BFS DFS",
+            "Algoritma Djikstra Shortest Path", "Hash Table Collision Resolution Chaining Open Addressing"
         ]
     },
     {
         "semester": 3,
         "name": "Keamanan Jaringan",
-        "aliases": ["kamjar", "keamanan jaringan", "kamsib"],
+        "aliases": ["kamjar", "keamanan jaringan", "network security"],
         "topics": [
-            "Prinsip Keamanan CIA Triad", "Kriptografi Simetris AES", "Kriptografi Asimetris RSA ECC",
-            "Hash SHA-256 Digital Signature", "Arsitektur Firewall iptables", "Sistem IDS IPS Snort",
-            "Virtual Private Network VPN IPsec"
+            "Kriptografi Simetris AES DES", "Kriptografi Asimetris RSA ECC", "Hash Function MD5 SHA Digital Signature",
+            "Firewall Packet Filtering Stateful Inspection", "Intrusion Detection System Snort",
+            "Virtual Private Network OpenVPN WireGuard", "Analisis Paket Wireshark Network Forensics"
         ]
     },
     {
         "semester": 3,
         "name": "Rangkaian Listrik",
-        "aliases": ["rl", "rangkaian listrik"],
+        "aliases": ["rl", "rangkaian listrik", "electric circuits"],
         "topics": [
-            "Hukum Kirchhoff KCL KVL", "Analisis Node dan Mesh", "Teorema Thevenin Norton Superposisi",
-            "Rangkaian Transien RC RL", "Rangkaian Transien RLC", "Analisis Fasor AC dan Impedansi",
-            "Perhitungan Faktor Daya"
+            "Hukum Kirchhoff KCL KVL", "Metode Analisis Node dan Mesh", "Teorema Thevenin dan Norton",
+            "Superposisi dan Transfer Daya Maksimum", "Rangkaian Transien Orde Satu RC RL",
+            "Rangkaian Orde Dua RLC Seri Paralel", "Analisis Fasor Daya Nyata Reaktif Kompleks"
         ]
     },
     {
         "semester": 3,
         "name": "Persamaan Diferensial",
-        "aliases": ["persamaan diferensial", "pdl", "pers diff"],
+        "aliases": ["pdl", "persamaan diferensial", "pers diff"],
         "topics": [
-            "PD Pemisahan Variabel", "PD Eksak dan Faktor Integrasi", "PD Linier Orde Dua Homogen",
-            "Metode Koefisien Tak Tentu", "Transformasi Laplace Rangkaian Listrik", "Invers Laplace"
+            "PD Orde Satu Variabel Terpisah", "PD Linier Faktor Integrasi", "PD Eksak dan Faktor Pengali",
+            "PD Linier Homogen Non Homogen Orde Dua", "Metode Koefisien Tak Tentu Variasi Parameter",
+            "Transformasi Laplace Aplikasi Rangkaian Listrik"
         ]
     },
     {
         "semester": 3,
         "name": "Probabilitas dan Statistika",
-        "aliases": ["probstat", "probabilitas statistika"],
+        "aliases": ["probstat", "probabilitas dan statistika", "statistika"],
         "topics": [
-            "Peluang Bersyarat Teorema Bayes", "Distribusi Binomial dan Poisson", "Distribusi Normal Gaussian",
-            "Nilai Harapan dan Variansi", "Teorema Limit Pusat", "Uji Hipotesis t-Test", "Regresi Linier"
+            "Ruang Sampel Probabilitas Bersyarat Teorema Bayes", "Variabel Acak Diskrit Kontinu",
+            "Distribusi Binomial Poisson Normal Gaussian", "Nilai Harapan Ekspektasi Variansi",
+            "Central Limit Theorem", "Uji Hipotesis Nilai Rata-rata Uji T Z"
         ]
     },
     {
         "semester": 3,
         "name": "Aljabar Linier",
-        "aliases": ["alin", "aljabar linier"],
+        "aliases": ["alin", "aljabar linier", "linear algebra"],
         "topics": [
-            "Eliminasi Gauss Jordan SPL", "Operasi Matriks dan Determinan", "Invers Matriks Kofaktor",
-            "Vektor Bebas Linier Basis Dimensi", "Transformasi Linier Matriks", "Nilai Eigen dan Vektor Eigen"
+            "Sistem Persamaan Linier Eliminasi Gauss Jordan", "Operasi Matriks Determinan Invers",
+            "Ruang Vektor Subruang Kombinasi Linier", "Basis dan Dimensi Ruang Vektor",
+            "Transformasi Linier Matriks Transformasi", "Eigenvalue Eigenvector Diagonalisasi Matriks",
+            "Dekomposisi Nilai Singular SVD"
         ]
     },
 
@@ -191,55 +203,59 @@ COURSES_DATA = [
         "name": "Sistem Digital",
         "aliases": ["sisdig", "sistem digital", "teknik digital"],
         "topics": [
-            "Penyederhanaan Karnaugh Map K-Map", "Rangkaian Multiplexer Decoder", "Flip-Flop JK D Flip-Flop",
-            "Perancangan FSM Mealy Moore", "Register Geser Shift Register", "Synchronous Counter Biner",
-            "Perancangan Hardware VHDL"
+            "Penyederhanaan Peta Karnaugh K-Map", "Rangkaian Kombinasional Adder Mux Demux Decoder",
+            "Latch dan Flip Flop SR D JK T", "Register Shift Register Penghitung Counter",
+            "Finite State Machine FSM Mealy Moore", "Hardware Description Language VHDL Verilog Dasar"
         ]
     },
     {
         "semester": 4,
         "name": "Elektronika",
-        "aliases": ["elka", "elektronika"],
+        "aliases": ["elka", "elektronika", "elektronika analog"],
         "topics": [
-            "Karakteristik Dioda Penyearah", "Dioda Zener Regulator", "Transistor BJT Bias Penguat",
-            "MOSFET Switching Digital", "Operational Amplifier Op-Amp Inverting", "Komparator Tegangan"
+            "Karakteristik Dioda P-N Rectifier", "Bipolar Junction Transistor BJT Bias Karakteristik",
+            "MOSFET Penguat Pengalih Switching", "Operational Amplifier Op-Amp Inverting Non-Inverting",
+            "Filter Aktif Low Pass High Pass", "Rangkaian Regulator Tegangan Linier Switching"
         ]
     },
     {
         "semester": 4,
         "name": "Komputasi Awan",
-        "aliases": ["komputasi awan", "cloud computing", "cloud"],
+        "aliases": ["cloud", "komputasi awan", "cloud computing"],
         "topics": [
-            "Layanan IaaS PaaS SaaS", "Deployment Public Private Hybrid", "Virtualisasi Hypervisor",
-            "Kontainerisasi Dockerfile", "Docker Compose Multi-Container", "Layanan AWS EC2 S3 VPC",
-            "Serverless Lambda Computing"
+            "Model Layanan IaaS PaaS SaaS", "Arsitektur Virtualisasi Hypervisor KVM",
+            "Containerisasi Docker Dockerfile Container Runtime", "Orkestrasi Container Kubernetes Pods Deployment",
+            "Cloud Storage S3 Object Storage", "Serverless Computing AWS Lambda Cloud Function"
         ]
     },
     {
         "semester": 4,
         "name": "Pengolahan Sinyal Waktu Kontinu",
-        "aliases": ["sinyal kontinu", "pengolahan sinyal", "sinsis"],
+        "aliases": ["sinyal kontinu", "pengolahan sinyal", "sinyal dan sistem"],
         "topics": [
-            "Sistem LTI dan Linieritas", "Integral Konvolusi Kontinu", "Deret Fourier Sinyal Periodik",
-            "Transformasi Fourier CTFT Spektrum", "Respons Frekuensi Filter Analog"
+            "Klasifikasi Sinyal Periodik Energi Daya", "Sistem Linier Tak Ubah Waktu LTI Konvolusi Kontinu",
+            "Deret Fourier Sinyal Periodik", "Transformasi Fourier Sinyal Waktu Kontinu FT",
+            "Respon Frekuensi Filter Analog", "Sampling Teorema Nyquist Rekonstruksi Sinyal"
         ]
     },
     {
         "semester": 4,
         "name": "Analisis dan Desain Sistem",
-        "aliases": ["ads", "analisis desain sistem", "rpl"],
+        "aliases": ["ads", "analisis dan desain sistem", "analisis desain"],
         "topics": [
-            "SDLC Agile Scrum Sprint", "UML Use Case Diagram", "Sequence Diagram dan Class Diagram",
-            "Arsitektur Microservices", "Perancangan UI UX Wireframe", "Pengujian Blackbox Whitebox"
+            "Analisis Kebutuhan Fungsional Non Fungsional", "Pemodelan Use Case Diagram Activity Diagram",
+            "Class Diagram Sequence Diagram", "Arsitektur Sistem Microservices Monolith",
+            "Desain Database Konseptual Logikal ERD", "Perancangan Antarmuka UI UX Wireframing"
         ]
     },
     {
         "semester": 4,
         "name": "Perancangan Catu Daya",
-        "aliases": ["catu daya", "power supply"],
+        "aliases": ["catu daya", "power supply", "perancangan catu daya"],
         "topics": [
-            "Penyearah Gelombang Penuh", "Regulator Tegangan Linier LM7805", "SMPS Buck Boost Converter",
-            "Proteksi Overcurrent Short Circuit", "Desain Layout PCB KiCAD"
+            "Penyearah Gelombang Penuh Trafo", "Filter Kapasitor Ripple Voltage",
+            "Linear Voltage Regulator 78XX LM317", "Switch Mode Power Supply SMPS Buck Boost Converter",
+            "Manajemen Baterai BMS Charging Discharging", "Proteksi Overvoltage Overcurrent Thermal"
         ]
     },
 
@@ -249,89 +265,93 @@ COURSES_DATA = [
         "name": "Organisasi dan Arsitektur Komputer",
         "aliases": ["orkom", "arkom", "arsitektur komputer"],
         "topics": [
-            "Arsitektur Von Neumann Harvard", "CPU Datapath dan Control Unit", "Set Instruksi MIPS RISC-V",
-            "Instruction Pipelining Hazard", "Branch Prediction", "Cache Memory Direct Set-Associative",
-            "Memori Paging TLB Virtual", "Interrupt DMA Interfacing"
+            "Instruction Set Architecture ISA RISC vs CISC", "Format Instruksi Bahasa Assembly MIPS x86",
+            "Datapath Single Cycle Multi Cycle", "Pipelining Hazard Data Control Structural",
+            "Hierarki Memori Cache Mapping Hit Rate Miss Penalty", "Virtual Memory Paging TLB Translation",
+            "Bus System Interkoneksi Peripheral PCI PCIe"
         ]
     },
     {
         "semester": 5,
         "name": "Sistem Mikroprosesor",
-        "aliases": ["sismin", "mikroprosesor", "mikrokontroler"],
+        "aliases": ["sismin", "sistem mikroprosesor", "mikroprosesor", "mikrokontroler"],
         "topics": [
-            "Arsitektur Register 8086", "Segmentasi Memori 20-bit", "Pemrograman Assembly x86",
-            "Arsitektur AVR ATMega ARM", "Register Port DDR PORT PIN", "Timer Counter PWM Hardware",
-            "External Interrupt ISR", "Interfacing Keypad LCD 16x2"
+            "Arsitektur Mikrokontroler ARM Cortex STM32 ESP32", "Interfacing GPIO Input Output Button LED",
+            "Analog to Digital Converter ADC DAC Sampling", "Timer Counter PWM Motor Control",
+            "Komunikasi Serial UART I2C SPI", "Interrupt Service Routine ISR Eksternal Internal"
         ]
     },
     {
         "semester": 5,
         "name": "Basis Data",
-        "aliases": ["basdat", "basis data"],
+        "aliases": ["basdat", "basis data", "database"],
         "topics": [
-            "Desain ERD Notasi Crow Foot", "Normalisasi 1NF sampai BCNF", "Query SQL JOIN Inner Left",
-            "Subquery Correlated", "Fungsi Agregasi GROUP BY HAVING", "Indexing B-Tree",
-            "Transaksi ACID DBMS", "NoSQL MongoDB Dokumen"
+            "Model Relasional Skema Tabel Kunci Relasi", "Normalisasi Database 1NF 2NF 3NF BCNF",
+            "SQL DDL DML DCL Query Kompleks Join Subquery", "Indexing B-Tree Query Optimization",
+            "Transaksi Database ACID Concurrency Control Locking", "NoSQL Document Store MongoDB Redis Cache"
         ]
     },
     {
         "semester": 5,
         "name": "Sistem Jaringan Lanjut",
-        "aliases": ["jarkom lanjut", "routing switching", "jarkom 2"],
+        "aliases": ["jarkom lanjut", "jaringan lanjut", "routing switching"],
         "topics": [
-            "Protokol Spanning Tree STP RSTP", "Link Aggregation EtherChannel", "Inter-VLAN Routing Router Stick",
-            "Dynamic Routing OSPF Multi-Area", "Konfigurasi BGP EIGRP", "NAT Overload PAT",
-            "Manajemen Jaringan SNMP"
+            "Protokol Routing Dinamis OSPF Single Multi Area", "Border Gateway Protocol BGP Interdomain Routing",
+            "Virtual LAN VLAN Trunking Inter VLAN Routing", "Spanning Tree Protocol STP RSTP Loop Prevention",
+            "Network Address Translation NAT PAT Port Forwarding", "Software Defined Networking SDN OpenFlow Arsitektur"
         ]
     },
     {
         "semester": 5,
         "name": "Pengolahan Sinyal Digital",
-        "aliases": ["dsp", "sinyal digital", "pengolahan sinyal digital"],
+        "aliases": ["dsp", "pengolahan sinyal digital", "sinyal digital"],
         "topics": [
-            "Sampling Nyquist Shannon Aliasing", "Konvolusi Diskrit Sinyal", "Transformasi Z dan ROC",
-            "Discrete Fourier Transform DFT", "Fast Fourier Transform FFT", "Perancangan Filter Digital FIR IIR"
+            "Transformasi Fourier Diskrit DFT dan FFT", "Transformasi-Z Region of Convergence ROC",
+            "Perancangan Filter Digital Finite Impulse Response FIR", "Perancangan Filter Infinite Impulse Response IIR",
+            "Kuantisasi Efek Panjang Kata Terbatas", "Implementasi Real Time DSP Audio Filtering"
         ]
     },
 
     # --- SEMESTER 6 ---
     {
         "semester": 6,
-        "name": "Sistem Tertanam & IoT",
-        "aliases": ["sisbed", "embedded", "sistem tertanam", "embedded iot"],
+        "name": "Sistem Tertanam",
+        "aliases": ["sisbed", "sistem tertanam", "embedded system"],
         "topics": [
-            "Arsitektur SoC STM32 ESP32", "Protokol Bus I2C Master-Slave", "Protokol SPI Full Duplex",
-            "Perekaman ADC Sensor Analog", "Aktuator Relay Motor DC PWM", "Protokol IoT MQTT Publish Subscribe",
-            "Komunikasi CoAP RESTful", "Sleep Mode Deep Sleep ESP32", "Dashboard ThingsBoard Node-RED"
+            "Real Time Operating System RTOS FreeRTOS Task Scheduling", "Sinkronisasi Task Semaphore Mutex Queue",
+            "Device Driver Development SPI I2C Sensor Interfacing", "Power Optimization Sleep Modes Low Power IoT",
+            "Protokol IoT MQTT CoAP HTTP REST", "Over The Air OTA Firmware Update ESP32",
+            "Hardware Software Co-Design Pembuatan PCB Kicad"
         ]
     },
     {
         "semester": 6,
-        "name": "Sistem Operasi & RTOS",
-        "aliases": ["sisop", "rtos", "sistem operasi rtos", "sistem operasi"],
+        "name": "Sistem Operasi",
+        "aliases": ["sisop", "sistem operasi", "operating system"],
         "topics": [
-            "Hard Soft Real-Time Operating System", "Penjadwalan RMS dan EDF", "Task Management FreeRTOS",
-            "Task Synchronization Message Queue", "Counting Semaphore dan Mutex", "Masalah Priority Inversion Protocol",
-            "Software Timers FreeRTOS", "Manajemen Memori Heap FreeRTOS"
+            "Manajemen Proses PCB Thread Multithreading", "Algoritma Penjadwalan CPU FCFS SJF Round Robin",
+            "Sinkronisasi Proses Critical Section Peterson Semaphor", "Deadlock Prevention Avoidance Banker Algorithm",
+            "Manajemen Memori Paging Segmentasi Page Replacement LRU", "Sistem Berkas File System NTFS EXT4 Inode Structure"
         ]
     },
     {
         "semester": 6,
-        "name": "Kecerdasan Buatan & Machine Learning",
-        "aliases": ["ai", "machine learning", "ml", "kecerdasan buatan"],
+        "name": "Kecerdasan Buatan",
+        "aliases": ["ai", "kecerdasan buatan", "artificial intelligence", "ml"],
         "topics": [
-            "Algoritma Pencarian A Star Heuristik", "Supervised Learning Linear Regression", "Klasifikasi Decision Tree Random Forest",
-            "Support Vector Machine SVM", "Unsupervised Learning K-Means Clustering", "Neural Network Multi-Layer Perceptron",
-            "Backpropagation Gradient Descent", "Metrik Evaluasi F1-Score Confusion Matrix"
+            "Algoritma Pencarian A Star Minimax Alpha Beta Pruning", "Supervised Learning Regresi Linier Logistik",
+            "Klasifikasi Decision Tree Random Forest SVM", "Unsupervised Learning K-Means Clustering PCA",
+            "Dasar Artificial Neural Network Backpropagation", "Evaluasi Model Confusion Matrix Precision Recall F1"
         ]
     },
     {
         "semester": 6,
         "name": "Sistem Kendali dan Robotika",
-        "aliases": ["robotika", "sistem kendali", "kendali robotika"],
+        "aliases": ["robotika", "sistem kendali", "kontrol sistem"],
         "topics": [
-            "Fungsi Alih Transfer Function", "Analisis Kestabilan Routh-Hurwitz", "Tuning Kontroler PID Ziegler Nichols",
-            "Kinematika Robot Mobile Differential Drive", "Sensor Odometri LiDAR Navigasi", "Robot Operating System ROS Nodes Topics"
+            "Pemodelan Matematis Sistem Fisik State Space", "Pengendali PID Proportional Integral Derivative Tuning",
+            "Kinematika Robot Forward Inverse Kinematics DH Parameter", "Sensor Robotika IMU Lidar Ultrasonik Odometri",
+            "Robot Operating System ROS Nodes Topics Services", "Algoritma Navigasi Lokalisasi SLAM Gmapping"
         ]
     },
 
@@ -339,10 +359,11 @@ COURSES_DATA = [
     {
         "semester": 7,
         "name": "Manajemen Proyek TI",
-        "aliases": ["manpro", "manajemen proyek", "project management"],
+        "aliases": ["manpro", "manajemen proyek", "it project management"],
         "topics": [
-            "Project Charter Scope Management", "Work Breakdown Structure WBS", "Jadwal Critical Path Method CPM",
-            "Gantt Chart Manajemen Biaya", "Analisis Risiko Proyek Kualitatif", "Agile Scrum Sprint Backlog Jira"
+            "Metodologi Agile Scrum Sprint Planning Daily Standup", "Work Breakdown Structure WBS Gantt Chart",
+            "Estimasi Biaya Waktu Critical Path Method CPM", "Manajemen Risiko Mitigasi Proyek TI",
+            "Quality Assurance Software Testing Standar ISO", "Project Closure Evaluasi Post Mortem"
         ]
     },
     {
@@ -374,7 +395,7 @@ COURSES_DATA = [
         ]
     },
 
-    # --- MATA KULIAH PILIHAN / PEMINATAN KHUSUS ---
+    # --- PEMINATAN KHUSUS ---
     {
         "semester": "Pilihan",
         "name": "Pembelajaran Mendalam",
@@ -422,7 +443,20 @@ COURSES_DATA = [
     }
 ]
 
-# Kosakata Hari & Waktu Khas Mahasiswa Tel-U
+# Entitas Tujuan Belajar (Learning Goal)
+LEARNING_GOALS = [
+    # Ujian & Asesmen
+    "persiapan UAS", "persiapan UTS", "kuis praktikum", "responsi lab",
+    "asessment 1", "asessment 2", "tes awal praktikum", "ujian susulan",
+    # Latihan & Praktik
+    "latihan soal", "latihan ngoding", "latihan koding bareng", "solve problem",
+    # Tugas & Proyek
+    "ngerjain tubes", "nyicil tubes", "tugas besar", "laporan praktikum", "tugas mingguan",
+    # Konsep & Diskusi
+    "pahami materi dasar", "belajar konsep awal", "diskusi materi", "bedah konsep"
+]
+
+# Hari & Waktu Khas Tel-U
 DAYS = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
 TIMES = [
     "jam 9 sampai 12",
@@ -430,7 +464,7 @@ TIMES = [
     "pukul 13:00 - 15:00",
     "jam 10 sampai 12",
     "jam 14:00 s/d 16:30",
-    "pukul 8 pagi sampai 11",
+    "jam 8 pagi sampai 11",
     "jam 13 sampai 15",
     "jam 16 sampai 18 sore",
     "jam 19 sampai 21 malam",
@@ -438,30 +472,14 @@ TIMES = [
     "pukul 08:30 - 11:30"
 ]
 
-# Evaluasi Akademik Khas Tel-U
-EXAMS = [
-    "persiapan UAS",
-    "persiapan UTS",
-    "persiapan kuis minggu depan",
-    "kuis praktikum lab",
-    "pengerjaan tubes",
-    "persiapan ujian akhir",
-    "responsi lab",
-    "asessment 1",
-    "asessment 2",
-    "tes awal praktikum",
-    "latihan soal ujian",
-    "persiapan sidang proposal"
-]
-
-# Spot Belajar Kampus Telkom University & Mode
+# Spot Belajar Kampus Tel-U & Mode
 SPOTS_AND_MODES = [
     "tatap muka di Open Library",
-    "nongkrong di Mezzanine Oplib",
+    "di Mezzanine Oplib",
     "Discussion Room Open Library",
     "tatap muka di TULT lantai 5",
     "selasar FTE",
-    "selasar Gd B Cacuk",
+    "selasar Gd B",
     "kantin TULT",
     "kosan Sukabirus",
     "kosan Sukapura",
@@ -474,47 +492,106 @@ SPOTS_AND_MODES = [
     "selasar Lab Komputer FTE"
 ]
 
-# Ukuran Kelompok
+# Ukuran Kelompok (Tanpa pengulangan kata "kelompok kelompok")
 GROUP_SIZES = [
-    "bareng 2 sampai 4 orang",
-    "kelompok 3 orang",
-    "bareng 2 orang",
+    "2 sampai 4 orang",
+    "3 orang",
+    "2 orang",
     "maksimal 4 mahasiswa",
     "berdua aja",
-    "kelompok 3-4 orang",
-    "bareng 4 orang",
+    "3-4 orang",
+    "4 orang",
     "butuh 2 orang lagi",
-    "cari partner 1 orang",
-    "belajar berdua"
+    "partner 1 orang",
+    "berdua"
 ]
 
-# Pola Kalimat Variatif Mahasiswa
-TEMPLATES = [
-    "Saya mau belajar {topic} buat {exam} {course} hari {day} {time} {group} {mode}.",
-    "Mau diskusi materi {topic} mata kuliah {course} kelompok {group} secara {mode} hari {day} {time}.",
-    "Ada yang mau ngoding bareng {topic} untuk {course} {exam}? Yuk kumpul {mode} {day} {time} {group}.",
+# ==============================================================================
+# TEMPLATES UNTUK DATASET LATIH (TRAINING) - 30 Pola Kalimat Alami & Gaul
+# ==============================================================================
+TRAIN_TEMPLATES = [
+    # Pola 1: Kalimat standar lengkap
+    "Saya mau belajar {topic} buat {goal} {course} hari {day} {time} bareng {group} {mode}.",
+    "Mau diskusi materi {topic} mata kuliah {course} {group} secara {mode} hari {day} {time}.",
+    "Ada yang mau ngoding bareng {topic} untuk {course} {goal}? Yuk kumpul {mode} {day} {time} {group}.",
     "Latihan soal {topic} persiapan kuis {course} yuk, jadwalnya hari {day} {time} bareng {group} {mode}.",
-    "Cari temen belajar {course} bab {topic} buat {exam}, preferensi {mode} hari {day} {time} {group}.",
+    "Cari temen belajar {course} bab {topic} buat {goal}, preferensi {mode} hari {day} {time} {group}.",
     "Butuh partner diskusi {topic} mata kuliah {course} hari {day} {time} {mode} untuk {group}.",
-    "Yuk bedah materi {topic} {course} {exam} hari {day} {time} {mode} {group}.",
-    "Bahas tuntas {topic} matkul {course} buat {exam} kelompok {group} {mode} hari {day} {time}.",
-    "Mau nyicil {exam} {course} khususnya bab {topic} hari {day} {time} bareng {group} di {mode}.",
-    "Siapa yang mau belajar bareng {topic} {course} hari {day} {time} {group} {mode}?"
+    "Yuk bedah materi {topic} {course} {goal} hari {day} {time} {mode} {group}.",
+    "Bahas tuntas {topic} matkul {course} buat {goal} kelompok {group} {mode} hari {day} {time}.",
+    "Mau nyicil {goal} {course} khususnya bab {topic} hari {day} {time} bareng {group} di {mode}.",
+    "Siapa yang mau belajar bareng {topic} {course} hari {day} {time} {group} {mode}?",
+    
+    # Pola 2: Gaya obrolan santai & tanya rekan
+    "Bro, ada yang mau bahas {topic}? Gue masih bingung materi {course} buat {goal} {schedule} {mode}.",
+    "Gais, besok ada {goal} {course}, pengen belajar bareng {group} {mode} {schedule}.",
+    "Kuy yang mau ngulik {topic} {course} {schedule} kumpul di {mode} bareng {group}.",
+    "Ada yang paham {topic} {course}? Mau diajarin dong {schedule} {mode} {group}.",
+    "Nyari temen buat {goal} {course} bab {topic}, enaknya {mode} {schedule} {group}.",
+    "Lagi butuh partner buat {goal} {course} {schedule} di {mode} {group}.",
+    "Yuk nyicil {goal} {course} {schedule} {group} di {mode}.",
+    
+    # Pola 3: Jadwal atau lokasi terlebih dahulu
+    "Hari {day} {time} ada yang kosong? Mau belajar {topic} {course} buat {goal} {mode}.",
+    "Lagi di {mode} nih, ada yang mau bareng belajar {topic} {course} {group}?",
+    "Kosong {schedule}, mau fokus {goal} {course} materi {topic} {group} {mode}.",
+    "Ketemu di {mode} yuk {schedule} buat bahas {topic} {course} bareng {group}.",
+    
+    # Pola 4: Kalimat tidak lengkap (Hanya matkul + topik + tujuan)
+    "Mau belajar {course} khususnya {topic} buat persiapan {goal}.",
+    "Cari temen ngerjain {goal} {course} bab {topic} {group}.",
+    "Fokus {goal} matkul {course} materi {topic}.",
+    "Bahas soal {topic} {course} bareng {group} di {mode}.",
+    
+    # Pola 5: Kalimat ringkas fokus tugas/ujian
+    "Persiapan {goal} {course} topik {topic} {schedule} {mode}.",
+    "Nyicil {goal} {course} {schedule} {group} di {mode}.",
+    "Belajar bareng {topic} {course} {schedule}.",
+    "Diskusi {topic} {course} {group} {mode}."
 ]
 
-def generate_sample(template_idx=None):
+# ==============================================================================
+# TEMPLATES UNTUK DATASET VALIDASI (VALIDATION) - 20 Pola Kalimat Sintaks BERBEDA
+# ==============================================================================
+VAL_TEMPLATES = [
+    # Struktur pertanyaan & konfirmasi yang belum pernah ada di training
+    "Halo teman-teman, apakah ada yang ingin belajar {topic} untuk {course}? Rencananya {schedule} {mode} {group}.",
+    "Teman-teman ada yang mau review bareng materi {topic} {course} buat {goal}? Bisa {schedule} {mode}.",
+    "Butuh bantuan buat memahami {topic} di matkul {course}. Ada yang free {schedule}? Prefer {mode} {group}.",
+    "Materi {topic} {course} susah banget, yuk latihan {goal} bareng {group} {schedule} di {mode}.",
+    "Aku ada waktu luang {schedule}, barangkali ada yang mau {goal} {course} bab {topic} {mode}.",
+    "Bisa join belajar {topic} {course}? Buat {goal} kelompok {group} hari {day} {time} {mode}.",
+    "Pengen sharing materi {topic} mata kuliah {course} nih, siapa mau gabung {group} {schedule} {mode}?",
+    "Siap-siap menghadapi {goal} {course}, mau ajak {group} belajar materi {topic} {schedule} di {mode}.",
+    "Adakah yang berminat bedah soal {topic} {course}? Agendanya {schedule} {mode} {group}.",
+    "Tolong ajarin dong bab {topic} di {course}, butuh buat {goal} {schedule} bareng {group}.",
+    
+    # Variasi struktur terbalik & informal berbeda
+    "Rencana {schedule} mau ngerjain {goal} {course} tentang {topic} {mode} bareng {group}.",
+    "Bagi yang belum paham {topic} {course}, kita kumpul {mode} {schedule} {group} ya.",
+    "Ayo kelompokan {group} buat {goal} {course} materi {topic} {schedule} di {mode}.",
+    "Target kelar {topic} {course} sebelum {goal}, kumpul {schedule} {mode} {group}.",
+    "Nyari teman sekelas yang mau diskusi {topic} {course} {schedule} {mode}.",
+    "Merapat ke {mode} yuk {schedule}, kita bahas tuntas {topic} {course} buat {goal}.",
+    "Ada slot untuk {group} yang mau {goal} {course} bab {topic} {schedule} {mode}.",
+    "Belajar santai materi {topic} {course} {schedule} bareng {group} di {mode}.",
+    "Persiapan matang {goal} {course} topik {topic} hari {day} {time} {mode}.",
+    "Mau perdalam {topic} {course} bareng {group} secara {mode} {schedule}."
+]
+
+
+def generate_sample_from_template(tmpl):
+    """Menghasilkan satu kalimat data teranotasi span secara presisi tanpa tumpang tindih."""
     mk_info = random.choice(COURSES_DATA)
-    # Pilih apakah nama resmi atau alias gaul
-    course_name = mk_info["name"] if random.random() > 0.45 else random.choice(mk_info["aliases"])
+    course_name = mk_info["name"] if random.random() > 0.40 else random.choice(mk_info["aliases"])
     topic = random.choice(mk_info["topics"])
     day = random.choice(DAYS)
     time = random.choice(TIMES)
     schedule = f"{day} {time}"
     group = random.choice(GROUP_SIZES)
     mode = random.choice(SPOTS_AND_MODES)
-    exam = random.choice(EXAMS)
+    goal = random.choice(LEARNING_GOALS)
 
-    tmpl = random.choice(TEMPLATES) if template_idx is None else TEMPLATES[template_idx % len(TEMPLATES)]
     text = tmpl.format(
         course=course_name,
         topic=topic,
@@ -523,71 +600,117 @@ def generate_sample(template_idx=None):
         schedule=schedule,
         group=group,
         mode=mode,
-        exam=exam
+        goal=goal
     )
 
     entities = []
     
-    def find_span(substring, label):
-        idx = text.find(substring)
+    # Cari posisi kemunculan masing-masing entitas pada teks kalimat
+    def add_span(value, label):
+        idx = text.find(value)
         if idx != -1:
             entities.append({
                 "start": idx,
-                "end": idx + len(substring),
-                "text": substring,
-                "label": label
+                "end": idx + len(value),
+                "label": label,
+                "text": value
             })
 
-    find_span(topic, "topic")
-    find_span(course_name, "course")
-    find_span(exam, "exam_prep")
-    find_span(f"hari {day} {time}" if f"hari {day} {time}" in text else f"{day} {time}", "schedule")
-    find_span(group, "group_size")
-    find_span(mode, "study_mode")
+    add_span(course_name, "course")
+    add_span(topic, "topic")
+    add_span(goal, "learning_goal")
+    
+    # Cek apakah template menggunakan {schedule} atau pecahan {day}/{time}
+    if "{schedule}" in tmpl:
+        add_span(schedule, "schedule")
+    else:
+        if "{day}" in tmpl and "{time}" in tmpl:
+            # Cari rentang dari day s/d akhir time jika berdekatan
+            s_day = text.find(day)
+            s_time = text.find(time)
+            if s_day != -1 and s_time != -1 and s_day < s_time and (s_time - (s_day + len(day))) <= 2:
+                entities.append({
+                    "start": s_day,
+                    "end": s_time + len(time),
+                    "label": "schedule",
+                    "text": text[s_day : s_time + len(time)]
+                })
+            else:
+                if s_day != -1:
+                    entities.append({"start": s_day, "end": s_day + len(day), "label": "schedule", "text": day})
+                if s_time != -1:
+                    entities.append({"start": s_time, "end": s_time + len(time), "label": "schedule", "text": time})
 
+    add_span(group, "group_size")
+    add_span(mode, "study_mode")
+
+    # Sort spans by start index
     entities.sort(key=lambda x: x["start"])
+
+    # Buang span yang bertabrakan (non-overlapping)
+    clean_spans = []
+    last_end = -1
+    for s in entities:
+        if s["start"] >= last_end:
+            clean_spans.append(s)
+            last_end = s["end"]
 
     return {
         "text": text,
-        "ner": [[ent["start"], ent["end"], ent["label"]] for ent in entities],
-        "spans": entities
+        "spans": clean_spans
     }
 
-def build_dataset(num_train=600, num_val=120):
+
+def main():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    
-    print(f">> [1/3] Membuat {num_train} sampel training kurikulum S1 Teknik Komputer Semester 1-8...")
-    train_data = [generate_sample() for _ in range(num_train)]
-    
-    print(f">> [2/3] Membuat {num_val} sampel validasi kurikulum S1 Teknik Komputer Semester 1-8...")
-    val_data = [generate_sample() for _ in range(num_val)]
+    random.seed(42)
 
-    # Simpan dataset
-    train_path = DATA_DIR / "train_data.json"
-    val_path = DATA_DIR / "val_data.json"
-    labels_path = DATA_DIR / "labels.json"
+    print("=" * 70)
+    print(">> MEMBANGUN DATASET SPAN-LEVEL GLINER DENGAN TEMPLATE TERPISAH...")
+    print("=" * 70)
 
-    with open(train_path, "w", encoding="utf-8") as f:
-        json.dump(train_data, f, indent=2, ensure_ascii=False)
+    # 1. Buat Training Set (800 sampel unik dari TRAIN_TEMPLATES)
+    train_samples = []
+    train_texts = set()
+    attempts = 0
+    while len(train_samples) < 800 and attempts < 4000:
+        attempts += 1
+        tmpl = random.choice(TRAIN_TEMPLATES)
+        sample = generate_sample_from_template(tmpl)
+        if sample["text"] not in train_texts:
+            train_texts.add(sample["text"])
+            train_samples.append(sample)
 
-    with open(val_path, "w", encoding="utf-8") as f:
-        json.dump(val_data, f, indent=2, ensure_ascii=False)
+    # 2. Buat Validation Set (200 sampel unik dari VAL_TEMPLATES - UNSEEN SYNTAX)
+    val_samples = []
+    val_texts = set()
+    attempts = 0
+    while len(val_samples) < 200 and attempts < 2000:
+        attempts += 1
+        tmpl = random.choice(VAL_TEMPLATES)
+        sample = generate_sample_from_template(tmpl)
+        # Pastikan tidak ada overlap teks dengan training maupun internal val
+        if sample["text"] not in train_texts and sample["text"] not in val_texts:
+            val_texts.add(sample["text"])
+            val_samples.append(sample)
 
-    labels = ["course", "topic", "exam_prep", "schedule", "group_size", "study_mode"]
-    with open(labels_path, "w", encoding="utf-8") as f:
-        json.dump({
-            "labels": labels,
-            "target_major": "S1 Teknik Komputer (Fakultas Teknik Elektro, Telkom University)",
-            "coverage": "Semester 1 s/d Semester 8 + Mata Kuliah Peminatan",
-            "total_courses": len(COURSES_DATA),
-            "total_train": num_train,
-            "total_val": num_val
-        }, f, indent=2)
+    # 3. Simpan dataset
+    with open(DATA_DIR / "train_data.json", "w", encoding="utf-8") as f:
+        json.dump(train_samples, f, indent=2, ensure_ascii=False)
 
-    print(f">> [3/3] SUKSES! Dataset 1-8 lengkap tersimpan di:")
-    print(f"   - {train_path}")
-    print(f"   - {val_path}")
-    print(f"   - {labels_path}")
+    with open(DATA_DIR / "val_data.json", "w", encoding="utf-8") as f:
+        json.dump(val_samples, f, indent=2, ensure_ascii=False)
+
+    # 4. Simpan labels.json seragam
+    labels = ["course", "topic", "learning_goal", "schedule", "group_size", "study_mode"]
+    with open(DATA_DIR / "labels.json", "w", encoding="utf-8") as f:
+        json.dump({"labels": labels}, f, indent=2)
+
+    print(f">> Dataset Latih (Train Data) Berhasil Dibuat : {len(train_samples)} sampel")
+    print(f">> Dataset Validasi (Val Data) Berhasil Dibuat: {len(val_samples)} sampel (Pola Unseen)")
+    print(f">> Taxonomy Label Seragam: {labels}")
+    print("=" * 70)
+
 
 if __name__ == "__main__":
-    build_dataset(600, 120)
+    main()

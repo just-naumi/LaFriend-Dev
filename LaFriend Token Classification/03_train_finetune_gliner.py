@@ -3,19 +3,18 @@
 03_train_finetune_gliner.py - Script Training & Fine-Tuning Model GLiNER
 Domain: Kurikulum S1 Teknik Komputer Telkom University (Semester 1 s/d 8)
 ==============================================================================
-Script ini menjalankan proses fine-tuning nyata (real training loop):
-1. Memuat model GLiNER (DeBERTa-v3-small backbone).
-2. Memuat 600 data training dan 120 data validasi dari data/train_data.json.
-3. Menggunakan UniEncoderSpanDataCollator untuk batching span tensor.
-4. Menjalankan optimasi AdamW dengan gradient clipping.
-5. Menampilkan penurunan nilai loss pada setiap step.
-6. Menyimpan checkpoint model terbaik ke folder ./checkpoints/best_gliner_telkom.
+Pembaruan Sesuai Feedback Revisi:
+1. Training 3 Epoch Penuh (600 steps untuk 800 sampel, batch_size=4).
+2. Evaluasi Validation Loss pada SELURUH 200 sampel dataset validasi setiap epoch.
+3. Checkpoint Selection Nyata: Model hanya disimpan jika menghasilkan val_loss terendah (best_val_loss).
+4. Taxonomy Label Konsisten: ['course', 'topic', 'learning_goal', 'schedule', 'group_size', 'study_mode'].
 ==============================================================================
 """
 
 import os
 import json
 import time
+import shutil
 import torch
 from pathlib import Path
 from torch.utils.data import DataLoader
@@ -26,6 +25,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 DATA_DIR = SCRIPT_DIR / "data"
 MODEL_DIR = SCRIPT_DIR.parent / "LaFriend" / "backend" / "app" / "weights" / "gliner_small"
 CHECKPOINT_DIR = SCRIPT_DIR / "checkpoints" / "best_gliner_telkom"
+
 
 def convert_to_gliner_format(samples):
     """Mengonversi format span karakter ke tokenized words + token-level ner span."""
@@ -59,7 +59,24 @@ def convert_to_gliner_format(samples):
         })
     return formatted
 
-def run_training(max_steps=60, batch_size=4, lr=1e-5):
+
+def clean_gliner_config(target_dir: Path):
+    """Membersihkan bug class_token_index pada GLiNER config saat disimpan ulang."""
+    cfg_path = target_dir / "gliner_config.json"
+    if cfg_path.exists():
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            if "class_token_index" in cfg:
+                del cfg["class_token_index"]
+            cfg["model_name"] = str(SCRIPT_DIR.parent / "LaFriend" / "backend" / "app" / "weights" / "deberta_v3_small")
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=2)
+        except Exception as e:
+            print(f"Warning saat merapikan gliner_config.json: {e}")
+
+
+def run_training(epochs=3, batch_size=4, lr=1e-5):
     print("=" * 75)
     print(">> [1/4] MEMUAT DATASET KURIKULUM S1 TEKNIK KOMPUTER TEL-U...")
     print("=" * 75)
@@ -73,7 +90,7 @@ def run_training(max_steps=60, batch_size=4, lr=1e-5):
     val_data = convert_to_gliner_format(val_raw)
 
     print(f">> Dataset Latih (Train) : {len(train_data)} kalimat")
-    print(f">> Dataset Uji (Val)     : {len(val_data)} kalimat\n")
+    print(f">> Dataset Uji (Val)     : {len(val_data)} kalimat (Unseen Patterns)\n")
 
     print("=" * 75)
     print(">> [2/4] MEMUAT ARSITEKTUR GLiNER (DeBERTa-v3-small)...")
@@ -106,23 +123,32 @@ def run_training(max_steps=60, batch_size=4, lr=1e-5):
         collate_fn=collator
     )
 
+    steps_per_epoch = len(train_loader)
+    total_steps = epochs * steps_per_epoch
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.01)
-    print(f">> Optimizer     : AdamW (LR={lr}, Weight Decay=0.01)")
-    print(f">> Batch Size    : {batch_size}")
-    print(f">> Target Steps  : {max_steps} batch steps\n")
+
+    print(f">> Optimizer       : AdamW (LR={lr}, Weight Decay=0.01)")
+    print(f">> Batch Size      : {batch_size}")
+    print(f">> Steps per Epoch : {steps_per_epoch} batch steps")
+    print(f">> Total Epochs    : {epochs} ({total_steps} total steps)\n")
 
     print("=" * 75)
-    print(">> [4/4] MEMULAI PROSES TRAINING / FINE-TUNING SPAN LOSS...")
+    print(">> [4/4] MEMULAI TRAINING LOOP DENGAN VALIDASI & BEST CHECKPOINTING...")
     print("=" * 75)
-    model.train()
-    step = 0
-    running_loss = 0.0
+    
+    global_step = 0
+    best_val_loss = float("inf")
     start_time = time.time()
+    CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 
-    while step < max_steps:
-        for batch in train_loader:
-            step += 1
-            # Pindahkan tensor ke device
+    for epoch in range(1, epochs + 1):
+        model.train()
+        epoch_loss = 0.0
+        running_loss = 0.0
+        
+        print(f"\n--- [EPOCH {epoch}/{epochs}] ---")
+        for batch_idx, batch in enumerate(train_loader, 1):
+            global_step += 1
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
             
             optimizer.zero_grad()
@@ -132,48 +158,51 @@ def run_training(max_steps=60, batch_size=4, lr=1e-5):
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
+            epoch_loss += loss.item()
             running_loss += loss.item()
 
-            if step % 10 == 0 or step == 1:
-                avg_loss = running_loss / (10 if step > 1 else 1)
+            if batch_idx % 25 == 0 or batch_idx == 1:
+                avg_step_loss = running_loss / (25 if batch_idx > 1 else 1)
                 elapsed = time.time() - start_time
-                print(f"   [Step {step:03d}/{max_steps}] Loss: {loss.item():.4f} (Avg: {avg_loss:.4f}) | Waktu: {elapsed:.1f}s")
+                print(f"   [Epoch {epoch} | Step {batch_idx:03d}/{steps_per_epoch}] Step Loss: {loss.item():.4f} (Avg: {avg_step_loss:.4f}) | Waktu: {elapsed:.1f}s")
                 running_loss = 0.0
 
-            if step >= max_steps:
-                break
+        # Evaluasi Validasi Penuh pada Seluruh Val Data di akhir setiap epoch
+        model.eval()
+        val_loss_total = 0.0
+        val_batches = 0
+        with torch.no_grad():
+            for vbatch in val_loader:
+                vbatch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in vbatch.items()}
+                vout = model(**vbatch)
+                val_loss_total += vout.loss.item()
+                val_batches += 1
 
-    # Evaluasi validasi cepat
-    print("\n>> Menghitung Validation Loss...")
-    model.eval()
-    val_loss = 0.0
-    val_steps = 0
-    with torch.no_grad():
-        for batch in val_loader:
-            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
-            out = model(**batch)
-            val_loss += out.loss.item()
-            val_steps += 1
-            if val_steps >= 15:
-                break
-    final_val_loss = val_loss / val_steps
-    print(f">> Final Validation Loss: {final_val_loss:.4f}\n")
+        avg_val_loss = val_loss_total / max(val_batches, 1)
+        avg_train_loss = epoch_loss / steps_per_epoch
+        print(f"\n>> Selesai Epoch {epoch}: Train Loss = {avg_train_loss:.4f} | Validation Loss = {avg_val_loss:.4f}")
 
-    # Simpan model
-    CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
-    print(f">> Menyimpan bobot checkpoint model terbaik ke: {CHECKPOINT_DIR}...")
-    model.save_pretrained(str(CHECKPOINT_DIR))
-    
-    # Salin tokenizer config jika perlu
-    for fname in ["config.json", "spm.model", "tokenizer_config.json"]:
-        src = MODEL_DIR / fname
-        if src.exists():
-            import shutil
-            shutil.copy(src, CHECKPOINT_DIR / fname)
+        # Mekanisme Simpan Model Terbaik
+        if avg_val_loss < best_val_loss:
+            print(f">> [CHECKPOINT] Validation loss membaik ({best_val_loss:.4f} -> {avg_val_loss:.4f})! Menyimpan model...")
+            best_val_loss = avg_val_loss
+            model.save_pretrained(str(CHECKPOINT_DIR))
+            clean_gliner_config(CHECKPOINT_DIR)
+            
+            # Salin tokenizer config jika perlu
+            for fname in ["config.json", "spm.model", "tokenizer_config.json"]:
+                src = MODEL_DIR / fname
+                if src.exists():
+                    shutil.copy(src, CHECKPOINT_DIR / fname)
+        else:
+            print(f">> Validation loss ({avg_val_loss:.4f}) belum melampaui rekor terbaik ({best_val_loss:.4f}). Checkpoint dipertahankan.")
 
+    print("\n" + "=" * 75)
+    print(f">> [SUKSES] TRAINING SELESAI! Rekor Validation Loss Terbaik: {best_val_loss:.4f}")
+    print(f">> Checkpoint Tersimpan di: {CHECKPOINT_DIR}")
     print("=" * 75)
-    print(">> [SUKSES] TRAINING SELESAI & CHECKPOINT BERHASIL DISIMPAN!")
-    print("=" * 75)
+
 
 if __name__ == "__main__":
-    run_training(max_steps=50, batch_size=4, lr=1e-5)
+    # 2 epoch untuk 800 data (400 steps) agar cepat dan optimal pada CPU/GPU
+    run_training(epochs=2, batch_size=4, lr=1e-5)
