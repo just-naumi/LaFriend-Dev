@@ -135,23 +135,29 @@ function Home({ st, go }) {
   const hour = new Date().getHours();
   const hello = hour < 11 ? "Selamat pagi" : hour < 15 ? "Selamat siang" : hour < 19 ? "Selamat sore" : "Selamat malam";
   const rows = [
-    ["Permintaan", st.intent ? `${st.intent.course} · ${st.intent.topics}` : "Belum ada", "belajar"],
-    ["Kelompok", st.formation ? { DRAFT: "Menunggu undangan dijawab", CONFIRMATION_PENDING: "Menunggu jadwal disetujui", FAILED: "Belum terbentuk" }[st.formation.status] : "Belum ada", "kelompok"],
-    ["Sesi", st.sessions.length ? `${st.sessions.length} sesi, ${st.sessions.filter(s => !s.feedback_given && s.finished).length} belum dinilai` : "Belum ada", "hasil"],
+    ["Permintaan", st.intent ? `${st.intent.course} · ${st.intent.topics}` : "Belum ada", "belajar", "pen"],
+    ["Kelompok", st.formation ? { DRAFT: "Menunggu undangan dijawab", CONFIRMATION_PENDING: "Menunggu jadwal disetujui", FAILED: "Belum terbentuk" }[st.formation.status] : "Belum ada", "kelompok", "users"],
+    ["Sesi", st.sessions.length ? `${st.sessions.length} sesi, ${st.sessions.filter(s => !s.feedback_given && s.finished).length} belum dinilai` : "Belum ada", "hasil", "chart"],
   ];
   return (
     <Page>
-      <p className="eyebrow">{hello}, {st.me.name}</p>
+      <p className="eyebrow">{hello}</p>
+      <h1 className="display">Halo, {st.me.name}</h1>
       <motion.div className="next" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
         <span className="next-label">Langkah berikutnya</span>
-        <h1 className="display">{title}</h1>
+        <h2 className="display">{title}</h2>
         <p className="lead">{sub}</p>
-        <Button onClick={() => go(to)}>{cta} →</Button>
+        <Button onClick={() => go(to)}>{cta}<Icon name="arrow" size={18} /></Button>
       </motion.div>
+      <h2 className="h2">Ringkasan</h2>
       <ul className="summary">
-        {rows.map(([k, v, t]) => (
+        {rows.map(([k, v, t, icon]) => (
           <li key={k}>
-            <button type="button" onClick={() => go(t)}><span className="muted">{k}</span><span>{v}</span></button>
+            <button type="button" onClick={() => go(t)}>
+              <span className="row-ic"><Icon name={icon} size={18} /></span>
+              <span className="grow"><span>{k}</span><small>{v}</small></span>
+              <Icon name="arrow" size={18} />
+            </button>
           </li>
         ))}
       </ul>

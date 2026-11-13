@@ -16,13 +16,14 @@ ALIASES = {"strukdat": "Struktur Data", "basdat": "Basis Data", "alpro": "Algori
            "jarkom": "Jaringan Komputer dan Data", "ai": "Kecerdasan Buatan & Machine Learning",
            "kecerdasan buatan": "Kecerdasan Buatan & Machine Learning"}
 GOALS = [(r"\b(uts|uas|ujian|kuis|quiz)\b", "EXAM_PREP"), (r"\b(tugas|pr|proyek|project)\b", "ASSIGNMENT"),
-         (r"latihan soal|(ngerjain|mengerjakan) soal", "PRACTICE"), (r"\b(paham|pahami|memahami|ngerti|mengerti)\b", "UNDERSTAND")]
+         (r"latihan soal|(ngerjain|mengerjakan) soal", "PRACTICE"), (r"\b(paham|pahami|memahami|ngerti|mengerti)\b", "UNDERSTAND"),
+         (r"\b(berbagi|sharing)\b", "KNOWLEDGE_SHARING")]
 STYLES = [(r"diskusi|bahas bareng", "DISCUSSION"), (r"latihan (bareng|bersama)|ngerjain bareng", "PRACTICE"),
           (r"diajari|diajarin|ajarin|mengajari|tutor|dijelasin", "TEACHING"), (r"\bfokus\b|belajar tenang", "FOCUS_STUDY")]
 MODES = [(r"\b(online|daring|zoom|g?meet|discord)\b", "ONLINE"), (r"\b(hybrid|campuran)\b", "HYBRID"),
          (r"\b(offline|luring|tatap muka|kampus|perpus\w*)\b", "OFFLINE")]
 LABEL = {"UNDERSTAND": "memahami materi", "PRACTICE": "latihan soal", "EXAM_PREP": "persiapan ujian",
-         "ASSIGNMENT": "mengerjakan tugas", "DISCUSSION": "diskusi", "TEACHING": "saling mengajari",
+         "ASSIGNMENT": "mengerjakan tugas", "DISCUSSION": "diskusi", "KNOWLEDGE_SHARING": "berbagi pengetahuan", "TEACHING": "saling mengajari",
          "FOCUS_STUDY": "belajar fokus bersama", "OFFLINE": "tatap muka", "ONLINE": "online", "HYBRID": "campuran"}
 STYLE_LABEL = {**LABEL, "PRACTICE": "latihan bersama"}
 

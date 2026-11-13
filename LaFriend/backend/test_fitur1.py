@@ -1,5 +1,6 @@
 """Uji Fitur 1 dengan angka contoh Plan/Day4.MD, Day5.MD, Day7.MD, dan KEPUTUSAN.md. Tanpa database."""
 import sys
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace as NS
 
@@ -7,6 +8,8 @@ backend_dir = Path(__file__).resolve().parent
 sys.path.insert(0, str(backend_dir))
 
 from app import matching as M
+
+M._today = lambda: date(2026, 11, 12)  # tanggal uji tetap: rentang intent contoh 12-18 Nov 2026
 
 
 def slot(day, start, end, rank=1):
@@ -47,6 +50,9 @@ def test_goal_and_style_tables():
                     for i, a in enumerate(goals) for b in goals[i:])
     assert values == sorted([100] * 5 + [85, 85, 85, 75, 75, 70, 70, 60, 60, 40]), values
     assert M.goal_score(intent("x", goal="DISCUSSION"), intent("y", goal="UNDERSTAND")) == 70
+    # KNOWLEDGE_SHARING memakai nilai DISCUSSION
+    assert M.goal_score(intent("x", goal="KNOWLEDGE_SHARING"), intent("y", goal="DISCUSSION")) == 100
+    assert M.goal_score(intent("x", goal="KNOWLEDGE_SHARING"), intent("y", goal="UNDERSTAND")) == 70
     assert M.goal_score(intent("x", goal="ASSIGNMENT"), intent("y", goal="EXAM_PREP")) == 40
 
     def s(a, b):
@@ -235,10 +241,24 @@ def test_sessions_first():
     assert M.recommend(ANDI, [], [intent("x", course="PW")]) == {"type": "NONE", "items": []}
 
 
+def test_no_past_slots_and_hidden_profiles():
+    """Tanggal yang sudah lewat tidak diusulkan, dan profil tersembunyi tidak dicocokkan."""
+    real = M._today
+    try:
+        M._today = lambda: date(2026, 11, 19)  # Rabu 18 Nov sudah lewat
+        assert M.hard_constraint(ANDI, BUDI) == "TIME_OVERLAP"
+    finally:
+        M._today = real
+    hidden = intent("hidden", slots=[slot("Wednesday", "10:00", "12:00")])
+    hidden.student.is_discoverable = False
+    assert M.hard_constraint(ANDI, hidden) == "ACCOUNT"
+
+
 if __name__ == "__main__":
     tests = [test_andi_budi, test_topics, test_goal_and_style_tables, test_hard_constraints, test_real_dates, test_schema,
              test_one_running_intent_per_course, test_date_score,
-             test_mode_score, test_group_quality, test_partner_ranking, test_sessions_first]
+             test_mode_score, test_group_quality, test_partner_ranking, test_sessions_first,
+             test_no_past_slots_and_hidden_profiles]
     for t in tests:
         t()
         print(f"[OK] {t.__name__}")

@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
-export const GOAL = { UNDERSTAND: "Memahami materi", PRACTICE: "Latihan soal", EXAM_PREP: "Persiapan ujian", ASSIGNMENT: "Mengerjakan tugas", DISCUSSION: "Diskusi dan berbagi" };
+export const GOAL = { UNDERSTAND: "Memahami materi", PRACTICE: "Latihan soal", EXAM_PREP: "Persiapan ujian", ASSIGNMENT: "Mengerjakan tugas", DISCUSSION: "Diskusi", KNOWLEDGE_SHARING: "Berbagi pengetahuan" };
 export const STYLE = { DISCUSSION: "Diskusi", PRACTICE: "Latihan bersama", TEACHING: "Saling mengajari", FOCUS_STUDY: "Belajar fokus" };
 export const MODE = { OFFLINE: "Tatap muka", ONLINE: "Online", HYBRID: "Campuran" };
 export const FACTOR = [["t", "Materi"], ["g", "Tujuan"], ["s", "Gaya"], ["d", "Waktu"], ["m", "Metode"]];
@@ -25,6 +25,8 @@ const ICONS = {
   arrow: "M5 12h14M13 6l6 6-6 6",
   send: "M12 19V5M6 11l6-6 6 6",
   x: "M6 6l12 12M18 6L6 18",
+  back: "M19 12H5M11 18l-6-6 6-6",
+  reset: "M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7",
 };
 export const Icon = ({ name, size = 22 }) => (
   <svg className="ic" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true"><path d={ICONS[name]} /></svg>

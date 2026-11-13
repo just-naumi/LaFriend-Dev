@@ -550,11 +550,15 @@ def seed() -> None:
     week = (past - timedelta(days=3), past)
     old = [intent(who, *week, [(past, "13:00", "15:00")], topics="Graph", min_group_size=3)
            for who in ("nadia", "fadly", "raka")]
-    formation = start_group(old[0])
-    for who in ("fadly", "raka"):
-        answer_invite(formation, who, "ACCEPTED")
-    for who in ("nadia", "fadly", "raka"):
-        answer_schedule(formation, who, True)
+    real_today, M._today = M._today, lambda: week[0]  # sesi contoh ini dibentuk "minggu lalu"
+    try:
+        formation = start_group(old[0])
+        for who in ("fadly", "raka"):
+            answer_invite(formation, who, "ACCEPTED")
+        for who in ("nadia", "fadly", "raka"):
+            answer_schedule(formation, who, True)
+    finally:
+        M._today = real_today
     for who, satisfaction, again in (("nadia", 5, True), ("fadly", 4, True)):
         S.save_session_feedback(DB, who, formation["id"], SessionFeedbackIn(
             session_held=True, overall_satisfaction=satisfaction, repeat_intention=again))

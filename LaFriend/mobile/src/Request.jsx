@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { api } from "./api.js";
-import { Button, Chips, FACTOR, Field, GOAL, Icon, MODE, Orb, Page, STYLE, WEEKDAYS, fmtDay, fmtSlot, spring } from "./ui.jsx";
+import { Button, Chips, FACTOR, Field, GOAL, Icon, Logo, MODE, Orb, Page, STYLE, WEEKDAYS, fmtDay, fmtSlot, spring } from "./ui.jsx";
 
 const Speech = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
 
@@ -24,26 +24,25 @@ function Pick({ st, onPick }) {
   const h = st.habits;
   const usual = [h.collaboration_style && STYLE[h.collaboration_style], h.learning_mode && MODE[h.learning_mode],
     h.group_size && `${h.group_size[0]}–${h.group_size[1]} orang`].filter(Boolean);
+  // Urutan tile: satu tinggi di kiri (cara utama), dua kecil di kanan
   const ways = [
-    ["chat", "Ngobrol dengan asisten", "Ceritakan dengan kalimatmu sendiri. Asisten menanyakan yang kurang.", "chat"],
-    ["voice", "Bicara saja", Speech ? "Rekam suara, lihat transkripnya, lalu kirim." : "Browser ini belum mendukung suara. Pakai Chrome atau Edge.", "mic"],
-    ["review", "Isi sendiri", "Form biasa, semua kamu pilih manual.", "form"],
+    ["chat", "Ngobrol dengan asisten", "Ceritakan dengan kalimatmu sendiri. Asisten menanyakan yang kurang.", "chat", "tall"],
+    ["review", "Isi sendiri", "Form biasa, semua kamu pilih.", "form", "butter"],
+    ["voice", "Bicara saja", Speech ? "Rekam, cek transkrip, kirim." : "Belum didukung browser ini.", "mic", "dark"],
   ];
   return (
     <Page>
       <h1 className="display sm">Mau belajar apa?</h1>
       <p className="lead">Pilih cara yang paling enak. Semuanya berakhir di layar periksa sebelum disimpan.</p>
-      <ul className="ways">
-        {ways.map(([k, title, sub, icon]) => (
-          <li key={k}>
-            <button type="button" onClick={() => onPick(k)} disabled={k === "voice" && !Speech}>
-              <span className="way-icon"><Icon name={icon} size={26} /></span>
-              <span><strong>{title}</strong><small>{sub}</small></span>
-              <span className="arrow"><Icon name="arrow" /></span>
-            </button>
-          </li>
+      <div className="tiles">
+        {ways.map(([k, title, sub, icon, look]) => (
+          <button key={k} type="button" className={`tile ${look}`} onClick={() => onPick(k)} disabled={k === "voice" && !Speech}>
+            <span className="tile-ic"><Icon name={icon} size={22} /></span>
+            <span><strong>{title}</strong><small>{sub}</small></span>
+            {look === "tall" && <span className="go"><Icon name="arrow" size={18} /></span>}
+          </button>
         ))}
-      </ul>
+      </div>
       {usual.length > 0 && <p className="habit">Kebiasaanmu: <b>{usual.join(" · ")}</b>. Asisten akan menawarkannya.</p>}
     </Page>
   );
@@ -67,11 +66,14 @@ function Chat({ st, act, onBack, onReview, onVoice }) {
 
   return (
     <Page>
-      <div className="row-between">
-        <button type="button" className="back" onClick={onBack}>← Cara lain</button>
-        {c.messages.length > 0 && <button type="button" className="link" onClick={() => act(() => api("/api/assistant/reset", {}))}>Mulai ulang</button>}
+      <div className="chat-top">
+        <button type="button" className="icon" onClick={onBack} aria-label="Kembali ke pilihan cara"><Icon name="back" size={20} /></button>
+        <span className="chat-title"><Logo size={22} />Asisten LaFriend</span>
+        <button type="button" className="icon" onClick={() => act(() => api("/api/assistant/reset", {}))} disabled={!c.messages.length}
+          aria-label="Mulai ulang percakapan"><Icon name="reset" size={20} /></button>
       </div>
       <div className="chat" aria-live="polite">
+        <span className="day-pill">Hari ini</span>
         <Bubble from="bot" text="Halo! Ceritakan mau belajar apa dan kapan kamu kosong. Contoh: “Strukdat materi Binary Tree buat UTS, Senin jam 7-9 malam.”" />
         {c.messages.map((m, i) => <Bubble key={i} {...m} />)}
         {busy && <div className="bubble bot typing" aria-label="Asisten mengetik"><span className="dots"><i /><i /><i /></span></div>}

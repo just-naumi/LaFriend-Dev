@@ -21,6 +21,8 @@ G hanya menilai apakah cara kedua pihak memakai sesi sejalan. Kesamaan materi ti
 | Diskusi + Mengerjakan tugas | 60 | baru |
 | Persiapan ujian + Mengerjakan tugas | 40 | baru |
 
+Tujuan Berbagi pengetahuan (KNOWLEDGE_SHARING, ditambahkan di main Day 11.1) dinilai sama dengan Diskusi: berpasangan dengan Diskusi bernilai 100, dan dengan tujuan lain memakai baris Diskusi di atas.
+
 Alasan Memahami + Diskusi = 70: sisi "berbagi" cocok dengan mahasiswa yang belum paham, tetapi sisi "diskusi" kurang terpenuhi. Pasangan ini cocok sebagian dan lebih menguntungkan satu pihak, jadi nilainya di antara 60 dan 85.
 
 **2. Pasangan gaya belajar.**

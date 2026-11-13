@@ -77,8 +77,13 @@ def _table_score(table: Dict[frozenset, int], x: str, y: str, kind: str) -> int:
         raise ValueError(f"Pasangan {kind} tidak dikenal: {x} dan {y}")
 
 
+# KNOWLEDGE_SHARING (tujuan baru dari main) dinilai sama dengan DISCUSSION, KEPUTUSAN.md nomor 1
+GOAL_SAME_AS = {"KNOWLEDGE_SHARING": "DISCUSSION"}
+
+
 def goal_score(a, b) -> int:
-    return _table_score(GOAL_SCORES, a.learning_goal, b.learning_goal, "tujuan")
+    x, y = (GOAL_SAME_AS.get(g, g) for g in (a.learning_goal, b.learning_goal))
+    return _table_score(GOAL_SCORES, x, y, "tujuan")
 
 
 def style_score(a, b) -> int:
@@ -125,13 +130,19 @@ def _dated_slots(intent, first: date, last: date) -> List[dict]:
     return slots
 
 
+def _today() -> date:
+    """Hari ini, dipisah supaya uji bisa memakai tanggal tetap."""
+    return date.today()
+
+
 def common_slots(intents: Sequence, min_minutes: int = MIN_OVERLAP_MINUTES) -> List[dict]:
     """Waktu yang sama-sama kosong untuk semua intent, minimal min_minutes, urut dari tanggal terawal.
 
     Hanya tanggal di dalam irisan rentang tanggal semua intent yang dipakai. Irisan jam dihitung
     per tanggal secara terpisah: mulai paling akhir sampai selesai paling awal.
     """
-    first = max(date.fromisoformat(i.earliest_date) for i in intents)
+    # Tanggal yang sudah lewat tidak boleh diusulkan sebagai jadwal
+    first = max([date.fromisoformat(i.earliest_date) for i in intents] + [_today()])
     last = min(date.fromisoformat(i.latest_date) for i in intents)
     slots = _dated_slots(intents[0], first, last)
     for intent in intents[1:]:
@@ -167,7 +178,9 @@ def date_score(a, b, min_minutes: int = MIN_OVERLAP_MINUTES) -> Tuple[int, Optio
 
 def _account_ok(intent) -> bool:
     student = intent.student
-    return student.verification_status == "VERIFIED" and student.account_status == "ACTIVE"
+    # Mahasiswa yang menyembunyikan profilnya tidak ikut dicocokkan (kolom is_discoverable)
+    return (student.verification_status == "VERIFIED" and student.account_status == "ACTIVE"
+            and getattr(student, "is_discoverable", True))
 
 
 def hard_constraint(a, b, min_minutes: int = MIN_OVERLAP_MINUTES) -> Optional[str]:

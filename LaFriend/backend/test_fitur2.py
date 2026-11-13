@@ -1,5 +1,6 @@
 """Uji Fitur 2 dengan contoh Plan/Day7.MD dan KEPUTUSAN.md. Tanpa database."""
 import sys
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace as NS
 
@@ -8,6 +9,8 @@ sys.path.insert(0, str(backend_dir))
 
 from app import group_formation as G
 from app import matching as M
+
+M._today = lambda: date(2026, 11, 12)  # tanggal uji tetap: rentang intent contoh 12-18 Nov 2026
 
 
 def slot(day, start, end, rank=1):

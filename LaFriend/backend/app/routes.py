@@ -11,6 +11,9 @@
 # ==============================================================================
 
 import hashlib
+import hmac
+import os
+import secrets
 import jwt
 from datetime import datetime, timedelta
 from typing import List
@@ -36,7 +39,8 @@ RUNNING_STATUSES = ["ACTIVE", "GROUP_FORMING", "JOIN_PENDING"]
 api_router = APIRouter(prefix="/api/v1")
 
 # Kunci rahasia untuk membuat JWT token (sederhana & aman)
-SECRET_KEY = "lafriend_secret_key_telkom_university_2026"
+# Kunci token dibaca dari environment saat dipasang; nilai bawaan hanya untuk lokal
+SECRET_KEY = os.environ.get("LAFRIEND_SECRET_KEY", "lafriend_secret_key_telkom_university_2026")
 ALGORITHM = "HS256"
 
 
@@ -44,15 +48,24 @@ ALGORITHM = "HS256"
 # FUNGSI HELPER KEAMANAN (Password Hash & Token)
 # ==============================================================================
 
-# Mengubah password teks biasa menjadi hash SHA-256 yang aman
+# Mengubah password menjadi hash PBKDF2-SHA256 dengan salt acak per akun.
+# SHA-256 sekali dengan salt yang sama untuk semua akun terlalu cepat ditebak bila database bocor.
+PBKDF2_ROUNDS = 200_000
+
 def hash_password(password: str) -> str:
-    # Menggunakan salt sederhana agar hash lebih unik
-    salt = "lafriend_salt_2026"
-    return hashlib.sha256((password + salt).encode("utf-8")).hexdigest()
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), PBKDF2_ROUNDS).hex()
+    return f"pbkdf2${PBKDF2_ROUNDS}${salt}${digest}"
 
 # Mengecek apakah password yang dimasukkan cocok dengan hash di database
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return hash_password(plain_password) == hashed_password
+    if hashed_password.startswith("pbkdf2$"):
+        _, rounds, salt, digest = hashed_password.split("$")
+        check = hashlib.pbkdf2_hmac("sha256", plain_password.encode("utf-8"), bytes.fromhex(salt), int(rounds)).hex()
+        return hmac.compare_digest(check, digest)
+    # Hash lama (SHA-256 dengan salt tetap) dari database yang dibuat sebelum perubahan ini
+    old = hashlib.sha256((plain_password + "lafriend_salt_2026").encode("utf-8")).hexdigest()
+    return hmac.compare_digest(old, hashed_password)
 
 # Membuat token JWT yang berlaku selama 7 hari
 def create_token(student_id: str, email: str) -> str:
@@ -307,6 +320,9 @@ def get_study_intent_detail(
     intent = db.query(StudyIntent).filter(StudyIntent.intent_id == intent_id).first()
     if not intent:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Study Intent tidak ditemukan")
+    # Detail intent (jadwal kosong, topik) hanya untuk pemiliknya
+    if intent.student_id != current_student.student_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Kamu hanya boleh melihat Study Intent milikmu sendiri.")
     return intent
 
 
