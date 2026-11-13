@@ -676,7 +676,7 @@ async function initCreateIntentPage() {
     btnAddSlot.addEventListener("click", () => {
       const emptyNoticeEl = document.getElementById("emptySlotsNotice");
       if (emptyNoticeEl) emptyNoticeEl.classList.add("d-none");
-      addTimeSlotRow("Senin", "09:00", "11:00", Math.min(slotCounter + 1, 3));
+      addTimeSlotRow("", "", "", Math.min(slotCounter + 1, 3));
     });
   }
 
@@ -1047,8 +1047,8 @@ function applyAIExtractionResult(res) {
       container.innerHTML = "";
       slotCounter = 0;
       res.availabilities.forEach((slot, idx) => {
-        const day = slot.day_or_date || slot.day || "Senin";
-        addTimeSlotRow(day, slot.start_time, slot.end_time, slot.priority_rank || (idx + 1));
+        const day = slot.day_or_date || slot.day || "";
+        addTimeSlotRow(day, slot.start_time || "", slot.end_time || "", slot.priority_rank || (idx + 1));
       });
     }
   } else {
@@ -1112,8 +1112,8 @@ async function loadCoursesDropdown() {
   }
 }
 
-// Menambahkan baris slot waktu ketersediaan baru (Desain Lega, Rapi & Tidak Menumpuk)
-function addTimeSlotRow(day = "Rabu", start = "09:00", end = "12:00", priority = 1) {
+// Menambahkan baris slot waktu ketersediaan baru (Desain Lega, Rapi & Tanpa Default Palsu)
+function addTimeSlotRow(day = "", start = "", end = "", priority = 1) {
   slotCounter++;
   const rowId = `slotRow_${slotCounter}`;
   const container = document.getElementById("slotsContainer");
@@ -1146,7 +1146,8 @@ function addTimeSlotRow(day = "Rabu", start = "09:00", end = "12:00", priority =
         <label class="form-label-clean mb-1" style="font-size: 0.74rem; color: #64748B; font-weight: 600;">
           <i class="bi bi-calendar3 me-1 text-primary"></i> Hari Belajar
         </label>
-        <select class="form-select-clean slot-day" style="font-size: 0.88rem; padding: 9px 12px; font-weight: 600; border-radius: 10px; background-color: #F8FAFC;">
+        <select class="form-select-clean slot-day" style="font-size: 0.88rem; padding: 9px 12px; font-weight: 600; border-radius: 10px; background-color: #F8FAFC;" required>
+          <option value="" disabled ${!day ? 'selected' : ''}>Pilih Hari...</option>
           ${daysList.map(d => `<option value="${d}" ${day === d ? 'selected' : ''}>${d}</option>`).join("")}
           ${isCustomDay ? `<option value="${escapeHtml(day)}" selected>${escapeHtml(day)}</option>` : ''}
         </select>
@@ -1158,13 +1159,13 @@ function addTimeSlotRow(day = "Rabu", start = "09:00", end = "12:00", priority =
           <label class="form-label-clean mb-1" style="font-size: 0.74rem; color: #64748B; font-weight: 600;">
             <i class="bi bi-clock me-1 text-primary"></i> Jam Mulai
           </label>
-          <input type="time" class="slot-time-input slot-start" value="${start}" required>
+          <input type="time" class="slot-time-input slot-start" value="${start || ''}" required>
         </div>
         <div class="col-6">
           <label class="form-label-clean mb-1" style="font-size: 0.74rem; color: #64748B; font-weight: 600;">
             <i class="bi bi-clock-history me-1 text-primary"></i> Jam Selesai
           </label>
-          <input type="time" class="slot-time-input slot-end" value="${end}" required>
+          <input type="time" class="slot-time-input slot-end" value="${end || ''}" required>
         </div>
       </div>
     </div>
@@ -1175,13 +1176,22 @@ function addTimeSlotRow(day = "Rabu", start = "09:00", end = "12:00", priority =
 
 // Menghapus baris slot waktu
 function removeTimeSlotRow(rowId) {
-  const rows = document.querySelectorAll(".slot-row-card");
-  if (rows.length <= 1) {
-    alert("Minimal harus ada 1 slot waktu ketersediaan!");
-    return;
-  }
   const el = document.getElementById(rowId);
   if (el) el.remove();
+  const remainingRows = document.querySelectorAll(".slot-row-card");
+  if (remainingRows.length === 0) {
+    const emptyNoticeEl = document.getElementById("emptySlotsNotice");
+    if (emptyNoticeEl) {
+      emptyNoticeEl.innerHTML = `
+        <div class="slot-warning-notice">
+          <i class="bi bi-exclamation-triangle-fill me-1 text-warning"></i>
+          <strong>Belum ada slot waktu belajar yang ditambahkan.</strong><br>
+          Silakan klik <strong>+ Tambah Slot</strong> untuk mengatur hari & jam ketersediaanmu.
+        </div>
+      `;
+      emptyNoticeEl.classList.remove("d-none");
+    }
+  }
 }
 
 // Menangani pengiriman form Create Study Intent (DAY 11.1 - Validasi Ketat Tanpa Default Palsu)
