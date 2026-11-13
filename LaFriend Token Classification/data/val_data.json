@@ -1,0 +1,4162 @@
+[
+  {
+    "text": "Ada yang mau ngoding bareng Index dan Relasi untuk basdat persiapan ujian tengah semester? Yuk kumpul online via Google Meet Jumat jam 9 sampai 12 bareng 4 orang.",
+    "ner": [
+      [
+        28,
+        44,
+        "topic"
+      ],
+      [
+        51,
+        57,
+        "course"
+      ],
+      [
+        58,
+        89,
+        "exam_prep"
+      ],
+      [
+        102,
+        124,
+        "study_mode"
+      ],
+      [
+        125,
+        146,
+        "schedule"
+      ],
+      [
+        147,
+        161,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 28,
+        "end": 44,
+        "text": "Index dan Relasi",
+        "label": "topic"
+      },
+      {
+        "start": 51,
+        "end": 57,
+        "text": "basdat",
+        "label": "course"
+      },
+      {
+        "start": 58,
+        "end": 89,
+        "text": "persiapan ujian tengah semester",
+        "label": "exam_prep"
+      },
+      {
+        "start": 102,
+        "end": 124,
+        "text": "online via Google Meet",
+        "label": "study_mode"
+      },
+      {
+        "start": 125,
+        "end": 146,
+        "text": "Jumat jam 9 sampai 12",
+        "label": "schedule"
+      },
+      {
+        "start": 147,
+        "end": 161,
+        "text": "bareng 4 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Butuh partner diskusi Sorting dan Searching mata kuliah Algoritma Pemrograman hari Selasa pukul 13:00 - 15:00 tatap muka di perpus untuk berdua aja.",
+    "ner": [
+      [
+        22,
+        43,
+        "topic"
+      ],
+      [
+        56,
+        77,
+        "course"
+      ],
+      [
+        78,
+        109,
+        "schedule"
+      ],
+      [
+        110,
+        130,
+        "study_mode"
+      ],
+      [
+        137,
+        147,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 22,
+        "end": 43,
+        "text": "Sorting dan Searching",
+        "label": "topic"
+      },
+      {
+        "start": 56,
+        "end": 77,
+        "text": "Algoritma Pemrograman",
+        "label": "course"
+      },
+      {
+        "start": 78,
+        "end": 109,
+        "text": "hari Selasa pukul 13:00 - 15:00",
+        "label": "schedule"
+      },
+      {
+        "start": 110,
+        "end": 130,
+        "text": "tatap muka di perpus",
+        "label": "study_mode"
+      },
+      {
+        "start": 137,
+        "end": 147,
+        "text": "berdua aja",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Yuk bedah materi Konfigurasi Router Cisco Jaringan Komputer latihan kuis minggu depan hari Kamis jam 14:00 s/d 16:30 hybrid fleksibel bareng 2 orang.",
+    "ner": [
+      [
+        17,
+        41,
+        "topic"
+      ],
+      [
+        42,
+        59,
+        "course"
+      ],
+      [
+        60,
+        85,
+        "exam_prep"
+      ],
+      [
+        86,
+        116,
+        "schedule"
+      ],
+      [
+        117,
+        133,
+        "study_mode"
+      ],
+      [
+        134,
+        148,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 17,
+        "end": 41,
+        "text": "Konfigurasi Router Cisco",
+        "label": "topic"
+      },
+      {
+        "start": 42,
+        "end": 59,
+        "text": "Jaringan Komputer",
+        "label": "course"
+      },
+      {
+        "start": 60,
+        "end": 85,
+        "text": "latihan kuis minggu depan",
+        "label": "exam_prep"
+      },
+      {
+        "start": 86,
+        "end": 116,
+        "text": "hari Kamis jam 14:00 s/d 16:30",
+        "label": "schedule"
+      },
+      {
+        "start": 117,
+        "end": 133,
+        "text": "hybrid fleksibel",
+        "label": "study_mode"
+      },
+      {
+        "start": 134,
+        "end": 148,
+        "text": "bareng 2 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Butuh partner diskusi Konfigurasi Router Cisco mata kuliah Jaringan Komputer hari Sabtu pukul 13:00 - 15:00 online di Discord untuk kelompok 3 orang.",
+    "ner": [
+      [
+        22,
+        46,
+        "topic"
+      ],
+      [
+        59,
+        76,
+        "course"
+      ],
+      [
+        77,
+        107,
+        "schedule"
+      ],
+      [
+        108,
+        125,
+        "study_mode"
+      ],
+      [
+        132,
+        148,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 22,
+        "end": 46,
+        "text": "Konfigurasi Router Cisco",
+        "label": "topic"
+      },
+      {
+        "start": 59,
+        "end": 76,
+        "text": "Jaringan Komputer",
+        "label": "course"
+      },
+      {
+        "start": 77,
+        "end": 107,
+        "text": "hari Sabtu pukul 13:00 - 15:00",
+        "label": "schedule"
+      },
+      {
+        "start": 108,
+        "end": 125,
+        "text": "online di Discord",
+        "label": "study_mode"
+      },
+      {
+        "start": 132,
+        "end": 148,
+        "text": "kelompok 3 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Butuh partner diskusi Konfigurasi Router Cisco mata kuliah jarkom hari Minggu pukul 13:00 - 15:00 tatap muka di perpus untuk kelompok 3-4 orang.",
+    "ner": [
+      [
+        22,
+        46,
+        "topic"
+      ],
+      [
+        59,
+        65,
+        "course"
+      ],
+      [
+        66,
+        97,
+        "schedule"
+      ],
+      [
+        98,
+        118,
+        "study_mode"
+      ],
+      [
+        125,
+        143,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 22,
+        "end": 46,
+        "text": "Konfigurasi Router Cisco",
+        "label": "topic"
+      },
+      {
+        "start": 59,
+        "end": 65,
+        "text": "jarkom",
+        "label": "course"
+      },
+      {
+        "start": 66,
+        "end": 97,
+        "text": "hari Minggu pukul 13:00 - 15:00",
+        "label": "schedule"
+      },
+      {
+        "start": 98,
+        "end": 118,
+        "text": "tatap muka di perpus",
+        "label": "study_mode"
+      },
+      {
+        "start": 125,
+        "end": 143,
+        "text": "kelompok 3-4 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Yuk bedah materi Rekursif Algoritma Pemrograman kuis praktikum hari Senin jam 09:00 - 12:00 hybrid fleksibel maksimal 4 mahasiswa.",
+    "ner": [
+      [
+        17,
+        25,
+        "topic"
+      ],
+      [
+        26,
+        47,
+        "course"
+      ],
+      [
+        48,
+        62,
+        "exam_prep"
+      ],
+      [
+        63,
+        91,
+        "schedule"
+      ],
+      [
+        92,
+        108,
+        "study_mode"
+      ],
+      [
+        109,
+        129,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 17,
+        "end": 25,
+        "text": "Rekursif",
+        "label": "topic"
+      },
+      {
+        "start": 26,
+        "end": 47,
+        "text": "Algoritma Pemrograman",
+        "label": "course"
+      },
+      {
+        "start": 48,
+        "end": 62,
+        "text": "kuis praktikum",
+        "label": "exam_prep"
+      },
+      {
+        "start": 63,
+        "end": 91,
+        "text": "hari Senin jam 09:00 - 12:00",
+        "label": "schedule"
+      },
+      {
+        "start": 92,
+        "end": 108,
+        "text": "hybrid fleksibel",
+        "label": "study_mode"
+      },
+      {
+        "start": 109,
+        "end": 129,
+        "text": "maksimal 4 mahasiswa",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Saya mau belajar Subnetting IPv4 buat persiapan ujian tengah semester Jaringan Komputer hari Senin jam 10 sampai 12 kelompok 3-4 orang online via Google Meet.",
+    "ner": [
+      [
+        17,
+        32,
+        "topic"
+      ],
+      [
+        38,
+        69,
+        "exam_prep"
+      ],
+      [
+        70,
+        87,
+        "course"
+      ],
+      [
+        88,
+        115,
+        "schedule"
+      ],
+      [
+        116,
+        134,
+        "group_size"
+      ],
+      [
+        135,
+        157,
+        "study_mode"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 17,
+        "end": 32,
+        "text": "Subnetting IPv4",
+        "label": "topic"
+      },
+      {
+        "start": 38,
+        "end": 69,
+        "text": "persiapan ujian tengah semester",
+        "label": "exam_prep"
+      },
+      {
+        "start": 70,
+        "end": 87,
+        "text": "Jaringan Komputer",
+        "label": "course"
+      },
+      {
+        "start": 88,
+        "end": 115,
+        "text": "hari Senin jam 10 sampai 12",
+        "label": "schedule"
+      },
+      {
+        "start": 116,
+        "end": 134,
+        "text": "kelompok 3-4 orang",
+        "label": "group_size"
+      },
+      {
+        "start": 135,
+        "end": 157,
+        "text": "online via Google Meet",
+        "label": "study_mode"
+      }
+    ]
+  },
+  {
+    "text": "Cari temen belajar Jaringan Komputer bab Topologi Jaringan buat persiapan ujian akhir, preferensi online di Discord hari Jumat jam 10 sampai 12 bareng 4 orang.",
+    "ner": [
+      [
+        19,
+        36,
+        "course"
+      ],
+      [
+        41,
+        58,
+        "topic"
+      ],
+      [
+        64,
+        85,
+        "exam_prep"
+      ],
+      [
+        98,
+        115,
+        "study_mode"
+      ],
+      [
+        116,
+        143,
+        "schedule"
+      ],
+      [
+        144,
+        158,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 19,
+        "end": 36,
+        "text": "Jaringan Komputer",
+        "label": "course"
+      },
+      {
+        "start": 41,
+        "end": 58,
+        "text": "Topologi Jaringan",
+        "label": "topic"
+      },
+      {
+        "start": 64,
+        "end": 85,
+        "text": "persiapan ujian akhir",
+        "label": "exam_prep"
+      },
+      {
+        "start": 98,
+        "end": 115,
+        "text": "online di Discord",
+        "label": "study_mode"
+      },
+      {
+        "start": 116,
+        "end": 143,
+        "text": "hari Jumat jam 10 sampai 12",
+        "label": "schedule"
+      },
+      {
+        "start": 144,
+        "end": 158,
+        "text": "bareng 4 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Yuk bedah materi Virtual Memory Sistem Operasi persiapan UAS hari Sabtu jam 14:00 s/d 16:30 tatap muka di perpus bareng 4 orang.",
+    "ner": [
+      [
+        17,
+        31,
+        "topic"
+      ],
+      [
+        32,
+        46,
+        "course"
+      ],
+      [
+        47,
+        60,
+        "exam_prep"
+      ],
+      [
+        61,
+        91,
+        "schedule"
+      ],
+      [
+        92,
+        112,
+        "study_mode"
+      ],
+      [
+        113,
+        127,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 17,
+        "end": 31,
+        "text": "Virtual Memory",
+        "label": "topic"
+      },
+      {
+        "start": 32,
+        "end": 46,
+        "text": "Sistem Operasi",
+        "label": "course"
+      },
+      {
+        "start": 47,
+        "end": 60,
+        "text": "persiapan UAS",
+        "label": "exam_prep"
+      },
+      {
+        "start": 61,
+        "end": 91,
+        "text": "hari Sabtu jam 14:00 s/d 16:30",
+        "label": "schedule"
+      },
+      {
+        "start": 92,
+        "end": 112,
+        "text": "tatap muka di perpus",
+        "label": "study_mode"
+      },
+      {
+        "start": 113,
+        "end": 127,
+        "text": "bareng 4 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Latihan soal Deadlock Avoidance persiapan kuis Sistem Operasi yuk, jadwalnya hari Jumat pukul 8 pagi sampai 11 bareng bareng 2 orang online di Discord.",
+    "ner": [
+      [
+        13,
+        31,
+        "topic"
+      ],
+      [
+        47,
+        61,
+        "course"
+      ],
+      [
+        77,
+        110,
+        "schedule"
+      ],
+      [
+        118,
+        132,
+        "group_size"
+      ],
+      [
+        133,
+        150,
+        "study_mode"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 13,
+        "end": 31,
+        "text": "Deadlock Avoidance",
+        "label": "topic"
+      },
+      {
+        "start": 47,
+        "end": 61,
+        "text": "Sistem Operasi",
+        "label": "course"
+      },
+      {
+        "start": 77,
+        "end": 110,
+        "text": "hari Jumat pukul 8 pagi sampai 11",
+        "label": "schedule"
+      },
+      {
+        "start": 118,
+        "end": 132,
+        "text": "bareng 2 orang",
+        "label": "group_size"
+      },
+      {
+        "start": 133,
+        "end": 150,
+        "text": "online di Discord",
+        "label": "study_mode"
+      }
+    ]
+  },
+  {
+    "text": "Saya mau belajar Limit dan Kekontinuan buat persiapan UAS Kalkulus hari Sabtu jam 9 sampai 12 bareng 4 orang offline langsung di kampus.",
+    "ner": [
+      [
+        17,
+        38,
+        "topic"
+      ],
+      [
+        44,
+        57,
+        "exam_prep"
+      ],
+      [
+        58,
+        66,
+        "course"
+      ],
+      [
+        67,
+        93,
+        "schedule"
+      ],
+      [
+        94,
+        108,
+        "group_size"
+      ],
+      [
+        109,
+        135,
+        "study_mode"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 17,
+        "end": 38,
+        "text": "Limit dan Kekontinuan",
+        "label": "topic"
+      },
+      {
+        "start": 44,
+        "end": 57,
+        "text": "persiapan UAS",
+        "label": "exam_prep"
+      },
+      {
+        "start": 58,
+        "end": 66,
+        "text": "Kalkulus",
+        "label": "course"
+      },
+      {
+        "start": 67,
+        "end": 93,
+        "text": "hari Sabtu jam 9 sampai 12",
+        "label": "schedule"
+      },
+      {
+        "start": 94,
+        "end": 108,
+        "text": "bareng 4 orang",
+        "label": "group_size"
+      },
+      {
+        "start": 109,
+        "end": 135,
+        "text": "offline langsung di kampus",
+        "label": "study_mode"
+      }
+    ]
+  },
+  {
+    "text": "Yuk bedah materi Model OSI dan TCP/IP Jaringan Komputer latihan kuis minggu depan hari Sabtu jam 10 sampai 12 online di Discord kelompok 3 orang.",
+    "ner": [
+      [
+        17,
+        37,
+        "topic"
+      ],
+      [
+        38,
+        55,
+        "course"
+      ],
+      [
+        56,
+        81,
+        "exam_prep"
+      ],
+      [
+        82,
+        109,
+        "schedule"
+      ],
+      [
+        110,
+        127,
+        "study_mode"
+      ],
+      [
+        128,
+        144,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 17,
+        "end": 37,
+        "text": "Model OSI dan TCP/IP",
+        "label": "topic"
+      },
+      {
+        "start": 38,
+        "end": 55,
+        "text": "Jaringan Komputer",
+        "label": "course"
+      },
+      {
+        "start": 56,
+        "end": 81,
+        "text": "latihan kuis minggu depan",
+        "label": "exam_prep"
+      },
+      {
+        "start": 82,
+        "end": 109,
+        "text": "hari Sabtu jam 10 sampai 12",
+        "label": "schedule"
+      },
+      {
+        "start": 110,
+        "end": 127,
+        "text": "online di Discord",
+        "label": "study_mode"
+      },
+      {
+        "start": 128,
+        "end": 144,
+        "text": "kelompok 3 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Mau diskusi materi Kombinatorika mata kuliah matdis kelompok bareng 2 orang secara hybrid fleksibel hari Senin pukul 8 pagi sampai 11.",
+    "ner": [
+      [
+        19,
+        32,
+        "topic"
+      ],
+      [
+        45,
+        51,
+        "course"
+      ],
+      [
+        61,
+        75,
+        "group_size"
+      ],
+      [
+        83,
+        99,
+        "study_mode"
+      ],
+      [
+        100,
+        133,
+        "schedule"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 19,
+        "end": 32,
+        "text": "Kombinatorika",
+        "label": "topic"
+      },
+      {
+        "start": 45,
+        "end": 51,
+        "text": "matdis",
+        "label": "course"
+      },
+      {
+        "start": 61,
+        "end": 75,
+        "text": "bareng 2 orang",
+        "label": "group_size"
+      },
+      {
+        "start": 83,
+        "end": 99,
+        "text": "hybrid fleksibel",
+        "label": "study_mode"
+      },
+      {
+        "start": 100,
+        "end": 133,
+        "text": "hari Senin pukul 8 pagi sampai 11",
+        "label": "schedule"
+      }
+    ]
+  },
+  {
+    "text": "Butuh partner diskusi Percabangan dan Looping mata kuliah alpro hari Kamis pukul 13:00 - 15:00 offline langsung di kampus untuk maksimal 4 mahasiswa.",
+    "ner": [
+      [
+        22,
+        45,
+        "topic"
+      ],
+      [
+        58,
+        63,
+        "course"
+      ],
+      [
+        64,
+        94,
+        "schedule"
+      ],
+      [
+        95,
+        121,
+        "study_mode"
+      ],
+      [
+        128,
+        148,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 22,
+        "end": 45,
+        "text": "Percabangan dan Looping",
+        "label": "topic"
+      },
+      {
+        "start": 58,
+        "end": 63,
+        "text": "alpro",
+        "label": "course"
+      },
+      {
+        "start": 64,
+        "end": 94,
+        "text": "hari Kamis pukul 13:00 - 15:00",
+        "label": "schedule"
+      },
+      {
+        "start": 95,
+        "end": 121,
+        "text": "offline langsung di kampus",
+        "label": "study_mode"
+      },
+      {
+        "start": 128,
+        "end": 148,
+        "text": "maksimal 4 mahasiswa",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Cari temen belajar Struktur Data bab Hash Table buat latihan kuis minggu depan, preferensi hybrid fleksibel hari Selasa pukul 13:00 - 15:00 bareng 4 orang.",
+    "ner": [
+      [
+        19,
+        32,
+        "course"
+      ],
+      [
+        37,
+        47,
+        "topic"
+      ],
+      [
+        53,
+        78,
+        "exam_prep"
+      ],
+      [
+        91,
+        107,
+        "study_mode"
+      ],
+      [
+        108,
+        139,
+        "schedule"
+      ],
+      [
+        140,
+        154,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 19,
+        "end": 32,
+        "text": "Struktur Data",
+        "label": "course"
+      },
+      {
+        "start": 37,
+        "end": 47,
+        "text": "Hash Table",
+        "label": "topic"
+      },
+      {
+        "start": 53,
+        "end": 78,
+        "text": "latihan kuis minggu depan",
+        "label": "exam_prep"
+      },
+      {
+        "start": 91,
+        "end": 107,
+        "text": "hybrid fleksibel",
+        "label": "study_mode"
+      },
+      {
+        "start": 108,
+        "end": 139,
+        "text": "hari Selasa pukul 13:00 - 15:00",
+        "label": "schedule"
+      },
+      {
+        "start": 140,
+        "end": 154,
+        "text": "bareng 4 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Ada yang mau ngoding bareng Normalisasi 1NF sampai 3NF untuk basdat persiapan ujian akhir? Yuk kumpul online via Google Meet Rabu jam 14:00 s/d 16:30 maksimal 4 mahasiswa.",
+    "ner": [
+      [
+        28,
+        54,
+        "topic"
+      ],
+      [
+        61,
+        67,
+        "course"
+      ],
+      [
+        68,
+        89,
+        "exam_prep"
+      ],
+      [
+        102,
+        124,
+        "study_mode"
+      ],
+      [
+        125,
+        149,
+        "schedule"
+      ],
+      [
+        150,
+        170,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 28,
+        "end": 54,
+        "text": "Normalisasi 1NF sampai 3NF",
+        "label": "topic"
+      },
+      {
+        "start": 61,
+        "end": 67,
+        "text": "basdat",
+        "label": "course"
+      },
+      {
+        "start": 68,
+        "end": 89,
+        "text": "persiapan ujian akhir",
+        "label": "exam_prep"
+      },
+      {
+        "start": 102,
+        "end": 124,
+        "text": "online via Google Meet",
+        "label": "study_mode"
+      },
+      {
+        "start": 125,
+        "end": 149,
+        "text": "Rabu jam 14:00 s/d 16:30",
+        "label": "schedule"
+      },
+      {
+        "start": 150,
+        "end": 170,
+        "text": "maksimal 4 mahasiswa",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Saya mau belajar Turunan dan Aplikasi buat latihan kuis minggu depan Kalkulus hari Kamis jam 09:00 - 12:00 bareng 2 sampai 4 orang hybrid fleksibel.",
+    "ner": [
+      [
+        17,
+        37,
+        "topic"
+      ],
+      [
+        43,
+        68,
+        "exam_prep"
+      ],
+      [
+        69,
+        77,
+        "course"
+      ],
+      [
+        78,
+        106,
+        "schedule"
+      ],
+      [
+        107,
+        130,
+        "group_size"
+      ],
+      [
+        131,
+        147,
+        "study_mode"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 17,
+        "end": 37,
+        "text": "Turunan dan Aplikasi",
+        "label": "topic"
+      },
+      {
+        "start": 43,
+        "end": 68,
+        "text": "latihan kuis minggu depan",
+        "label": "exam_prep"
+      },
+      {
+        "start": 69,
+        "end": 77,
+        "text": "Kalkulus",
+        "label": "course"
+      },
+      {
+        "start": 78,
+        "end": 106,
+        "text": "hari Kamis jam 09:00 - 12:00",
+        "label": "schedule"
+      },
+      {
+        "start": 107,
+        "end": 130,
+        "text": "bareng 2 sampai 4 orang",
+        "label": "group_size"
+      },
+      {
+        "start": 131,
+        "end": 147,
+        "text": "hybrid fleksibel",
+        "label": "study_mode"
+      }
+    ]
+  },
+  {
+    "text": "Butuh partner diskusi Logika Proposisi mata kuliah Matematika Diskrit hari Kamis jam 14:00 s/d 16:30 tatap muka di perpus untuk kelompok 3-4 orang.",
+    "ner": [
+      [
+        22,
+        38,
+        "topic"
+      ],
+      [
+        51,
+        69,
+        "course"
+      ],
+      [
+        70,
+        100,
+        "schedule"
+      ],
+      [
+        101,
+        121,
+        "study_mode"
+      ],
+      [
+        128,
+        146,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 22,
+        "end": 38,
+        "text": "Logika Proposisi",
+        "label": "topic"
+      },
+      {
+        "start": 51,
+        "end": 69,
+        "text": "Matematika Diskrit",
+        "label": "course"
+      },
+      {
+        "start": 70,
+        "end": 100,
+        "text": "hari Kamis jam 14:00 s/d 16:30",
+        "label": "schedule"
+      },
+      {
+        "start": 101,
+        "end": 121,
+        "text": "tatap muka di perpus",
+        "label": "study_mode"
+      },
+      {
+        "start": 128,
+        "end": 146,
+        "text": "kelompok 3-4 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Yuk bedah materi Manajemen Memori Paging Sistem Operasi kuis praktikum hari Sabtu jam 10 sampai 12 offline langsung di kampus berdua aja.",
+    "ner": [
+      [
+        17,
+        40,
+        "topic"
+      ],
+      [
+        41,
+        55,
+        "course"
+      ],
+      [
+        56,
+        70,
+        "exam_prep"
+      ],
+      [
+        71,
+        98,
+        "schedule"
+      ],
+      [
+        99,
+        125,
+        "study_mode"
+      ],
+      [
+        126,
+        136,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 17,
+        "end": 40,
+        "text": "Manajemen Memori Paging",
+        "label": "topic"
+      },
+      {
+        "start": 41,
+        "end": 55,
+        "text": "Sistem Operasi",
+        "label": "course"
+      },
+      {
+        "start": 56,
+        "end": 70,
+        "text": "kuis praktikum",
+        "label": "exam_prep"
+      },
+      {
+        "start": 71,
+        "end": 98,
+        "text": "hari Sabtu jam 10 sampai 12",
+        "label": "schedule"
+      },
+      {
+        "start": 99,
+        "end": 125,
+        "text": "offline langsung di kampus",
+        "label": "study_mode"
+      },
+      {
+        "start": 126,
+        "end": 136,
+        "text": "berdua aja",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Cari temen belajar matdis bab Logika Proposisi buat persiapan UAS, preferensi online via Google Meet hari Rabu jam 09:00 - 12:00 bareng 2 orang.",
+    "ner": [
+      [
+        19,
+        25,
+        "course"
+      ],
+      [
+        30,
+        46,
+        "topic"
+      ],
+      [
+        52,
+        65,
+        "exam_prep"
+      ],
+      [
+        78,
+        100,
+        "study_mode"
+      ],
+      [
+        101,
+        128,
+        "schedule"
+      ],
+      [
+        129,
+        143,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 19,
+        "end": 25,
+        "text": "matdis",
+        "label": "course"
+      },
+      {
+        "start": 30,
+        "end": 46,
+        "text": "Logika Proposisi",
+        "label": "topic"
+      },
+      {
+        "start": 52,
+        "end": 65,
+        "text": "persiapan UAS",
+        "label": "exam_prep"
+      },
+      {
+        "start": 78,
+        "end": 100,
+        "text": "online via Google Meet",
+        "label": "study_mode"
+      },
+      {
+        "start": 101,
+        "end": 128,
+        "text": "hari Rabu jam 09:00 - 12:00",
+        "label": "schedule"
+      },
+      {
+        "start": 129,
+        "end": 143,
+        "text": "bareng 2 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Saya mau belajar Index dan Relasi buat persiapan ujian akhir Basis Data hari Senin jam 10 sampai 12 kelompok 3 orang offline langsung di kampus.",
+    "ner": [
+      [
+        17,
+        33,
+        "topic"
+      ],
+      [
+        39,
+        60,
+        "exam_prep"
+      ],
+      [
+        61,
+        71,
+        "course"
+      ],
+      [
+        72,
+        99,
+        "schedule"
+      ],
+      [
+        100,
+        116,
+        "group_size"
+      ],
+      [
+        117,
+        143,
+        "study_mode"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 17,
+        "end": 33,
+        "text": "Index dan Relasi",
+        "label": "topic"
+      },
+      {
+        "start": 39,
+        "end": 60,
+        "text": "persiapan ujian akhir",
+        "label": "exam_prep"
+      },
+      {
+        "start": 61,
+        "end": 71,
+        "text": "Basis Data",
+        "label": "course"
+      },
+      {
+        "start": 72,
+        "end": 99,
+        "text": "hari Senin jam 10 sampai 12",
+        "label": "schedule"
+      },
+      {
+        "start": 100,
+        "end": 116,
+        "text": "kelompok 3 orang",
+        "label": "group_size"
+      },
+      {
+        "start": 117,
+        "end": 143,
+        "text": "offline langsung di kampus",
+        "label": "study_mode"
+      }
+    ]
+  },
+  {
+    "text": "Yuk bedah materi Limit dan Kekontinuan Kalkulus persiapan ujian tengah semester hari Selasa jam 09:00 - 12:00 hybrid fleksibel bareng 4 orang.",
+    "ner": [
+      [
+        17,
+        38,
+        "topic"
+      ],
+      [
+        39,
+        47,
+        "course"
+      ],
+      [
+        48,
+        79,
+        "exam_prep"
+      ],
+      [
+        80,
+        109,
+        "schedule"
+      ],
+      [
+        110,
+        126,
+        "study_mode"
+      ],
+      [
+        127,
+        141,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 17,
+        "end": 38,
+        "text": "Limit dan Kekontinuan",
+        "label": "topic"
+      },
+      {
+        "start": 39,
+        "end": 47,
+        "text": "Kalkulus",
+        "label": "course"
+      },
+      {
+        "start": 48,
+        "end": 79,
+        "text": "persiapan ujian tengah semester",
+        "label": "exam_prep"
+      },
+      {
+        "start": 80,
+        "end": 109,
+        "text": "hari Selasa jam 09:00 - 12:00",
+        "label": "schedule"
+      },
+      {
+        "start": 110,
+        "end": 126,
+        "text": "hybrid fleksibel",
+        "label": "study_mode"
+      },
+      {
+        "start": 127,
+        "end": 141,
+        "text": "bareng 4 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Latihan soal Sorting dan Searching persiapan kuis Algoritma Pemrograman yuk, jadwalnya hari Selasa pukul 8 pagi sampai 11 bareng berdua aja tatap muka di perpus.",
+    "ner": [
+      [
+        13,
+        34,
+        "topic"
+      ],
+      [
+        50,
+        71,
+        "course"
+      ],
+      [
+        87,
+        121,
+        "schedule"
+      ],
+      [
+        129,
+        139,
+        "group_size"
+      ],
+      [
+        140,
+        160,
+        "study_mode"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 13,
+        "end": 34,
+        "text": "Sorting dan Searching",
+        "label": "topic"
+      },
+      {
+        "start": 50,
+        "end": 71,
+        "text": "Algoritma Pemrograman",
+        "label": "course"
+      },
+      {
+        "start": 87,
+        "end": 121,
+        "text": "hari Selasa pukul 8 pagi sampai 11",
+        "label": "schedule"
+      },
+      {
+        "start": 129,
+        "end": 139,
+        "text": "berdua aja",
+        "label": "group_size"
+      },
+      {
+        "start": 140,
+        "end": 160,
+        "text": "tatap muka di perpus",
+        "label": "study_mode"
+      }
+    ]
+  },
+  {
+    "text": "Ada yang mau ngoding bareng CPU Scheduling untuk Sistem Operasi persiapan UTS? Yuk kumpul tatap muka di perpus Jumat pukul 13:00 - 15:00 kelompok 3 orang.",
+    "ner": [
+      [
+        28,
+        42,
+        "topic"
+      ],
+      [
+        49,
+        63,
+        "course"
+      ],
+      [
+        64,
+        77,
+        "exam_prep"
+      ],
+      [
+        90,
+        110,
+        "study_mode"
+      ],
+      [
+        111,
+        136,
+        "schedule"
+      ],
+      [
+        137,
+        153,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 28,
+        "end": 42,
+        "text": "CPU Scheduling",
+        "label": "topic"
+      },
+      {
+        "start": 49,
+        "end": 63,
+        "text": "Sistem Operasi",
+        "label": "course"
+      },
+      {
+        "start": 64,
+        "end": 77,
+        "text": "persiapan UTS",
+        "label": "exam_prep"
+      },
+      {
+        "start": 90,
+        "end": 110,
+        "text": "tatap muka di perpus",
+        "label": "study_mode"
+      },
+      {
+        "start": 111,
+        "end": 136,
+        "text": "Jumat pukul 13:00 - 15:00",
+        "label": "schedule"
+      },
+      {
+        "start": 137,
+        "end": 153,
+        "text": "kelompok 3 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Mau diskusi materi Sinkronisasi Process mata kuliah sisop kelompok bareng 2 orang secara online via Google Meet hari Minggu jam 09:00 - 12:00.",
+    "ner": [
+      [
+        19,
+        39,
+        "topic"
+      ],
+      [
+        52,
+        57,
+        "course"
+      ],
+      [
+        67,
+        81,
+        "group_size"
+      ],
+      [
+        89,
+        111,
+        "study_mode"
+      ],
+      [
+        112,
+        141,
+        "schedule"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 19,
+        "end": 39,
+        "text": "Sinkronisasi Process",
+        "label": "topic"
+      },
+      {
+        "start": 52,
+        "end": 57,
+        "text": "sisop",
+        "label": "course"
+      },
+      {
+        "start": 67,
+        "end": 81,
+        "text": "bareng 2 orang",
+        "label": "group_size"
+      },
+      {
+        "start": 89,
+        "end": 111,
+        "text": "online via Google Meet",
+        "label": "study_mode"
+      },
+      {
+        "start": 112,
+        "end": 141,
+        "text": "hari Minggu jam 09:00 - 12:00",
+        "label": "schedule"
+      }
+    ]
+  },
+  {
+    "text": "Yuk bedah materi Desain ERD basdat persiapan ujian tengah semester hari Kamis jam 14:00 s/d 16:30 tatap muka di perpus bareng 4 orang.",
+    "ner": [
+      [
+        17,
+        27,
+        "topic"
+      ],
+      [
+        28,
+        34,
+        "course"
+      ],
+      [
+        35,
+        66,
+        "exam_prep"
+      ],
+      [
+        67,
+        97,
+        "schedule"
+      ],
+      [
+        98,
+        118,
+        "study_mode"
+      ],
+      [
+        119,
+        133,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 17,
+        "end": 27,
+        "text": "Desain ERD",
+        "label": "topic"
+      },
+      {
+        "start": 28,
+        "end": 34,
+        "text": "basdat",
+        "label": "course"
+      },
+      {
+        "start": 35,
+        "end": 66,
+        "text": "persiapan ujian tengah semester",
+        "label": "exam_prep"
+      },
+      {
+        "start": 67,
+        "end": 97,
+        "text": "hari Kamis jam 14:00 s/d 16:30",
+        "label": "schedule"
+      },
+      {
+        "start": 98,
+        "end": 118,
+        "text": "tatap muka di perpus",
+        "label": "study_mode"
+      },
+      {
+        "start": 119,
+        "end": 133,
+        "text": "bareng 4 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Butuh partner diskusi VLAN mata kuliah Jaringan Komputer hari Minggu jam 9 sampai 12 online di Discord untuk bareng 2 orang.",
+    "ner": [
+      [
+        22,
+        26,
+        "topic"
+      ],
+      [
+        39,
+        56,
+        "course"
+      ],
+      [
+        57,
+        84,
+        "schedule"
+      ],
+      [
+        85,
+        102,
+        "study_mode"
+      ],
+      [
+        109,
+        123,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 22,
+        "end": 26,
+        "text": "VLAN",
+        "label": "topic"
+      },
+      {
+        "start": 39,
+        "end": 56,
+        "text": "Jaringan Komputer",
+        "label": "course"
+      },
+      {
+        "start": 57,
+        "end": 84,
+        "text": "hari Minggu jam 9 sampai 12",
+        "label": "schedule"
+      },
+      {
+        "start": 85,
+        "end": 102,
+        "text": "online di Discord",
+        "label": "study_mode"
+      },
+      {
+        "start": 109,
+        "end": 123,
+        "text": "bareng 2 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Ada yang mau ngoding bareng Linked List untuk strukdat persiapan UTS? Yuk kumpul hybrid fleksibel Senin pukul 13:00 - 15:00 kelompok 3-4 orang.",
+    "ner": [
+      [
+        28,
+        39,
+        "topic"
+      ],
+      [
+        46,
+        54,
+        "course"
+      ],
+      [
+        55,
+        68,
+        "exam_prep"
+      ],
+      [
+        81,
+        97,
+        "study_mode"
+      ],
+      [
+        98,
+        123,
+        "schedule"
+      ],
+      [
+        124,
+        142,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 28,
+        "end": 39,
+        "text": "Linked List",
+        "label": "topic"
+      },
+      {
+        "start": 46,
+        "end": 54,
+        "text": "strukdat",
+        "label": "course"
+      },
+      {
+        "start": 55,
+        "end": 68,
+        "text": "persiapan UTS",
+        "label": "exam_prep"
+      },
+      {
+        "start": 81,
+        "end": 97,
+        "text": "hybrid fleksibel",
+        "label": "study_mode"
+      },
+      {
+        "start": 98,
+        "end": 123,
+        "text": "Senin pukul 13:00 - 15:00",
+        "label": "schedule"
+      },
+      {
+        "start": 124,
+        "end": 142,
+        "text": "kelompok 3-4 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Latihan soal Virtual Memory persiapan kuis sisop yuk, jadwalnya hari Rabu jam 14:00 s/d 16:30 bareng bareng 2 sampai 4 orang offline langsung di kampus.",
+    "ner": [
+      [
+        13,
+        27,
+        "topic"
+      ],
+      [
+        43,
+        48,
+        "course"
+      ],
+      [
+        64,
+        93,
+        "schedule"
+      ],
+      [
+        101,
+        124,
+        "group_size"
+      ],
+      [
+        125,
+        151,
+        "study_mode"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 13,
+        "end": 27,
+        "text": "Virtual Memory",
+        "label": "topic"
+      },
+      {
+        "start": 43,
+        "end": 48,
+        "text": "sisop",
+        "label": "course"
+      },
+      {
+        "start": 64,
+        "end": 93,
+        "text": "hari Rabu jam 14:00 s/d 16:30",
+        "label": "schedule"
+      },
+      {
+        "start": 101,
+        "end": 124,
+        "text": "bareng 2 sampai 4 orang",
+        "label": "group_size"
+      },
+      {
+        "start": 125,
+        "end": 151,
+        "text": "offline langsung di kampus",
+        "label": "study_mode"
+      }
+    ]
+  },
+  {
+    "text": "Latihan soal Teori Graf persiapan kuis Matematika Diskrit yuk, jadwalnya hari Jumat jam 9 sampai 12 bareng bareng 2 orang offline langsung di kampus.",
+    "ner": [
+      [
+        13,
+        23,
+        "topic"
+      ],
+      [
+        39,
+        57,
+        "course"
+      ],
+      [
+        73,
+        99,
+        "schedule"
+      ],
+      [
+        107,
+        121,
+        "group_size"
+      ],
+      [
+        122,
+        148,
+        "study_mode"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 13,
+        "end": 23,
+        "text": "Teori Graf",
+        "label": "topic"
+      },
+      {
+        "start": 39,
+        "end": 57,
+        "text": "Matematika Diskrit",
+        "label": "course"
+      },
+      {
+        "start": 73,
+        "end": 99,
+        "text": "hari Jumat jam 9 sampai 12",
+        "label": "schedule"
+      },
+      {
+        "start": 107,
+        "end": 121,
+        "text": "bareng 2 orang",
+        "label": "group_size"
+      },
+      {
+        "start": 122,
+        "end": 148,
+        "text": "offline langsung di kampus",
+        "label": "study_mode"
+      }
+    ]
+  },
+  {
+    "text": "Butuh partner diskusi Array Multidimensi mata kuliah alpro hari Kamis pukul 8 pagi sampai 11 online di Discord untuk kelompok 3-4 orang.",
+    "ner": [
+      [
+        22,
+        40,
+        "topic"
+      ],
+      [
+        53,
+        58,
+        "course"
+      ],
+      [
+        59,
+        92,
+        "schedule"
+      ],
+      [
+        93,
+        110,
+        "study_mode"
+      ],
+      [
+        117,
+        135,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 22,
+        "end": 40,
+        "text": "Array Multidimensi",
+        "label": "topic"
+      },
+      {
+        "start": 53,
+        "end": 58,
+        "text": "alpro",
+        "label": "course"
+      },
+      {
+        "start": 59,
+        "end": 92,
+        "text": "hari Kamis pukul 8 pagi sampai 11",
+        "label": "schedule"
+      },
+      {
+        "start": 93,
+        "end": 110,
+        "text": "online di Discord",
+        "label": "study_mode"
+      },
+      {
+        "start": 117,
+        "end": 135,
+        "text": "kelompok 3-4 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Ada yang mau ngoding bareng Red-Black Tree untuk Struktur Data latihan kuis minggu depan? Yuk kumpul offline santai di TULT Jumat pukul 13:00 - 15:00 kelompok 3-4 orang.",
+    "ner": [
+      [
+        28,
+        42,
+        "topic"
+      ],
+      [
+        49,
+        62,
+        "course"
+      ],
+      [
+        63,
+        88,
+        "exam_prep"
+      ],
+      [
+        101,
+        123,
+        "study_mode"
+      ],
+      [
+        124,
+        149,
+        "schedule"
+      ],
+      [
+        150,
+        168,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 28,
+        "end": 42,
+        "text": "Red-Black Tree",
+        "label": "topic"
+      },
+      {
+        "start": 49,
+        "end": 62,
+        "text": "Struktur Data",
+        "label": "course"
+      },
+      {
+        "start": 63,
+        "end": 88,
+        "text": "latihan kuis minggu depan",
+        "label": "exam_prep"
+      },
+      {
+        "start": 101,
+        "end": 123,
+        "text": "offline santai di TULT",
+        "label": "study_mode"
+      },
+      {
+        "start": 124,
+        "end": 149,
+        "text": "Jumat pukul 13:00 - 15:00",
+        "label": "schedule"
+      },
+      {
+        "start": 150,
+        "end": 168,
+        "text": "kelompok 3-4 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Yuk bedah materi Kombinatorika Matematika Diskrit kuis praktikum hari Jumat jam 10 sampai 12 tatap muka di perpus bareng 4 orang.",
+    "ner": [
+      [
+        17,
+        30,
+        "topic"
+      ],
+      [
+        31,
+        49,
+        "course"
+      ],
+      [
+        50,
+        64,
+        "exam_prep"
+      ],
+      [
+        65,
+        92,
+        "schedule"
+      ],
+      [
+        93,
+        113,
+        "study_mode"
+      ],
+      [
+        114,
+        128,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 17,
+        "end": 30,
+        "text": "Kombinatorika",
+        "label": "topic"
+      },
+      {
+        "start": 31,
+        "end": 49,
+        "text": "Matematika Diskrit",
+        "label": "course"
+      },
+      {
+        "start": 50,
+        "end": 64,
+        "text": "kuis praktikum",
+        "label": "exam_prep"
+      },
+      {
+        "start": 65,
+        "end": 92,
+        "text": "hari Jumat jam 10 sampai 12",
+        "label": "schedule"
+      },
+      {
+        "start": 93,
+        "end": 113,
+        "text": "tatap muka di perpus",
+        "label": "study_mode"
+      },
+      {
+        "start": 114,
+        "end": 128,
+        "text": "bareng 4 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Yuk bedah materi Integral Tentu dan Tak Tentu kalkulus persiapan ujian tengah semester hari Senin jam 10 sampai 12 online di Discord kelompok 3 orang.",
+    "ner": [
+      [
+        17,
+        45,
+        "topic"
+      ],
+      [
+        46,
+        54,
+        "course"
+      ],
+      [
+        55,
+        86,
+        "exam_prep"
+      ],
+      [
+        87,
+        114,
+        "schedule"
+      ],
+      [
+        115,
+        132,
+        "study_mode"
+      ],
+      [
+        133,
+        149,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 17,
+        "end": 45,
+        "text": "Integral Tentu dan Tak Tentu",
+        "label": "topic"
+      },
+      {
+        "start": 46,
+        "end": 54,
+        "text": "kalkulus",
+        "label": "course"
+      },
+      {
+        "start": 55,
+        "end": 86,
+        "text": "persiapan ujian tengah semester",
+        "label": "exam_prep"
+      },
+      {
+        "start": 87,
+        "end": 114,
+        "text": "hari Senin jam 10 sampai 12",
+        "label": "schedule"
+      },
+      {
+        "start": 115,
+        "end": 132,
+        "text": "online di Discord",
+        "label": "study_mode"
+      },
+      {
+        "start": 133,
+        "end": 149,
+        "text": "kelompok 3 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Mau diskusi materi Manajemen Memori Paging mata kuliah Sistem Operasi kelompok bareng 2 sampai 4 orang secara offline langsung di kampus hari Kamis jam 10 sampai 12.",
+    "ner": [
+      [
+        19,
+        42,
+        "topic"
+      ],
+      [
+        55,
+        69,
+        "course"
+      ],
+      [
+        79,
+        102,
+        "group_size"
+      ],
+      [
+        110,
+        136,
+        "study_mode"
+      ],
+      [
+        137,
+        164,
+        "schedule"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 19,
+        "end": 42,
+        "text": "Manajemen Memori Paging",
+        "label": "topic"
+      },
+      {
+        "start": 55,
+        "end": 69,
+        "text": "Sistem Operasi",
+        "label": "course"
+      },
+      {
+        "start": 79,
+        "end": 102,
+        "text": "bareng 2 sampai 4 orang",
+        "label": "group_size"
+      },
+      {
+        "start": 110,
+        "end": 136,
+        "text": "offline langsung di kampus",
+        "label": "study_mode"
+      },
+      {
+        "start": 137,
+        "end": 164,
+        "text": "hari Kamis jam 10 sampai 12",
+        "label": "schedule"
+      }
+    ]
+  },
+  {
+    "text": "Latihan soal Fungsi dan Prosedur persiapan kuis alpro yuk, jadwalnya hari Senin jam 09:00 - 12:00 bareng bareng 2 sampai 4 orang tatap muka di perpus.",
+    "ner": [
+      [
+        13,
+        32,
+        "topic"
+      ],
+      [
+        48,
+        53,
+        "course"
+      ],
+      [
+        69,
+        97,
+        "schedule"
+      ],
+      [
+        105,
+        128,
+        "group_size"
+      ],
+      [
+        129,
+        149,
+        "study_mode"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 13,
+        "end": 32,
+        "text": "Fungsi dan Prosedur",
+        "label": "topic"
+      },
+      {
+        "start": 48,
+        "end": 53,
+        "text": "alpro",
+        "label": "course"
+      },
+      {
+        "start": 69,
+        "end": 97,
+        "text": "hari Senin jam 09:00 - 12:00",
+        "label": "schedule"
+      },
+      {
+        "start": 105,
+        "end": 128,
+        "text": "bareng 2 sampai 4 orang",
+        "label": "group_size"
+      },
+      {
+        "start": 129,
+        "end": 149,
+        "text": "tatap muka di perpus",
+        "label": "study_mode"
+      }
+    ]
+  },
+  {
+    "text": "Ada yang mau ngoding bareng Stack dan Queue untuk Struktur Data persiapan UAS? Yuk kumpul offline langsung di kampus Minggu jam 14:00 s/d 16:30 bareng 4 orang.",
+    "ner": [
+      [
+        28,
+        43,
+        "topic"
+      ],
+      [
+        50,
+        63,
+        "course"
+      ],
+      [
+        64,
+        77,
+        "exam_prep"
+      ],
+      [
+        90,
+        116,
+        "study_mode"
+      ],
+      [
+        117,
+        143,
+        "schedule"
+      ],
+      [
+        144,
+        158,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 28,
+        "end": 43,
+        "text": "Stack dan Queue",
+        "label": "topic"
+      },
+      {
+        "start": 50,
+        "end": 63,
+        "text": "Struktur Data",
+        "label": "course"
+      },
+      {
+        "start": 64,
+        "end": 77,
+        "text": "persiapan UAS",
+        "label": "exam_prep"
+      },
+      {
+        "start": 90,
+        "end": 116,
+        "text": "offline langsung di kampus",
+        "label": "study_mode"
+      },
+      {
+        "start": 117,
+        "end": 143,
+        "text": "Minggu jam 14:00 s/d 16:30",
+        "label": "schedule"
+      },
+      {
+        "start": 144,
+        "end": 158,
+        "text": "bareng 4 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Ada yang mau ngoding bareng Integral Tentu dan Tak Tentu untuk Kalkulus persiapan ujian akhir? Yuk kumpul tatap muka di perpus Selasa jam 14:00 s/d 16:30 kelompok 3-4 orang.",
+    "ner": [
+      [
+        28,
+        56,
+        "topic"
+      ],
+      [
+        63,
+        71,
+        "course"
+      ],
+      [
+        72,
+        93,
+        "exam_prep"
+      ],
+      [
+        106,
+        126,
+        "study_mode"
+      ],
+      [
+        127,
+        153,
+        "schedule"
+      ],
+      [
+        154,
+        172,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 28,
+        "end": 56,
+        "text": "Integral Tentu dan Tak Tentu",
+        "label": "topic"
+      },
+      {
+        "start": 63,
+        "end": 71,
+        "text": "Kalkulus",
+        "label": "course"
+      },
+      {
+        "start": 72,
+        "end": 93,
+        "text": "persiapan ujian akhir",
+        "label": "exam_prep"
+      },
+      {
+        "start": 106,
+        "end": 126,
+        "text": "tatap muka di perpus",
+        "label": "study_mode"
+      },
+      {
+        "start": 127,
+        "end": 153,
+        "text": "Selasa jam 14:00 s/d 16:30",
+        "label": "schedule"
+      },
+      {
+        "start": 154,
+        "end": 172,
+        "text": "kelompok 3-4 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Latihan soal Model OSI dan TCP/IP persiapan kuis jarkom yuk, jadwalnya hari Kamis jam 09:00 - 12:00 bareng bareng 4 orang tatap muka di perpus.",
+    "ner": [
+      [
+        13,
+        33,
+        "topic"
+      ],
+      [
+        49,
+        55,
+        "course"
+      ],
+      [
+        71,
+        99,
+        "schedule"
+      ],
+      [
+        107,
+        121,
+        "group_size"
+      ],
+      [
+        122,
+        142,
+        "study_mode"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 13,
+        "end": 33,
+        "text": "Model OSI dan TCP/IP",
+        "label": "topic"
+      },
+      {
+        "start": 49,
+        "end": 55,
+        "text": "jarkom",
+        "label": "course"
+      },
+      {
+        "start": 71,
+        "end": 99,
+        "text": "hari Kamis jam 09:00 - 12:00",
+        "label": "schedule"
+      },
+      {
+        "start": 107,
+        "end": 121,
+        "text": "bareng 4 orang",
+        "label": "group_size"
+      },
+      {
+        "start": 122,
+        "end": 142,
+        "text": "tatap muka di perpus",
+        "label": "study_mode"
+      }
+    ]
+  },
+  {
+    "text": "Ada yang mau ngoding bareng VLAN untuk jarkom persiapan ujian tengah semester? Yuk kumpul offline langsung di kampus Senin jam 9 sampai 12 berdua aja.",
+    "ner": [
+      [
+        28,
+        32,
+        "topic"
+      ],
+      [
+        39,
+        45,
+        "course"
+      ],
+      [
+        46,
+        77,
+        "exam_prep"
+      ],
+      [
+        90,
+        116,
+        "study_mode"
+      ],
+      [
+        117,
+        138,
+        "schedule"
+      ],
+      [
+        139,
+        149,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 28,
+        "end": 32,
+        "text": "VLAN",
+        "label": "topic"
+      },
+      {
+        "start": 39,
+        "end": 45,
+        "text": "jarkom",
+        "label": "course"
+      },
+      {
+        "start": 46,
+        "end": 77,
+        "text": "persiapan ujian tengah semester",
+        "label": "exam_prep"
+      },
+      {
+        "start": 90,
+        "end": 116,
+        "text": "offline langsung di kampus",
+        "label": "study_mode"
+      },
+      {
+        "start": 117,
+        "end": 138,
+        "text": "Senin jam 9 sampai 12",
+        "label": "schedule"
+      },
+      {
+        "start": 139,
+        "end": 149,
+        "text": "berdua aja",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Ada yang mau ngoding bareng Binary Tree untuk strukdat persiapan UAS? Yuk kumpul tatap muka di perpus Sabtu jam 09:00 - 12:00 kelompok 3 orang.",
+    "ner": [
+      [
+        28,
+        39,
+        "topic"
+      ],
+      [
+        46,
+        54,
+        "course"
+      ],
+      [
+        55,
+        68,
+        "exam_prep"
+      ],
+      [
+        81,
+        101,
+        "study_mode"
+      ],
+      [
+        102,
+        125,
+        "schedule"
+      ],
+      [
+        126,
+        142,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 28,
+        "end": 39,
+        "text": "Binary Tree",
+        "label": "topic"
+      },
+      {
+        "start": 46,
+        "end": 54,
+        "text": "strukdat",
+        "label": "course"
+      },
+      {
+        "start": 55,
+        "end": 68,
+        "text": "persiapan UAS",
+        "label": "exam_prep"
+      },
+      {
+        "start": 81,
+        "end": 101,
+        "text": "tatap muka di perpus",
+        "label": "study_mode"
+      },
+      {
+        "start": 102,
+        "end": 125,
+        "text": "Sabtu jam 09:00 - 12:00",
+        "label": "schedule"
+      },
+      {
+        "start": 126,
+        "end": 142,
+        "text": "kelompok 3 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Saya mau belajar VLAN buat persiapan ujian tengah semester Jaringan Komputer hari Rabu pukul 8 pagi sampai 11 kelompok 3-4 orang online di Discord.",
+    "ner": [
+      [
+        17,
+        21,
+        "topic"
+      ],
+      [
+        27,
+        58,
+        "exam_prep"
+      ],
+      [
+        59,
+        76,
+        "course"
+      ],
+      [
+        77,
+        109,
+        "schedule"
+      ],
+      [
+        110,
+        128,
+        "group_size"
+      ],
+      [
+        129,
+        146,
+        "study_mode"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 17,
+        "end": 21,
+        "text": "VLAN",
+        "label": "topic"
+      },
+      {
+        "start": 27,
+        "end": 58,
+        "text": "persiapan ujian tengah semester",
+        "label": "exam_prep"
+      },
+      {
+        "start": 59,
+        "end": 76,
+        "text": "Jaringan Komputer",
+        "label": "course"
+      },
+      {
+        "start": 77,
+        "end": 109,
+        "text": "hari Rabu pukul 8 pagi sampai 11",
+        "label": "schedule"
+      },
+      {
+        "start": 110,
+        "end": 128,
+        "text": "kelompok 3-4 orang",
+        "label": "group_size"
+      },
+      {
+        "start": 129,
+        "end": 146,
+        "text": "online di Discord",
+        "label": "study_mode"
+      }
+    ]
+  },
+  {
+    "text": "Yuk bedah materi Logika Proposisi Matematika Diskrit kuis praktikum hari Sabtu jam 14:00 s/d 16:30 offline santai di TULT berdua aja.",
+    "ner": [
+      [
+        17,
+        33,
+        "topic"
+      ],
+      [
+        34,
+        52,
+        "course"
+      ],
+      [
+        53,
+        67,
+        "exam_prep"
+      ],
+      [
+        68,
+        98,
+        "schedule"
+      ],
+      [
+        99,
+        121,
+        "study_mode"
+      ],
+      [
+        122,
+        132,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 17,
+        "end": 33,
+        "text": "Logika Proposisi",
+        "label": "topic"
+      },
+      {
+        "start": 34,
+        "end": 52,
+        "text": "Matematika Diskrit",
+        "label": "course"
+      },
+      {
+        "start": 53,
+        "end": 67,
+        "text": "kuis praktikum",
+        "label": "exam_prep"
+      },
+      {
+        "start": 68,
+        "end": 98,
+        "text": "hari Sabtu jam 14:00 s/d 16:30",
+        "label": "schedule"
+      },
+      {
+        "start": 99,
+        "end": 121,
+        "text": "offline santai di TULT",
+        "label": "study_mode"
+      },
+      {
+        "start": 122,
+        "end": 132,
+        "text": "berdua aja",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Saya mau belajar Sinkronisasi Process buat latihan kuis minggu depan sisop hari Minggu jam 9 sampai 12 kelompok 3 orang online via Google Meet.",
+    "ner": [
+      [
+        17,
+        37,
+        "topic"
+      ],
+      [
+        43,
+        68,
+        "exam_prep"
+      ],
+      [
+        69,
+        74,
+        "course"
+      ],
+      [
+        75,
+        102,
+        "schedule"
+      ],
+      [
+        103,
+        119,
+        "group_size"
+      ],
+      [
+        120,
+        142,
+        "study_mode"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 17,
+        "end": 37,
+        "text": "Sinkronisasi Process",
+        "label": "topic"
+      },
+      {
+        "start": 43,
+        "end": 68,
+        "text": "latihan kuis minggu depan",
+        "label": "exam_prep"
+      },
+      {
+        "start": 69,
+        "end": 74,
+        "text": "sisop",
+        "label": "course"
+      },
+      {
+        "start": 75,
+        "end": 102,
+        "text": "hari Minggu jam 9 sampai 12",
+        "label": "schedule"
+      },
+      {
+        "start": 103,
+        "end": 119,
+        "text": "kelompok 3 orang",
+        "label": "group_size"
+      },
+      {
+        "start": 120,
+        "end": 142,
+        "text": "online via Google Meet",
+        "label": "study_mode"
+      }
+    ]
+  },
+  {
+    "text": "Cari temen belajar Algoritma Pemrograman bab Array Multidimensi buat persiapan ujian akhir, preferensi offline santai di TULT hari Jumat jam 10 sampai 12 bareng 2 orang.",
+    "ner": [
+      [
+        19,
+        40,
+        "course"
+      ],
+      [
+        45,
+        63,
+        "topic"
+      ],
+      [
+        69,
+        90,
+        "exam_prep"
+      ],
+      [
+        103,
+        125,
+        "study_mode"
+      ],
+      [
+        126,
+        153,
+        "schedule"
+      ],
+      [
+        154,
+        168,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 19,
+        "end": 40,
+        "text": "Algoritma Pemrograman",
+        "label": "course"
+      },
+      {
+        "start": 45,
+        "end": 63,
+        "text": "Array Multidimensi",
+        "label": "topic"
+      },
+      {
+        "start": 69,
+        "end": 90,
+        "text": "persiapan ujian akhir",
+        "label": "exam_prep"
+      },
+      {
+        "start": 103,
+        "end": 125,
+        "text": "offline santai di TULT",
+        "label": "study_mode"
+      },
+      {
+        "start": 126,
+        "end": 153,
+        "text": "hari Jumat jam 10 sampai 12",
+        "label": "schedule"
+      },
+      {
+        "start": 154,
+        "end": 168,
+        "text": "bareng 2 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Yuk bedah materi Limit dan Kekontinuan Kalkulus persiapan ujian akhir hari Kamis pukul 13:00 - 15:00 offline langsung di kampus bareng 4 orang.",
+    "ner": [
+      [
+        17,
+        38,
+        "topic"
+      ],
+      [
+        39,
+        47,
+        "course"
+      ],
+      [
+        48,
+        69,
+        "exam_prep"
+      ],
+      [
+        70,
+        100,
+        "schedule"
+      ],
+      [
+        101,
+        127,
+        "study_mode"
+      ],
+      [
+        128,
+        142,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 17,
+        "end": 38,
+        "text": "Limit dan Kekontinuan",
+        "label": "topic"
+      },
+      {
+        "start": 39,
+        "end": 47,
+        "text": "Kalkulus",
+        "label": "course"
+      },
+      {
+        "start": 48,
+        "end": 69,
+        "text": "persiapan ujian akhir",
+        "label": "exam_prep"
+      },
+      {
+        "start": 70,
+        "end": 100,
+        "text": "hari Kamis pukul 13:00 - 15:00",
+        "label": "schedule"
+      },
+      {
+        "start": 101,
+        "end": 127,
+        "text": "offline langsung di kampus",
+        "label": "study_mode"
+      },
+      {
+        "start": 128,
+        "end": 142,
+        "text": "bareng 4 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Ada yang mau ngoding bareng Konfigurasi Router Cisco untuk Jaringan Komputer latihan kuis minggu depan? Yuk kumpul offline santai di TULT Sabtu jam 09:00 - 12:00 bareng 2 orang.",
+    "ner": [
+      [
+        28,
+        52,
+        "topic"
+      ],
+      [
+        59,
+        76,
+        "course"
+      ],
+      [
+        77,
+        102,
+        "exam_prep"
+      ],
+      [
+        115,
+        137,
+        "study_mode"
+      ],
+      [
+        138,
+        161,
+        "schedule"
+      ],
+      [
+        162,
+        176,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 28,
+        "end": 52,
+        "text": "Konfigurasi Router Cisco",
+        "label": "topic"
+      },
+      {
+        "start": 59,
+        "end": 76,
+        "text": "Jaringan Komputer",
+        "label": "course"
+      },
+      {
+        "start": 77,
+        "end": 102,
+        "text": "latihan kuis minggu depan",
+        "label": "exam_prep"
+      },
+      {
+        "start": 115,
+        "end": 137,
+        "text": "offline santai di TULT",
+        "label": "study_mode"
+      },
+      {
+        "start": 138,
+        "end": 161,
+        "text": "Sabtu jam 09:00 - 12:00",
+        "label": "schedule"
+      },
+      {
+        "start": 162,
+        "end": 176,
+        "text": "bareng 2 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Saya mau belajar Graph Dijkstra buat persiapan ujian tengah semester Struktur Data hari Sabtu jam 14:00 s/d 16:30 bareng 2 sampai 4 orang online via Google Meet.",
+    "ner": [
+      [
+        17,
+        31,
+        "topic"
+      ],
+      [
+        37,
+        68,
+        "exam_prep"
+      ],
+      [
+        69,
+        82,
+        "course"
+      ],
+      [
+        83,
+        113,
+        "schedule"
+      ],
+      [
+        114,
+        137,
+        "group_size"
+      ],
+      [
+        138,
+        160,
+        "study_mode"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 17,
+        "end": 31,
+        "text": "Graph Dijkstra",
+        "label": "topic"
+      },
+      {
+        "start": 37,
+        "end": 68,
+        "text": "persiapan ujian tengah semester",
+        "label": "exam_prep"
+      },
+      {
+        "start": 69,
+        "end": 82,
+        "text": "Struktur Data",
+        "label": "course"
+      },
+      {
+        "start": 83,
+        "end": 113,
+        "text": "hari Sabtu jam 14:00 s/d 16:30",
+        "label": "schedule"
+      },
+      {
+        "start": 114,
+        "end": 137,
+        "text": "bareng 2 sampai 4 orang",
+        "label": "group_size"
+      },
+      {
+        "start": 138,
+        "end": 160,
+        "text": "online via Google Meet",
+        "label": "study_mode"
+      }
+    ]
+  },
+  {
+    "text": "Butuh partner diskusi Relasi dan Fungsi mata kuliah Matematika Diskrit hari Kamis jam 9 sampai 12 online via Google Meet untuk maksimal 4 mahasiswa.",
+    "ner": [
+      [
+        22,
+        39,
+        "topic"
+      ],
+      [
+        52,
+        70,
+        "course"
+      ],
+      [
+        71,
+        97,
+        "schedule"
+      ],
+      [
+        98,
+        120,
+        "study_mode"
+      ],
+      [
+        127,
+        147,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 22,
+        "end": 39,
+        "text": "Relasi dan Fungsi",
+        "label": "topic"
+      },
+      {
+        "start": 52,
+        "end": 70,
+        "text": "Matematika Diskrit",
+        "label": "course"
+      },
+      {
+        "start": 71,
+        "end": 97,
+        "text": "hari Kamis jam 9 sampai 12",
+        "label": "schedule"
+      },
+      {
+        "start": 98,
+        "end": 120,
+        "text": "online via Google Meet",
+        "label": "study_mode"
+      },
+      {
+        "start": 127,
+        "end": 147,
+        "text": "maksimal 4 mahasiswa",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Saya mau belajar Model OSI dan TCP/IP buat persiapan ujian akhir jarkom hari Sabtu jam 14:00 s/d 16:30 kelompok 3 orang online via Google Meet.",
+    "ner": [
+      [
+        17,
+        37,
+        "topic"
+      ],
+      [
+        43,
+        64,
+        "exam_prep"
+      ],
+      [
+        65,
+        71,
+        "course"
+      ],
+      [
+        72,
+        102,
+        "schedule"
+      ],
+      [
+        103,
+        119,
+        "group_size"
+      ],
+      [
+        120,
+        142,
+        "study_mode"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 17,
+        "end": 37,
+        "text": "Model OSI dan TCP/IP",
+        "label": "topic"
+      },
+      {
+        "start": 43,
+        "end": 64,
+        "text": "persiapan ujian akhir",
+        "label": "exam_prep"
+      },
+      {
+        "start": 65,
+        "end": 71,
+        "text": "jarkom",
+        "label": "course"
+      },
+      {
+        "start": 72,
+        "end": 102,
+        "text": "hari Sabtu jam 14:00 s/d 16:30",
+        "label": "schedule"
+      },
+      {
+        "start": 103,
+        "end": 119,
+        "text": "kelompok 3 orang",
+        "label": "group_size"
+      },
+      {
+        "start": 120,
+        "end": 142,
+        "text": "online via Google Meet",
+        "label": "study_mode"
+      }
+    ]
+  },
+  {
+    "text": "Cari temen belajar Kalkulus bab Integral Tentu dan Tak Tentu buat persiapan UTS, preferensi offline langsung di kampus hari Rabu jam 10 sampai 12 bareng 2 orang.",
+    "ner": [
+      [
+        19,
+        27,
+        "course"
+      ],
+      [
+        32,
+        60,
+        "topic"
+      ],
+      [
+        66,
+        79,
+        "exam_prep"
+      ],
+      [
+        92,
+        118,
+        "study_mode"
+      ],
+      [
+        119,
+        145,
+        "schedule"
+      ],
+      [
+        146,
+        160,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 19,
+        "end": 27,
+        "text": "Kalkulus",
+        "label": "course"
+      },
+      {
+        "start": 32,
+        "end": 60,
+        "text": "Integral Tentu dan Tak Tentu",
+        "label": "topic"
+      },
+      {
+        "start": 66,
+        "end": 79,
+        "text": "persiapan UTS",
+        "label": "exam_prep"
+      },
+      {
+        "start": 92,
+        "end": 118,
+        "text": "offline langsung di kampus",
+        "label": "study_mode"
+      },
+      {
+        "start": 119,
+        "end": 145,
+        "text": "hari Rabu jam 10 sampai 12",
+        "label": "schedule"
+      },
+      {
+        "start": 146,
+        "end": 160,
+        "text": "bareng 2 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Yuk bedah materi Persamaan Diferensial Dasar Kalkulus persiapan UAS hari Jumat pukul 8 pagi sampai 11 online via Google Meet kelompok 3 orang.",
+    "ner": [
+      [
+        17,
+        44,
+        "topic"
+      ],
+      [
+        45,
+        53,
+        "course"
+      ],
+      [
+        54,
+        67,
+        "exam_prep"
+      ],
+      [
+        68,
+        101,
+        "schedule"
+      ],
+      [
+        102,
+        124,
+        "study_mode"
+      ],
+      [
+        125,
+        141,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 17,
+        "end": 44,
+        "text": "Persamaan Diferensial Dasar",
+        "label": "topic"
+      },
+      {
+        "start": 45,
+        "end": 53,
+        "text": "Kalkulus",
+        "label": "course"
+      },
+      {
+        "start": 54,
+        "end": 67,
+        "text": "persiapan UAS",
+        "label": "exam_prep"
+      },
+      {
+        "start": 68,
+        "end": 101,
+        "text": "hari Jumat pukul 8 pagi sampai 11",
+        "label": "schedule"
+      },
+      {
+        "start": 102,
+        "end": 124,
+        "text": "online via Google Meet",
+        "label": "study_mode"
+      },
+      {
+        "start": 125,
+        "end": 141,
+        "text": "kelompok 3 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Butuh partner diskusi Integral Tentu dan Tak Tentu mata kuliah Kalkulus hari Selasa jam 10 sampai 12 offline santai di TULT untuk kelompok 3-4 orang.",
+    "ner": [
+      [
+        22,
+        50,
+        "topic"
+      ],
+      [
+        63,
+        71,
+        "course"
+      ],
+      [
+        72,
+        100,
+        "schedule"
+      ],
+      [
+        101,
+        123,
+        "study_mode"
+      ],
+      [
+        130,
+        148,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 22,
+        "end": 50,
+        "text": "Integral Tentu dan Tak Tentu",
+        "label": "topic"
+      },
+      {
+        "start": 63,
+        "end": 71,
+        "text": "Kalkulus",
+        "label": "course"
+      },
+      {
+        "start": 72,
+        "end": 100,
+        "text": "hari Selasa jam 10 sampai 12",
+        "label": "schedule"
+      },
+      {
+        "start": 101,
+        "end": 123,
+        "text": "offline santai di TULT",
+        "label": "study_mode"
+      },
+      {
+        "start": 130,
+        "end": 148,
+        "text": "kelompok 3-4 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Cari temen belajar Struktur Data bab Binary Tree buat latihan kuis minggu depan, preferensi online di Discord hari Minggu jam 10 sampai 12 maksimal 4 mahasiswa.",
+    "ner": [
+      [
+        19,
+        32,
+        "course"
+      ],
+      [
+        37,
+        48,
+        "topic"
+      ],
+      [
+        54,
+        79,
+        "exam_prep"
+      ],
+      [
+        92,
+        109,
+        "study_mode"
+      ],
+      [
+        110,
+        138,
+        "schedule"
+      ],
+      [
+        139,
+        159,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 19,
+        "end": 32,
+        "text": "Struktur Data",
+        "label": "course"
+      },
+      {
+        "start": 37,
+        "end": 48,
+        "text": "Binary Tree",
+        "label": "topic"
+      },
+      {
+        "start": 54,
+        "end": 79,
+        "text": "latihan kuis minggu depan",
+        "label": "exam_prep"
+      },
+      {
+        "start": 92,
+        "end": 109,
+        "text": "online di Discord",
+        "label": "study_mode"
+      },
+      {
+        "start": 110,
+        "end": 138,
+        "text": "hari Minggu jam 10 sampai 12",
+        "label": "schedule"
+      },
+      {
+        "start": 139,
+        "end": 159,
+        "text": "maksimal 4 mahasiswa",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Cari temen belajar basdat bab Normalisasi 1NF sampai 3NF buat persiapan ujian tengah semester, preferensi hybrid fleksibel hari Sabtu pukul 13:00 - 15:00 bareng 2 sampai 4 orang.",
+    "ner": [
+      [
+        19,
+        25,
+        "course"
+      ],
+      [
+        30,
+        56,
+        "topic"
+      ],
+      [
+        62,
+        93,
+        "exam_prep"
+      ],
+      [
+        106,
+        122,
+        "study_mode"
+      ],
+      [
+        123,
+        153,
+        "schedule"
+      ],
+      [
+        154,
+        177,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 19,
+        "end": 25,
+        "text": "basdat",
+        "label": "course"
+      },
+      {
+        "start": 30,
+        "end": 56,
+        "text": "Normalisasi 1NF sampai 3NF",
+        "label": "topic"
+      },
+      {
+        "start": 62,
+        "end": 93,
+        "text": "persiapan ujian tengah semester",
+        "label": "exam_prep"
+      },
+      {
+        "start": 106,
+        "end": 122,
+        "text": "hybrid fleksibel",
+        "label": "study_mode"
+      },
+      {
+        "start": 123,
+        "end": 153,
+        "text": "hari Sabtu pukul 13:00 - 15:00",
+        "label": "schedule"
+      },
+      {
+        "start": 154,
+        "end": 177,
+        "text": "bareng 2 sampai 4 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Ada yang mau ngoding bareng Subnetting IPv4 untuk jarkom persiapan UAS? Yuk kumpul hybrid fleksibel Minggu pukul 8 pagi sampai 11 berdua aja.",
+    "ner": [
+      [
+        28,
+        43,
+        "topic"
+      ],
+      [
+        50,
+        56,
+        "course"
+      ],
+      [
+        57,
+        70,
+        "exam_prep"
+      ],
+      [
+        83,
+        99,
+        "study_mode"
+      ],
+      [
+        100,
+        129,
+        "schedule"
+      ],
+      [
+        130,
+        140,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 28,
+        "end": 43,
+        "text": "Subnetting IPv4",
+        "label": "topic"
+      },
+      {
+        "start": 50,
+        "end": 56,
+        "text": "jarkom",
+        "label": "course"
+      },
+      {
+        "start": 57,
+        "end": 70,
+        "text": "persiapan UAS",
+        "label": "exam_prep"
+      },
+      {
+        "start": 83,
+        "end": 99,
+        "text": "hybrid fleksibel",
+        "label": "study_mode"
+      },
+      {
+        "start": 100,
+        "end": 129,
+        "text": "Minggu pukul 8 pagi sampai 11",
+        "label": "schedule"
+      },
+      {
+        "start": 130,
+        "end": 140,
+        "text": "berdua aja",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Cari temen belajar Basis Data bab Index dan Relasi buat latihan kuis minggu depan, preferensi tatap muka di perpus hari Jumat jam 09:00 - 12:00 bareng 2 sampai 4 orang.",
+    "ner": [
+      [
+        19,
+        29,
+        "course"
+      ],
+      [
+        34,
+        50,
+        "topic"
+      ],
+      [
+        56,
+        81,
+        "exam_prep"
+      ],
+      [
+        94,
+        114,
+        "study_mode"
+      ],
+      [
+        115,
+        143,
+        "schedule"
+      ],
+      [
+        144,
+        167,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 19,
+        "end": 29,
+        "text": "Basis Data",
+        "label": "course"
+      },
+      {
+        "start": 34,
+        "end": 50,
+        "text": "Index dan Relasi",
+        "label": "topic"
+      },
+      {
+        "start": 56,
+        "end": 81,
+        "text": "latihan kuis minggu depan",
+        "label": "exam_prep"
+      },
+      {
+        "start": 94,
+        "end": 114,
+        "text": "tatap muka di perpus",
+        "label": "study_mode"
+      },
+      {
+        "start": 115,
+        "end": 143,
+        "text": "hari Jumat jam 09:00 - 12:00",
+        "label": "schedule"
+      },
+      {
+        "start": 144,
+        "end": 167,
+        "text": "bareng 2 sampai 4 orang",
+        "label": "group_size"
+      }
+    ]
+  },
+  {
+    "text": "Mau diskusi materi CPU Scheduling mata kuliah Sistem Operasi kelompok maksimal 4 mahasiswa secara online via Google Meet hari Selasa pukul 13:00 - 15:00.",
+    "ner": [
+      [
+        19,
+        33,
+        "topic"
+      ],
+      [
+        46,
+        60,
+        "course"
+      ],
+      [
+        70,
+        90,
+        "group_size"
+      ],
+      [
+        98,
+        120,
+        "study_mode"
+      ],
+      [
+        121,
+        152,
+        "schedule"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 19,
+        "end": 33,
+        "text": "CPU Scheduling",
+        "label": "topic"
+      },
+      {
+        "start": 46,
+        "end": 60,
+        "text": "Sistem Operasi",
+        "label": "course"
+      },
+      {
+        "start": 70,
+        "end": 90,
+        "text": "maksimal 4 mahasiswa",
+        "label": "group_size"
+      },
+      {
+        "start": 98,
+        "end": 120,
+        "text": "online via Google Meet",
+        "label": "study_mode"
+      },
+      {
+        "start": 121,
+        "end": 152,
+        "text": "hari Selasa pukul 13:00 - 15:00",
+        "label": "schedule"
+      }
+    ]
+  },
+  {
+    "text": "Saya mau belajar Limit dan Kekontinuan buat persiapan ujian akhir Kalkulus hari Selasa jam 09:00 - 12:00 bareng 4 orang online via Google Meet.",
+    "ner": [
+      [
+        17,
+        38,
+        "topic"
+      ],
+      [
+        44,
+        65,
+        "exam_prep"
+      ],
+      [
+        66,
+        74,
+        "course"
+      ],
+      [
+        75,
+        104,
+        "schedule"
+      ],
+      [
+        105,
+        119,
+        "group_size"
+      ],
+      [
+        120,
+        142,
+        "study_mode"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 17,
+        "end": 38,
+        "text": "Limit dan Kekontinuan",
+        "label": "topic"
+      },
+      {
+        "start": 44,
+        "end": 65,
+        "text": "persiapan ujian akhir",
+        "label": "exam_prep"
+      },
+      {
+        "start": 66,
+        "end": 74,
+        "text": "Kalkulus",
+        "label": "course"
+      },
+      {
+        "start": 75,
+        "end": 104,
+        "text": "hari Selasa jam 09:00 - 12:00",
+        "label": "schedule"
+      },
+      {
+        "start": 105,
+        "end": 119,
+        "text": "bareng 4 orang",
+        "label": "group_size"
+      },
+      {
+        "start": 120,
+        "end": 142,
+        "text": "online via Google Meet",
+        "label": "study_mode"
+      }
+    ]
+  },
+  {
+    "text": "Butuh partner diskusi Topologi Jaringan mata kuliah jarkom hari Rabu pukul 8 pagi sampai 11 online via Google Meet untuk maksimal 4 mahasiswa.",
+    "ner": [
+      [
+        22,
+        39,
+        "topic"
+      ],
+      [
+        52,
+        58,
+        "course"
+      ],
+      [
+        59,
+        91,
+        "schedule"
+      ],
+      [
+        92,
+        114,
+        "study_mode"
+      ],
+      [
+        121,
+        141,
+        "group_size"
+      ]
+    ],
+    "spans": [
+      {
+        "start": 22,
+        "end": 39,
+        "text": "Topologi Jaringan",
+        "label": "topic"
+      },
+      {
+        "start": 52,
+        "end": 58,
+        "text": "jarkom",
+        "label": "course"
+      },
+      {
+        "start": 59,
+        "end": 91,
+        "text": "hari Rabu pukul 8 pagi sampai 11",
+        "label": "schedule"
+      },
+      {
+        "start": 92,
+        "end": 114,
+        "text": "online via Google Meet",
+        "label": "study_mode"
+      },
+      {
+        "start": 121,
+        "end": 141,
+        "text": "maksimal 4 mahasiswa",
+        "label": "group_size"
+      }
+    ]
+  }
+]

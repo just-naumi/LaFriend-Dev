@@ -1,0 +1,12 @@
+{
+  "labels": [
+    "course",
+    "topic",
+    "exam_prep",
+    "schedule",
+    "group_size",
+    "study_mode"
+  ],
+  "total_train": 300,
+  "total_val": 60
+}
