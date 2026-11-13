@@ -87,11 +87,23 @@ def evaluate():
                 gt_start = gt["start"]
                 gt_end = gt["end"]
 
-                # Syarat Strict: Label sama DAN teks sama persis (dengan toleransi partikel 'hari ' pada schedule)
+                # Syarat Strict: Label sama, teks sama persis, dan batas offset karakter span identik (Exact Span Match)
                 p_cmp = re.sub(r"^hari\s+", "", p_txt) if p_lbl == "schedule" else p_txt
                 gt_cmp = re.sub(r"^hari\s+", "", gt_txt) if gt_lbl == "schedule" else gt_txt
 
-                if p_lbl == gt_lbl and p_cmp == gt_cmp:
+                # Penyesuaian offset jika terjadi normalisasi partikel 'hari ' pada schedule
+                adj_p_start = p_start + (len(p_txt) - len(p_cmp))
+                adj_gt_start = gt_start + (len(gt_txt) - len(gt_cmp))
+
+                # Strict Exact Span Match: label cocok, teks cocok, dan batas offset cocok
+                is_strict_match = (
+                    p_lbl == gt_lbl
+                    and p_cmp == gt_cmp
+                    and adj_p_start == adj_gt_start
+                    and p_end == gt_end
+                )
+
+                if is_strict_match:
                     tp_strict[p_lbl] += 1
                     matched_gt_strict.add(idx)
                     found_strict = True

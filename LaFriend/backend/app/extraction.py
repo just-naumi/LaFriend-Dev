@@ -528,6 +528,33 @@ def extract_mode_and_locations(
                     "source_text": result["online_platform"]["source_text"]
                 }
 
+    # 7. Penyelarasan GLiNER: Manfaatkan span AI study_mode jika rule-based belum menangkap
+    if not result["learning_mode"]["value"] and ai_entities:
+        for ent in ai_entities:
+            if ent.get("label") in ["study_mode", "mode"]:
+                ent_text = (ent.get("text") or "").strip().lower()
+                if "offline" in ent_text or "tatap muka" in ent_text:
+                    result["learning_mode"] = {
+                        "value": "OFFLINE",
+                        "status": "EXTRACTED",
+                        "source_text": ent.get("text")
+                    }
+                    break
+                elif "online" in ent_text or "daring" in ent_text:
+                    result["learning_mode"] = {
+                        "value": "ONLINE",
+                        "status": "EXTRACTED",
+                        "source_text": ent.get("text")
+                    }
+                    break
+                elif "hybrid" in ent_text or "fleksibel" in ent_text:
+                    result["learning_mode"] = {
+                        "value": "HYBRID",
+                        "status": "EXTRACTED",
+                        "source_text": ent.get("text")
+                    }
+                    break
+
     # Backward compatibility: preferred_location
     if result["physical_location"]["value"]:
         result["preferred_location"] = result["physical_location"]["value"]

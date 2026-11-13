@@ -114,17 +114,27 @@ class AvailabilityResponse(BaseModel):
 
 
 # Data lengkap yang dikirim mahasiswa saat menekan tombol "Create Study Intent"
+# CATATAN DAY 11.1: Tidak ada default palsu pada proses penyimpanan!
+# Semua field wajib (goal, style, mode, dates) harus eksplisit dipilih/dikonfirmasi oleh pengguna.
 class StudyIntentCreate(BaseModel):
     course_id: str
     topics: str
-    learning_goal: str = "UNDERSTAND"
-    collaboration_style: str = "DISCUSSION"
-    learning_mode: str = "OFFLINE"
-    earliest_date: str
-    latest_date: str
+    learning_goal: str          # Wajib dipilih pengguna (UNDERSTAND, PRACTICE, EXAM_PREP, ASSIGNMENT, DISCUSSION, KNOWLEDGE_SHARING)
+    collaboration_style: str    # Wajib dipilih pengguna (DISCUSSION, PRACTICE, TEACHING, FOCUS_STUDY)
+    learning_mode: str          # Wajib dipilih pengguna (OFFLINE, ONLINE, HYBRID)
+    earliest_date: str          # Wajib ditentukan pengguna (YYYY-MM-DD)
+    latest_date: str            # Wajib ditentukan pengguna (YYYY-MM-DD)
     min_group_size: int = 2
     max_group_size: int = 4
     availabilities: List[AvailabilityCreate]
+
+    # Validasi: course_id tidak boleh kosong
+    @field_validator("course_id")
+    @classmethod
+    def validate_course_id(cls, value: str) -> str:
+        if not value or not value.strip():
+            raise ValueError("Mata kuliah wajib dipilih")
+        return value.strip()
 
     # Validasi: topik tidak boleh kosong
     @field_validator("topics")
@@ -132,6 +142,44 @@ class StudyIntentCreate(BaseModel):
     def validate_topics_not_empty(cls, value: str) -> str:
         if not value or not value.strip():
             raise ValueError("Topik yang ingin dipelajari tidak boleh kosong")
+        return value.strip()
+
+    # Validasi: learning_goal wajib bernilai valid
+    @field_validator("learning_goal")
+    @classmethod
+    def validate_learning_goal(cls, value: str) -> str:
+        valid_goals = {"UNDERSTAND", "PRACTICE", "EXAM_PREP", "ASSIGNMENT", "DISCUSSION", "KNOWLEDGE_SHARING"}
+        clean = (value or "").strip().upper()
+        if clean not in valid_goals:
+            raise ValueError(f"learning_goal '{value}' tidak valid. Pilihan: {', '.join(sorted(valid_goals))}")
+        return clean
+
+    # Validasi: collaboration_style wajib bernilai valid
+    @field_validator("collaboration_style")
+    @classmethod
+    def validate_collaboration_style(cls, value: str) -> str:
+        valid_styles = {"DISCUSSION", "PRACTICE", "TEACHING", "FOCUS_STUDY"}
+        clean = (value or "").strip().upper()
+        if clean not in valid_styles:
+            raise ValueError(f"collaboration_style '{value}' tidak valid. Pilihan: {', '.join(sorted(valid_styles))}")
+        return clean
+
+    # Validasi: learning_mode wajib bernilai valid (OFFLINE, ONLINE, HYBRID)
+    @field_validator("learning_mode")
+    @classmethod
+    def validate_learning_mode(cls, value: str) -> str:
+        valid_modes = {"OFFLINE", "ONLINE", "HYBRID"}
+        clean = (value or "").strip().upper()
+        if clean not in valid_modes:
+            raise ValueError(f"learning_mode '{value}' tidak valid. Pilihan: {', '.join(sorted(valid_modes))}")
+        return clean
+
+    # Validasi: tanggal awal dan akhir harus diisi
+    @field_validator("earliest_date", "latest_date")
+    @classmethod
+    def validate_dates(cls, value: str) -> str:
+        if not value or not value.strip():
+            raise ValueError("Rentang tanggal sesi belajar wajib ditentukan")
         return value.strip()
 
     # Validasi: minimal harus ada 1 slot waktu ketersediaan

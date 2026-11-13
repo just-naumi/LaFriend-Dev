@@ -183,6 +183,8 @@
       <!-- FORMULIR STUDY INTENT -->
       <form id="createIntentForm">
 
+        <!-- KOTAK AUDIT TRANSPARANSI HASIL EKSTRAKSI AI (DAY 11.1 - 3 STATUS LEVEL) -->
+        <div id="aiExtractionReviewBox" class="d-none"></div>
         
         <!-- SECTION 1: MATA KULIAH -->
         <div class="form-group-clean">
@@ -215,7 +217,7 @@
           </label>
           <div class="chip-grid-3">
             <div>
-              <input type="radio" class="btn-check" name="learningGoal" id="gUnderstand" value="UNDERSTAND" checked>
+              <input type="radio" class="btn-check" name="learningGoal" id="gUnderstand" value="UNDERSTAND">
               <label class="chip-label" for="gUnderstand">
                 <i class="bi bi-lightbulb"></i>
                 Konsep
@@ -259,7 +261,7 @@
           </label>
           <div class="chip-grid-2">
             <div>
-              <input type="radio" class="btn-check" name="collabStyle" id="cDiscussion" value="DISCUSSION" checked>
+              <input type="radio" class="btn-check" name="collabStyle" id="cDiscussion" value="DISCUSSION">
               <label class="chip-label" for="cDiscussion">
                 <i class="bi bi-chat-dots-fill"></i>
                 Diskusi Interaktif
@@ -296,7 +298,7 @@
           </label>
           <div class="chip-grid-3">
             <div>
-              <input type="radio" class="btn-check" name="learningMode" id="mOffline" value="OFFLINE" checked>
+              <input type="radio" class="btn-check" name="learningMode" id="mOffline" value="OFFLINE">
               <label class="chip-label" for="mOffline">
                 <i class="bi bi-building"></i>
                 Offline
@@ -347,6 +349,8 @@
             </button>
           </div>
           
+          <div id="emptySlotsNotice" class="d-none"></div>
+
           <div id="slotsContainer">
             <!-- Diisi otomatis oleh JavaScript -->
           </div>

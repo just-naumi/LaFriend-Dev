@@ -1136,3 +1136,119 @@ body {
   color: #64748B;
 }
 
+/* ==============================================================
+   AI EXTRACTION TRANSPARENCY CARD (DAY 11.1 - 3 STATUS LEVEL)
+   ============================================================== */
+.ai-review-card {
+  background: #FFFFFF;
+  border: 1.5px solid #E2E8F0;
+  border-radius: 16px;
+  padding: 14px 14px;
+  margin-bottom: 18px;
+  box-shadow: 0 4px 14px -3px rgba(15, 23, 42, 0.06);
+}
+
+.ai-review-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.ai-review-title {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #1E1B4B;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-review-badge-top {
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: rgba(124, 58, 237, 0.08);
+  color: #7C3AED;
+  padding: 3px 8px;
+  border-radius: 9999px;
+}
+
+.ai-review-sub {
+  font-size: 0.74rem;
+  color: #64748B;
+  line-height: 1.35;
+  margin-bottom: 10px;
+}
+
+.ai-status-table {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.ai-status-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  background: #F8FAFC;
+  border-radius: 9px;
+  font-size: 0.76rem;
+}
+
+.ai-status-info {
+  flex: 1;
+}
+
+.ai-status-label {
+  font-weight: 700;
+  color: #334155;
+  margin-bottom: 1px;
+}
+
+.ai-status-val {
+  color: #64748B;
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+.badge-tag-status {
+  font-size: 0.63rem;
+  font-weight: 800;
+  padding: 3px 6px;
+  border-radius: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
+
+.badge-tag-status.extracted {
+  background: #ECFDF5;
+  color: #059669;
+  border: 1px solid #A7F3D0;
+}
+
+.badge-tag-status.needs-review {
+  background: #FFFBEB;
+  color: #D97706;
+  border: 1px solid #FDE68A;
+}
+
+.badge-tag-status.missing {
+  background: #F1F5F9;
+  color: #64748B;
+  border: 1px solid #CBD5E1;
+}
+
+.slot-warning-notice {
+  background: #FFFBEB;
+  border: 1px dashed #F59E0B;
+  border-radius: 12px;
+  padding: 12px;
+  color: #92400E;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  margin-bottom: 10px;
+}
+

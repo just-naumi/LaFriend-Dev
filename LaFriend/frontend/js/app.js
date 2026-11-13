@@ -625,20 +625,21 @@ async function initCreateIntentPage() {
     return;
   }
 
-  // Isi tanggal default: hari ini s/d 7 hari ke depan
-  const today = new Date().toISOString().split("T")[0];
-  const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+  // DAY 11.1: HILANGKAN DEFAULT PALSU PADA FORM
+  // Tanggal dan slot waktu TIDAK DIISI OTOMATIS jika belum ada data riil dari pengguna/AI!
   const earliestInput = document.getElementById("earliestDate");
   const latestInput = document.getElementById("latestDate");
-  if (earliestInput) earliestInput.value = today;
-  if (latestInput) latestInput.value = nextWeek;
+  if (earliestInput) earliestInput.value = "";
+  if (latestInput) latestInput.value = "";
 
   // Muat daftar mata kuliah ke dropdown
   await loadCoursesDropdown();
 
-  // Tambahkan 2 baris slot waktu ketersediaan awal
-  addTimeSlotRow("Rabu", "09:00", "12:00", 1);
-  addTimeSlotRow("Kamis", "13:00", "16:00", 2);
+  // Kosongkan container slot waktu awal (tidak ada slot palsu Rabu 09:00 / Kamis 13:00)
+  const slotsContainer = document.getElementById("slotsContainer");
+  const emptyNotice = document.getElementById("emptySlotsNotice");
+  if (slotsContainer) slotsContainer.innerHTML = "";
+  slotCounter = 0;
 
   // Cek apakah data sudah diekstrak dari proses loading Dashboard
   const cachedResultStr = sessionStorage.getItem("lafriend_ai_extraction_result");
@@ -656,14 +657,26 @@ async function initCreateIntentPage() {
   } else if (storedPrompt) {
     sessionStorage.removeItem("lafriend_ai_prompt");
     extractWithTimelineAnimation(storedPrompt);
+  } else {
+    // Mode manual murni: beri panduan penambahan slot
+    if (emptyNotice) {
+      emptyNotice.innerHTML = `
+        <div class="slot-warning-notice">
+          <i class="bi bi-info-circle-fill me-1 text-primary"></i>
+          Belum ada jadwal belajar. Silakan tentukan rentang tanggal di atas dan klik <strong>+ Tambah Slot</strong> untuk mengatur hari & jam ketersediaanmu.
+        </div>
+      `;
+      emptyNotice.classList.remove("d-none");
+    }
   }
-
 
   // Tombol tambah slot waktu
   const btnAddSlot = document.getElementById("btnAddSlot");
   if (btnAddSlot) {
     btnAddSlot.addEventListener("click", () => {
-      addTimeSlotRow("Jumat", "10:00", "12:00", Math.min(slotCounter + 1, 3));
+      const emptyNoticeEl = document.getElementById("emptySlotsNotice");
+      if (emptyNoticeEl) emptyNoticeEl.classList.add("d-none");
+      addTimeSlotRow("Senin", "09:00", "11:00", Math.min(slotCounter + 1, 3));
     });
   }
 
@@ -796,8 +809,161 @@ async function extractAndApplyPrompt(rawText) {
   }
 }
 
-// Memasukkan hasil ekstraksi AI ke dalam input form secara langsung
+// ==============================================================================
+// KOMPONEN AUDIT TRANSPARANSI HASIL EKSTRAKSI AI (DAY 11.1 - 3 STATUS LEVEL)
+// ==============================================================================
+function renderAiExtractionReviewBox(res) {
+  const box = document.getElementById("aiExtractionReviewBox");
+  if (!box) return;
+
+  const statuses = res.extraction_status || {};
+  const params = res.extracted_parameters || {};
+
+  function getBadgeData(statusKey, rawVal, customNote = null) {
+    const st = (statuses[statusKey] || (rawVal ? "EXTRACTED" : "MISSING")).toUpperCase();
+    let badgeClass = "missing";
+    let badgeLabel = "MISSING";
+    let note = customNote || (rawVal ? String(rawVal) : "Belum disebutkan di percakapan.");
+
+    if (st === "EXTRACTED") {
+      badgeClass = "extracted";
+      badgeLabel = "EXTRACTED";
+    } else if (st === "NEEDS_REVIEW") {
+      badgeClass = "needs-review";
+      badgeLabel = "NEEDS_REVIEW";
+    } else {
+      badgeClass = "missing";
+      badgeLabel = "MISSING";
+    }
+
+    return { badgeClass, badgeLabel, note };
+  }
+
+  // 1. Mata Kuliah
+  const courseInfo = getBadgeData(
+    "course",
+    res.course_name,
+    res.course_name ? `${res.course_name} (${res.course_code || 'Tel-U'})` : "Belum terdeteksi. Silakan pilih di dropdown."
+  );
+
+  // 2. Topik
+  const topicInfo = getBadgeData(
+    "topic",
+    res.topics,
+    res.topics ? res.topics : "Belum terdeteksi. Silakan ketik materi belajar."
+  );
+
+  // 3. Tujuan Belajar
+  const goalInfo = getBadgeData(
+    "learning_goal",
+    res.learning_goal,
+    res.learning_goal ? `Tujuan: ${res.learning_goal}` : "Belum terdeteksi. Silakan pilih salah satu opsi di bawah."
+  );
+
+  // 4. Mode & Lokasi
+  let modeDesc = res.learning_mode ? res.learning_mode : "Belum ditentukan";
+  if (res.physical_location) modeDesc += ` (Lokasi: ${res.physical_location})`;
+  if (res.online_platform) modeDesc += ` (Platform: ${res.online_platform})`;
+  const modeInfo = getBadgeData("study_mode", res.learning_mode, modeDesc);
+
+  // 5. Jadwal Ketersediaan
+  let schedDesc = "Jadwal belum disebutkan di percakapan.";
+  let schedStKey = "schedule";
+  let isSchedNeedsReview = false;
+  if (res.availabilities && res.availabilities.length > 0) {
+    const slotsTxt = res.availabilities.map(s => `${s.day_or_date} (${s.start_time}-${s.end_time})`).join(", ");
+    schedDesc = slotsTxt;
+    if ((statuses.schedule || "").toUpperCase() === "NEEDS_REVIEW") {
+      isSchedNeedsReview = true;
+      schedDesc += ` — <span class="text-warning fw-bold">Perkiraan waktu (perlu diperiksa & disesuaikan)</span>`;
+    }
+  }
+  const schedInfo = getBadgeData(schedStKey, res.availabilities && res.availabilities.length > 0 ? schedDesc : null, schedDesc);
+  if (isSchedNeedsReview) {
+    schedInfo.badgeClass = "needs-review";
+    schedInfo.badgeLabel = "NEEDS_REVIEW";
+  }
+
+  // 6. Ukuran Kelompok
+  const groupDesc = (res.min_group_size && res.max_group_size)
+    ? `${res.min_group_size} – ${res.max_group_size} orang`
+    : "Belum disebutkan di percakapan. Rekomendasi standar 2–4 orang.";
+  const groupInfo = getBadgeData(
+    "group_size",
+    (res.min_group_size && res.max_group_size) ? groupDesc : null,
+    groupDesc
+  );
+
+  box.innerHTML = `
+    <div class="ai-review-card">
+      <div class="ai-review-header">
+        <div class="ai-review-title">
+          <i class="bi bi-stars text-primary"></i> Transparansi Hasil Ekstraksi AI
+        </div>
+        <span class="ai-review-badge-top">Day 11.1 Verification</span>
+      </div>
+      <p class="ai-review-sub">Periksa kelengkapan data sebelum menyimpan. Sistem menandai informasi yang pasti, estimasi, dan yang belum tersedia:</p>
+
+      <div class="ai-status-table">
+        <div class="ai-status-row">
+          <div class="ai-status-info">
+            <div class="ai-status-label"><i class="bi bi-book-half me-1 text-primary"></i> 1. Mata Kuliah</div>
+            <div class="ai-status-val">${courseInfo.note}</div>
+          </div>
+          <span class="badge-tag-status ${courseInfo.badgeClass}">${courseInfo.badgeLabel}</span>
+        </div>
+
+        <div class="ai-status-row">
+          <div class="ai-status-info">
+            <div class="ai-status-label"><i class="bi bi-tag-fill me-1 text-primary"></i> 2. Topik Belajar</div>
+            <div class="ai-status-val">${topicInfo.note}</div>
+          </div>
+          <span class="badge-tag-status ${topicInfo.badgeClass}">${topicInfo.badgeLabel}</span>
+        </div>
+
+        <div class="ai-status-row">
+          <div class="ai-status-info">
+            <div class="ai-status-label"><i class="bi bi-bullseye me-1 text-primary"></i> 3. Tujuan Belajar</div>
+            <div class="ai-status-val">${goalInfo.note}</div>
+          </div>
+          <span class="badge-tag-status ${goalInfo.badgeClass}">${goalInfo.badgeLabel}</span>
+        </div>
+
+        <div class="ai-status-row">
+          <div class="ai-status-info">
+            <div class="ai-status-label"><i class="bi bi-geo-alt-fill me-1 text-primary"></i> 4. Mode & Lokasi</div>
+            <div class="ai-status-val">${modeInfo.note}</div>
+          </div>
+          <span class="badge-tag-status ${modeInfo.badgeClass}">${modeInfo.badgeLabel}</span>
+        </div>
+
+        <div class="ai-status-row">
+          <div class="ai-status-info">
+            <div class="ai-status-label"><i class="bi bi-clock-fill me-1 text-primary"></i> 5. Jadwal Belajar</div>
+            <div class="ai-status-val">${schedInfo.note}</div>
+          </div>
+          <span class="badge-tag-status ${schedInfo.badgeClass}">${schedInfo.badgeLabel}</span>
+        </div>
+
+        <div class="ai-status-row">
+          <div class="ai-status-info">
+            <div class="ai-status-label"><i class="bi bi-people-fill me-1 text-primary"></i> 6. Ukuran Kelompok</div>
+            <div class="ai-status-val">${groupInfo.note}</div>
+          </div>
+          <span class="badge-tag-status ${groupInfo.badgeClass}">${groupInfo.badgeLabel}</span>
+        </div>
+      </div>
+    </div>
+  `;
+
+  box.classList.remove("d-none");
+}
+
+// Memasukkan hasil ekstraksi AI ke dalam input form secara transparan tanpa default palsu
 function applyAIExtractionResult(res) {
+  // 0. Render kartu transparansi 3 status (EXTRACTED, NEEDS_REVIEW, MISSING)
+  renderAiExtractionReviewBox(res);
+
   // 1. Isi Mata Kuliah jika terdeteksi
   if (res.course_id) {
     const selectCourse = document.getElementById("selectCourse");
@@ -814,7 +980,7 @@ function applyAIExtractionResult(res) {
     }
   }
 
-  // 3. Pilih Tujuan Belajar
+  // 3. Pilih Tujuan Belajar HANYA jika ada nilai dari hasil ekstraksi
   if (res.learning_goal) {
     const goalRadioMap = {
       "UNDERSTAND": "gUnderstand",
@@ -829,7 +995,7 @@ function applyAIExtractionResult(res) {
     }
   }
 
-  // 4. Pilih Gaya Kolaborasi
+  // 4. Pilih Gaya Kolaborasi HANYA jika ada nilai dari hasil ekstraksi
   if (res.collaboration_style) {
     const styleRadioMap = {
       "DISCUSSION": "cDiscussion",
@@ -843,14 +1009,15 @@ function applyAIExtractionResult(res) {
     }
   }
 
-  // 5. Pilih Mode Belajar
+  // 5. Pilih Mode Belajar HANYA jika ada nilai dari hasil ekstraksi
   if (res.learning_mode) {
     const modeRadioMap = {
       "OFFLINE": "mOffline",
       "ONLINE": "mOnline",
       "HYBRID": "mHybrid",
     };
-    const radioId = modeRadioMap[res.learning_mode];
+    const modeKey = Array.isArray(res.learning_mode) ? "HYBRID" : res.learning_mode;
+    const radioId = modeRadioMap[modeKey];
     if (radioId && document.getElementById(radioId)) {
       document.getElementById(radioId).checked = true;
     }
@@ -864,16 +1031,39 @@ function applyAIExtractionResult(res) {
     document.getElementById("maxGroupSize").value = res.max_group_size;
   }
 
-  // 7. Slot Waktu Ketersediaan
+  // 7. Rentang Tanggal: JANGAN ISI TANGGAL PALSU jika AI mengembalikan null!
+  const earliestInput = document.getElementById("earliestDate");
+  const latestInput = document.getElementById("latestDate");
+  if (res.earliest_date && earliestInput) earliestInput.value = res.earliest_date;
+  if (res.latest_date && latestInput) latestInput.value = res.latest_date;
+
+  // 8. Slot Waktu Ketersediaan
+  const container = document.getElementById("slotsContainer");
+  const emptyNotice = document.getElementById("emptySlotsNotice");
+
   if (res.availabilities && res.availabilities.length > 0) {
-    const container = document.getElementById("slotsContainer");
+    if (emptyNotice) emptyNotice.classList.add("d-none");
     if (container) {
       container.innerHTML = "";
       slotCounter = 0;
       res.availabilities.forEach((slot, idx) => {
-        const day = slot.day_or_date || slot.day || "Rabu";
+        const day = slot.day_or_date || slot.day || "Senin";
         addTimeSlotRow(day, slot.start_time, slot.end_time, slot.priority_rank || (idx + 1));
       });
+    }
+  } else {
+    // JADWAL KOSONG: Jangan karang slot palsu! Kosongkan dan beri peringatan instruktif
+    if (container) container.innerHTML = "";
+    slotCounter = 0;
+    if (emptyNotice) {
+      emptyNotice.innerHTML = `
+        <div class="slot-warning-notice">
+          <i class="bi bi-exclamation-triangle-fill me-1 text-warning"></i>
+          <strong>Jadwal belajar belum terdeteksi dari kalimatmu.</strong><br>
+          Silakan tentukan rentang tanggal di atas dan klik <strong>+ Tambah Slot</strong> untuk mengatur hari & jam ketersediaanmu.
+        </div>
+      `;
+      emptyNotice.classList.remove("d-none");
     }
   }
 
@@ -994,7 +1184,7 @@ function removeTimeSlotRow(rowId) {
   if (el) el.remove();
 }
 
-// Menangani pengiriman form Create Study Intent
+// Menangani pengiriman form Create Study Intent (DAY 11.1 - Validasi Ketat Tanpa Default Palsu)
 async function handleCreateIntentSubmit(e) {
   e.preventDefault();
   const alertBox = document.getElementById("formAlert");
@@ -1006,8 +1196,40 @@ async function handleCreateIntentSubmit(e) {
     return;
   }
 
-  btn.disabled = true;
-  btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>Menyimpan ke SQLite...`;
+  const topicsVal = (document.getElementById("inputTopics").value || "").trim();
+  if (!topicsVal) {
+    if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">Silakan isi topik materi belajar yang ingin dipelajari!</div>`;
+    return;
+  }
+
+  // Validasi: Wajib memilih tujuan belajar (tidak ada silent default!)
+  const goalChecked = document.querySelector('input[name="learningGoal"]:checked');
+  if (!goalChecked) {
+    if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">Silakan pilih <b>Tujuan Belajar (Learning Goal)</b> pada Bagian 3!</div>`;
+    return;
+  }
+
+  // Validasi: Wajib memilih gaya kolaborasi (tidak ada silent default!)
+  const styleChecked = document.querySelector('input[name="collabStyle"]:checked');
+  if (!styleChecked) {
+    if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">Silakan pilih <b>Gaya Belajar (Collaboration Style)</b> pada Bagian 4!</div>`;
+    return;
+  }
+
+  // Validasi: Wajib memilih mode belajar (tidak ada silent default!)
+  const modeChecked = document.querySelector('input[name="learningMode"]:checked');
+  if (!modeChecked) {
+    if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">Silakan pilih <b>Mode Belajar</b> (Offline, Online, atau Hybrid) pada Bagian 5!</div>`;
+    return;
+  }
+
+  // Validasi: Wajib menentukan rentang tanggal riil
+  const earliestVal = (document.getElementById("earliestDate").value || "").trim();
+  const latestVal = (document.getElementById("latestDate").value || "").trim();
+  if (!earliestVal || !latestVal) {
+    if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">Silakan tentukan <b>Rentang Tanggal Belajar</b> (Mulai Dari & Sampai) pada Bagian 6!</div>`;
+    return;
+  }
 
   // Kumpulkan data ketersediaan waktu dari form
   const slotCards = document.querySelectorAll(".slot-row-card");
@@ -1021,15 +1243,23 @@ async function handleCreateIntentSubmit(e) {
     });
   });
 
-  // Bungkus data payload
+  if (availabilities.length === 0) {
+    if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">Minimal harus ada <b>1 Slot Waktu Ketersediaan</b>! Klik tombol '+ Tambah Slot' pada Bagian 7.</div>`;
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>Menyimpan ke SQLite...`;
+
+  // Bungkus data payload murni dari pilihan pengguna
   const payload = {
     course_id: courseId,
-    topics: document.getElementById("inputTopics").value.trim(),
-    learning_goal: document.querySelector('input[name="learningGoal"]:checked')?.value || "UNDERSTAND",
-    collaboration_style: document.querySelector('input[name="collabStyle"]:checked')?.value || "DISCUSSION",
-    learning_mode: document.querySelector('input[name="learningMode"]:checked')?.value || "OFFLINE",
-    earliest_date: document.getElementById("earliestDate").value,
-    latest_date: document.getElementById("latestDate").value,
+    topics: topicsVal,
+    learning_goal: goalChecked.value,
+    collaboration_style: styleChecked.value,
+    learning_mode: modeChecked.value,
+    earliest_date: earliestVal,
+    latest_date: latestVal,
     min_group_size: parseInt(document.getElementById("minGroupSize").value, 10),
     max_group_size: parseInt(document.getElementById("maxGroupSize").value, 10),
     availabilities: availabilities,
