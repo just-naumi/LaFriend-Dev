@@ -10,8 +10,9 @@
 
 import re
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Any, Union
 from pydantic import BaseModel, ConfigDict, field_validator
+
 
 
 # ==============================================================================
@@ -179,14 +180,20 @@ class ChatExtractionResponse(BaseModel):
     topics: Optional[str] = None
     learning_goal: Optional[str] = None
     collaboration_style: Optional[str] = None
-    learning_mode: Optional[str] = None
+    learning_mode: Optional[Any] = None
+    preferred_location: Optional[str] = None
+    physical_location: Optional[str] = None
+    online_platform: Optional[str] = None
     earliest_date: Optional[str] = None
     latest_date: Optional[str] = None
-    min_group_size: int = 2
-    max_group_size: int = 4
-    availabilities: List[AvailabilityCreate] = []
-    extracted_summary: dict = {}
+    min_group_size: Optional[int] = None
+    max_group_size: Optional[int] = None
+    availabilities: List[dict] = []
+    extraction_status: dict = {}
+    extracted_parameters: dict = {}
+    source_text: Optional[str] = None
     ai_model: Optional[str] = None
     ai_raw_entities: Optional[List[dict]] = None
-    message: str = "Informasi berhasil diekstrak oleh AI"
+    message: str = "Informasi berhasil diproses dengan aman"
+
 

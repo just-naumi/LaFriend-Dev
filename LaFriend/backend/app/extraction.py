@@ -2,11 +2,12 @@
 # extraction.py - Pipeline Ekstraksi AI untuk Study Intent (GLiNER + Normalizer)
 # ==============================================================================
 # File ini bertugas untuk:
-# 1. Menerima 1 pesan teks curhatan belajar dari mahasiswa dalam Bahasa Indonesia.
-# 2. Menjalankan model AI GLiNER (Zero-Shot Named Entity Recognition) secara lokal.
-# 3. Mengekstrak entitas penting (Mata kuliah, topik, tujuan, gaya, waktu, grup).
-# 4. Melakukan normalisasi ke format parameter resmi LaFriend & validasi SQLite.
-# 5. Mengembalikan data terstruktur yang siap mengisi formulir secara otomatis.
+# 1. Menerima 1 pesan teks bebas dari mahasiswa dalam Bahasa Indonesia.
+# 2. Menjalankan model AI GLiNER secara lokal (Span-Level NER).
+# 3. Mengekstrak entitas & normalisasi parameter ke format resmi LaFriend.
+# 4. Memastikan Data Integrity: TIDAK ADA DATA PALSU (Null jika tidak disebut).
+# 5. Memberikan 3 Status Ekstraksi: EXTRACTED, NEEDS_REVIEW, MISSING.
+# 6. Memisahkan Learning Mode, Physical Location, dan Online Platform.
 # ==============================================================================
 
 import os
@@ -15,8 +16,7 @@ import json
 import logging
 import unicodedata
 from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple, Union
 from sqlalchemy.orm import Session
 from app.models import Course
 
@@ -64,15 +64,31 @@ def get_gliner_model():
 
 
 # ==============================================================================
-# 1. KAMUS PEMETAAN NORMALISASI (NORMALIZATION DICTIONARY)
+# 1. KAMUS PEMETAAN NORMALISASI (NORMALIZATION DICTIONARIES)
 # ==============================================================================
 
 GOAL_PATTERNS = {
-    "EXAM_PREP": ["uas", "uts", "ujian", "persiapan ujian", "persiapan uas", "persiapan uts", "midterm", "final exam", "kuis", "quiz", "kuis praktikum", "responsi", "responsi lab", "tes awal", "asessment 1", "asessment 2", "asessment", "remedial"],
-    "PRACTICE": ["latihan soal", "latihan koding", "latihan", "ngoding bareng", "praktik", "solve problem", "soal", "ngoding"],
-    "ASSIGNMENT": ["tugas", "tubes", "tugas besar", "praktikum", "laporan", "pr", "jurnal praktikum", "tugas mingguan", "nyicil tubes"],
-    "DISCUSSION": ["diskusi", "bedah materi", "sharing materi", "brainstorming", "tanya jawab", "bahas tuntas"],
-    "UNDERSTAND": ["paham", "pemahaman", "konsep", "belajar dasar", "materi awal", "mengerti", "dasar"]
+    "EXAM_PREP": [
+        "uas", "uts", "ujian", "persiapan ujian", "persiapan uas", "persiapan uts",
+        "midterm", "final exam", "kuis", "quiz", "kuis praktikum", "responsi",
+        "responsi lab", "tes awal", "asessment 1", "asessment 2", "asessment",
+        "remedial", "bedah soal", "latihan soal uts", "latihan soal uas"
+    ],
+    "PRACTICE": [
+        "latihan soal", "latihan koding", "latihan", "ngoding bareng", "praktik",
+        "solve problem", "soal", "ngoding", "latihan mandiri"
+    ],
+    "ASSIGNMENT": [
+        "tugas", "tubes", "tugas besar", "praktikum", "laporan", "pr",
+        "jurnal praktikum", "tugas mingguan", "nyicil tubes"
+    ],
+    "DISCUSSION": [
+        "diskusi", "bedah materi", "sharing materi", "brainstorming", "tanya jawab", "bahas tuntas"
+    ],
+    "UNDERSTAND": [
+        "paham", "memahami", "pemahaman", "konsep", "belajar dasar", "materi awal",
+        "mengerti", "dasar", "pendalaman materi"
+    ]
 }
 
 STYLE_PATTERNS = {
@@ -82,55 +98,84 @@ STYLE_PATTERNS = {
     "FOCUS_STUDY": ["belajar tenang", "hening", "fokus", "silent study", "mandiri bareng", "nyicil"]
 }
 
-MODE_PATTERNS = {
-    "ONLINE": ["online", "daring", "gmeet", "google meet", "zoom", "discord", "virtual"],
-    "HYBRID": ["hybrid", "fleksibel", "bisa online bisa offline", "bebas"],
-    "OFFLINE": [
-        "offline", "tatap muka", "kampus", "perpus", "perpus telkom", "open library",
-        "oplib", "mezzanine", "tult", "tult lantai 5", "kelas", "langsung",
-        "selasar fte", "selasar fit", "selasar gd b", "kantin tult", "sukabirus",
-        "sukapura", "kosan", "cafe sukabirus", "discussion room"
-    ]
+PHYSICAL_LOCATION_PATTERNS = {
+    "Open Library": ["open library", "oplib", "mezzanine oplib", "mezzanine", "discussion room oplib", "discussion room"],
+    "TULT": ["tult lantai 5", "tult lt 5", "tult", "gedung tult"],
+    "Kantin TULT": ["kantin tult"],
+    "Selasar FTE": ["selasar fte", "lab komputer fte", "fte"],
+    "Selasar Gd B": ["selasar gd b", "gedung b"],
+    "Sukabirus": ["sukabirus", "kosan sukabirus", "cafe sukabirus"],
+    "Sukapura": ["sukapura", "kosan sukapura"]
+}
+
+ONLINE_PLATFORM_PATTERNS = {
+    "Google Meet": ["google meet", "gmeet", "g-meet"],
+    "Discord": ["discord", "dc"],
+    "Zoom": ["zoom", "zoom meeting"],
+    "Microsoft Teams": ["teams", "ms teams", "microsoft teams"]
 }
 
 DAYS_LIST = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
 
 
 # ==============================================================================
-# 2. FUNGSI PREPROCESSING
+# 2. PREPROCESSING
 # ==============================================================================
+
 def preprocess_text(text: str) -> str:
     """Membersihkan spasi ganda dan karakter tanpa menghilangkan esensi pesan."""
+    if not text:
+        return ""
     normalized = unicodedata.normalize("NFKC", text)
+    # Normalisasi dash Unicode (en-dash \u2013, em-dash \u2014) menjadi hyphen standar
+    normalized = re.sub(r"[–—]", "-", normalized)
     normalized = re.sub(r"\s+", " ", normalized)
     return normalized.strip()
 
 
+
 # ==============================================================================
-# 3. FUNGSI DETEKSI DAN PEMETAAN PARAMETER
+# 3. EXTRACTION LOGIC PER PARAMETER
 # ==============================================================================
 
-def match_course_from_database(text_lower: str, db: Session, ai_entities: Optional[List[dict]] = None) -> Optional[Course]:
-    """Mencari apakah teks menyebutkan salah satu mata kuliah resmi di SQLite."""
+def match_course_from_database(
+    text_lower: str,
+    db: Session,
+    ai_entities: Optional[List[dict]] = None
+) -> Tuple[Optional[Course], str, Optional[str]]:
+    """
+    Mencari apakah teks menyebutkan salah satu mata kuliah resmi di SQLite.
+    Returns: (course_obj, status, source_text)
+    Status: 'EXTRACTED' | 'MISSING'
+    """
     courses = db.query(Course).all()
 
-    # 1. Cek dari entitas yang diekstrak oleh AI jika ada
+    # 1. Cek dari entitas AI yang berlabel 'course'
     if ai_entities:
         for ent in ai_entities:
-            ent_text = ent.get("text", "").lower().strip()
-            for c in courses:
-                if c.course_name.lower() in ent_text or ent_text in c.course_name.lower():
-                    if len(ent_text) >= 4:  # Hindari false positive substring pendek
-                        return c
-    
+            if ent.get("label") == "course":
+                ent_text = ent.get("text", "").lower().strip()
+                if len(ent_text) >= 3:
+                    for c in courses:
+                        if c.course_name.lower() == ent_text:
+                            return c, "EXTRACTED", ent.get("text")
+                    for c in courses:
+                        if c.course_name.lower() in ent_text or ent_text in c.course_name.lower():
+                            if len(ent_text) >= 4:
+                                return c, "EXTRACTED", ent.get("text")
+
     # 2. Cek kecocokan nama mata kuliah lengkap di teks utuh
     for c in courses:
-        if c.course_name.lower() in text_lower:
-            return c
-        if c.course_code.lower() in text_lower:
-            return c
-            
-    # 3. Cek kecocokan kata kunci singkatan umum di Telkom University
+        pattern = r"\b" + re.escape(c.course_name.lower()) + r"\b"
+        match = re.search(pattern, text_lower)
+        if match:
+            return c, "EXTRACTED", match.group(0)
+        code_pat = r"\b" + re.escape(c.course_code.lower()) + r"\b"
+        code_match = re.search(code_pat, text_lower)
+        if code_match:
+            return c, "EXTRACTED", code_match.group(0)
+
+    # 3. Cek kamus alias singkatan resmi di lingkungan Telkom University
     keyword_alias = {
         # Semester 1
         "kalkulus 1": "Kalkulus 1",
@@ -150,7 +195,7 @@ def match_course_from_database(text_lower: str, db: Session, ai_entities: Option
         "fisika 2": "Fisika 2",
         "fisdas 2": "Fisika 2",
         "alpro": "Algoritma Pemrograman",
-        "algoritma": "Algoritma Pemrograman",
+        "algoritma pemrograman": "Algoritma Pemrograman",
         "matdis": "Matematika Diskrit",
         "diskrit": "Matematika Diskrit",
         "jarkom data": "Jaringan Komputer dan Data",
@@ -211,6 +256,8 @@ def match_course_from_database(text_lower: str, db: Session, ai_entities: Option
         "manpro": "Manajemen Proyek TI",
         "manajemen proyek": "Manajemen Proyek TI",
         "kamsis": "Keamanan Sistem Komputer",
+        "pemrograman web": "Pemrograman Web",
+        "web programming": "Pemrograman Web",
         "proposal ta": "Proposal Tugas Akhir",
         "pra-ta": "Proposal Tugas Akhir",
         "ta": "Tugas Akhir / Skripsi",
@@ -227,233 +274,29 @@ def match_course_from_database(text_lower: str, db: Session, ai_entities: Option
         "big data": "Teknologi Big Data",
         "kalkulus": "Kalkulus"
     }
+
     for alias, full_name in keyword_alias.items():
-        # Gunakan word boundary regex agar alias pendek (ai, ta, rl, ml) tidak salah tangkap substring kata lain
         pattern = r"\b" + re.escape(alias) + r"\b"
-        if re.search(pattern, text_lower):
+        match = re.search(pattern, text_lower)
+        if match:
             matched = db.query(Course).filter(Course.course_name.ilike(f"%{full_name}%")).first()
             if matched:
-                return matched
-                
-    return None
+                return matched, "EXTRACTED", match.group(0)
+
+    return None, "MISSING", None
 
 
-def extract_learning_goal(text_lower: str, ai_entities: Optional[List[dict]] = None) -> Optional[str]:
-    """Mendeteksi tujuan belajar dari teks tanpa default palsu."""
-    # 1. Periksa entitas yang diprediksi oleh AI
-    if ai_entities:
-        for ent in ai_entities:
-            if ent.get("label") in ["learning_goal", "goal", "exam_prep"]:
-                txt = ent.get("text", "").lower()
-                for goal, keywords in GOAL_PATTERNS.items():
-                    for kw in keywords:
-                        if kw in txt:
-                            return goal
-
-    # 2. Periksa kecocokan kata kunci langsung dengan word-boundary
-    for goal, keywords in GOAL_PATTERNS.items():
-        for kw in keywords:
-            if re.search(r"\b" + re.escape(kw) + r"\b", text_lower):
-                return goal
-
-    # Tidak ditemukan -> return None (MISSING)
-    return None
-
-
-def extract_collaboration_style(text_lower: str) -> Optional[str]:
-    """Mendeteksi gaya belajar dari teks tanpa default palsu."""
-    for style, keywords in STYLE_PATTERNS.items():
-        for kw in keywords:
-            if re.search(r"\b" + re.escape(kw) + r"\b", text_lower):
-                return style
-    return None
-
-
-LOCATION_PATTERNS = {
-    "Open Library": ["open library", "oplib", "mezzanine oplib", "mezzanine", "discussion room"],
-    "TULT Lantai 5": ["tult lantai 5", "tult lt 5", "tult"],
-    "Kantin TULT": ["kantin tult"],
-    "Selasar FTE": ["selasar fte", "lab komputer fte", "fte"],
-    "Selasar Gd B": ["selasar gd b", "gedung b"],
-    "Sukabirus": ["sukabirus", "kosan sukabirus", "cafe sukabirus"],
-    "Sukapura": ["sukapura", "kosan sukapura"],
-    "Google Meet": ["google meet", "gmeet"],
-    "Discord": ["discord"],
-    "Zoom": ["zoom"]
-}
-
-
-def extract_preferred_location(text_lower: str) -> Optional[str]:
-    """Mengekstrak lokasi spesifik kampus atau platform online terpisah dari learning_mode."""
-    for loc_name, keywords in LOCATION_PATTERNS.items():
-        for kw in keywords:
-            if re.search(r"\b" + re.escape(kw) + r"\b", text_lower):
-                return loc_name
-    return None
-
-
-def extract_learning_mode(text_lower: str, ai_entities: Optional[List[dict]] = None) -> Optional[str]:
-    """Mendeteksi mode belajar (offline/online/hybrid) murni tanpa mencampur aduk lokasi."""
-    if "tidak mau online" in text_lower or "bukan online" in text_lower or "jangan online" in text_lower:
-        return "OFFLINE"
-    if "tidak mau offline" in text_lower or "bukan offline" in text_lower or "jangan offline" in text_lower:
-        return "ONLINE"
-
-    # 1. Cek dari entitas AI
-    if ai_entities:
-        for ent in ai_entities:
-            if ent.get("label") in ["study_mode", "mode"]:
-                txt = ent.get("text", "").lower()
-                for mode, keywords in MODE_PATTERNS.items():
-                    for kw in keywords:
-                        if re.search(r"\b" + re.escape(kw) + r"\b", txt):
-                            return mode
-
-    # 2. Cek kecocokan kata kunci
-    for mode, keywords in MODE_PATTERNS.items():
-        for kw in keywords:
-            if re.search(r"\b" + re.escape(kw) + r"\b", text_lower):
-                return mode
-
-    return None
-
-
-def extract_group_size(text: str, ai_entities: Optional[List[dict]] = None) -> Tuple[Optional[int], Optional[int]]:
-    """Mendeteksi ukuran kelompok belajar tanpa default palsu."""
-    target_text = text
-    if ai_entities:
-        for ent in ai_entities:
-            if ent.get("label") in ["group_size", "group"]:
-                target_text = ent.get("text", text)
-                break
-
-    # Pola rentang: "2 sampai 4 orang" atau "2-4 orang"
-    range_match = re.search(
-        r"(?:kelompok|group)?\s*(\d+)\s*(?:sampai|s/d|-|hingga)\s*(\d+)\s*(?:orang|mahasiswa|anggota|anak|teman)?",
-        target_text,
-        re.IGNORECASE
-    )
-    if range_match:
-        val1 = int(range_match.group(1))
-        val2 = int(range_match.group(2))
-        return min(val1, val2), max(val1, val2)
-
-    # Pola angka tunggal: "3 orang", "kelompok 4", "bertiga"
-    single_match = re.search(r"(\d+)\s*(?:orang|mahasiswa|anggota)", target_text, re.IGNORECASE)
-    if single_match:
-        val = int(single_match.group(1))
-        return val, val
-
-    if "berdua" in target_text.lower():
-        return 2, 2
-    if "bertiga" in target_text.lower():
-        return 3, 3
-    if "berempat" in target_text.lower():
-        return 4, 4
-
-    # Jika tidak disebutkan, kembalikan None (MISSING)
-    return None, None
-
-
-def extract_availabilities(text: str, ai_entities: Optional[List[dict]] = None) -> List[Dict[str, Any]]:
+def extract_topics(
+    raw_text: str,
+    course_name: Optional[str],
+    ai_entities: Optional[List[dict]] = None
+) -> Tuple[Optional[str], str, Optional[str]]:
     """
-    Mengekstrak hari dan jam ketersediaan waktu secara jujur.
-    Tidak ada pengisian jam 09:00-11:00 palsu jika mahasiswa hanya sebut hari,
-    dan tidak ada pengisian hari 'Fleksibel' palsu jika mahasiswa hanya sebut jam.
+    Mengekstrak topik materi belajar tanpa default palsu.
+    Returns: (topic_string, status, source_text)
+    Status: 'EXTRACTED' | 'MISSING'
     """
-    results = []
-    text_lower = text.lower()
-
-    # 1. Deteksi hari
-    found_days = []
-    for day in DAYS_LIST:
-        if re.search(r"\b" + re.escape(day.lower()) + r"\b", text_lower):
-            found_days.append(day)
-
-    # 2. Deteksi jam
-    start_time = None
-    end_time = None
-
-    time_match = re.search(r"(?:jam|pukul)?\s*(\d{1,2})[.:](\d{2})?\s*(?:sampai|s/d|-|hingga)\s*(?:jam|pukul)?\s*(\d{1,2})[.:]?(\d{2})?", text, re.IGNORECASE)
-    if time_match:
-        s_hour = int(time_match.group(1))
-        s_min = time_match.group(2) or "00"
-        e_hour = int(time_match.group(3))
-        e_min = time_match.group(4) or "00"
-        start_time = f"{s_hour:02d}:{s_min}"
-        end_time = f"{e_hour:02d}:{e_min}"
-    else:
-        simple_time = re.search(r"(?:jam|pukul)\s*(\d{1,2})\s*(?:sampai|s/d|-|hingga)\s*(\d{1,2})", text, re.IGNORECASE)
-        if simple_time:
-            s_hour = int(simple_time.group(1))
-            e_hour = int(simple_time.group(2))
-            start_time = f"{s_hour:02d}:00"
-            end_time = f"{e_hour:02d}:00"
-        else:
-            single_time = re.search(r"(?:jam|pukul)\s*(\d{1,2})[.:]?(\d{2})?", text, re.IGNORECASE)
-            if single_time:
-                s_hour = int(single_time.group(1))
-                s_min = single_time.group(2) or "00"
-                start_time = f"{s_hour:02d}:{s_min}"
-                end_time = f"{(s_hour + 2) % 24:02d}:{s_min}"
-
-    # Jika tidak ada hari maupun jam yang ditemukan, return list kosong (MISSING)
-    if not found_days and not start_time:
-        return []
-
-    # Jika ada hari tapi tidak ada jam: jangan mengarang jam palsu! Biarkan kosong untuk diisi user
-    if found_days and not start_time:
-        for idx, d in enumerate(found_days):
-            results.append({
-                "day_or_date": d,
-                "start_time": "",
-                "end_time": "",
-                "priority_rank": idx + 1,
-                "status": "NEEDS_TIME"
-            })
-        return results
-
-    # Jika ada jam tapi tidak ada hari: jangan mengarang hari palsu!
-    if start_time and not found_days:
-        results.append({
-            "day_or_date": "",
-            "start_time": start_time,
-            "end_time": end_time,
-            "priority_rank": 1,
-            "status": "NEEDS_DAY"
-        })
-        return results
-
-    # Jika lengkap (ada hari DAN jam)
-    for idx, d in enumerate(found_days):
-        results.append({
-            "day_or_date": d,
-            "start_time": start_time,
-            "end_time": end_time,
-            "priority_rank": idx + 1,
-            "status": "COMPLETE"
-        })
-
-    return results
-
-
-def extract_topics(raw_text: str, course_name: Optional[str], ai_entities: Optional[List[dict]] = None) -> Optional[str]:
-    """Mengekstrak topik materi belajar tanpa default palsu."""
-    # 1. Coba pola kalimat natural mahasiswa terlebih dahulu:
-    match = re.search(
-        r"(?:belajar|materi|topik|khususnya|tentang|bahas|diskusi)\s+([^.,;]+?)(?:\s+(?:untuk|buat|karena|pada|secara|hari|jam|kelompok|bareng|persiapan)|[.,;]|$)",
-        raw_text,
-        re.IGNORECASE
-    )
-    if match:
-        extracted = match.group(1).strip()
-        extracted = re.sub(r"^(?:soal|materi|topik|tentang|mengenai)\s+", "", extracted, flags=re.IGNORECASE).strip()
-        if course_name and extracted.lower() != course_name.lower() and len(extracted) >= 3:
-            return extracted
-        elif not course_name and len(extracted) >= 3:
-            return extracted
-
-    # 2. Jika tidak ada pola kalimat langsung, kumpulkan dari entitas GLiNER yang relevan
+    # 1. Cek entitas AI berlabel 'topic' terlebih dahulu
     if ai_entities:
         topic_parts = []
         for ent in ai_entities:
@@ -465,19 +308,424 @@ def extract_topics(raw_text: str, course_name: Optional[str], ai_entities: Optio
                 if len(text_ent) >= 3:
                     topic_parts.append(text_ent)
         if topic_parts:
-            return ", ".join(dict.fromkeys(topic_parts))
+            unique_topics = list(dict.fromkeys(topic_parts))
+            return ", ".join(unique_topics), "EXTRACTED", ", ".join(unique_topics)
 
-    return None
+    # 2. Coba pola kalimat natural mahasiswa (e.g. "memahami Binary Tree", "bahas AVL Tree")
+    match = re.search(
+        r"(?:memahami|materi|topik|khususnya|tentang|bahas|bab|mempelajari)\s+([^.,;]+?)(?:\s+(?:untuk|buat|karena|pada|secara|hari|jam|kelompok|bareng|persiapan|bersama)|[.,;]|$)",
+        raw_text,
+        re.IGNORECASE
+    )
+    if match:
+        extracted = match.group(1).strip()
+        extracted = re.sub(r"^(?:soal|materi|topik|tentang|mengenai)\s+", "", extracted, flags=re.IGNORECASE).strip()
+        # Hindari menganggap nama mata kuliah sebagai topik jika sama persis
+        if course_name and extracted.lower() == course_name.lower():
+            return None, "MISSING", None
+        if len(extracted) >= 3:
+            return extracted, "EXTRACTED", match.group(0)
+
+    return None, "MISSING", None
+
+
+def extract_learning_goal(
+    text_lower: str,
+    ai_entities: Optional[List[dict]] = None
+) -> Tuple[Optional[str], str, Optional[str]]:
+    """
+    Mendeteksi tujuan belajar dari teks tanpa default palsu.
+    Returns: (goal, status, source_text)
+    Status: 'EXTRACTED' | 'MISSING'
+    """
+    # 1. Cek apakah ada konteks ujian (UTS/UAS/ujian/kuis)
+    # Konteks ujian memiliki prioritas tertinggi (misal: 'latihan soal UTS' -> tujuan utamanya EXAM_PREP)
+    exam_terms = ["uts", "uas", "ujian", "kuis", "midterm", "final exam", "responsi"]
+    for term in exam_terms:
+        if re.search(r"\b" + re.escape(term) + r"\b", text_lower):
+            for kw in sorted(GOAL_PATTERNS["EXAM_PREP"], key=len, reverse=True):
+                if re.search(r"\b" + re.escape(kw) + r"\b", text_lower):
+                    return "EXAM_PREP", "EXTRACTED", kw
+            return "EXAM_PREP", "EXTRACTED", term
+
+    # 2. Cek entitas AI
+    if ai_entities:
+        for ent in ai_entities:
+            if ent.get("label") in ["learning_goal", "goal", "exam_prep"]:
+                txt = ent.get("text", "").lower()
+                for goal, keywords in GOAL_PATTERNS.items():
+                    for kw in keywords:
+                        if kw in txt:
+                            return goal, "EXTRACTED", ent.get("text")
+
+    # 3. Cek kecocokan kata kunci dengan word-boundary (prioritaskan kata/frasa terpanjang)
+    candidates = []
+    for goal, keywords in GOAL_PATTERNS.items():
+        for kw in keywords:
+            pattern = r"\b" + re.escape(kw) + r"\b"
+            match = re.search(pattern, text_lower)
+            if match:
+                candidates.append((len(kw), goal, match.group(0)))
+
+    if candidates:
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return candidates[0][1], "EXTRACTED", candidates[0][2]
+
+    return None, "MISSING", None
+
+
+
+
+def extract_collaboration_style(
+    text_lower: str
+) -> Tuple[Optional[str], str, Optional[str]]:
+    """
+    Mendeteksi gaya belajar dari teks tanpa default palsu.
+    Returns: (style, status, source_text)
+    Status: 'EXTRACTED' | 'MISSING'
+    """
+    for style, keywords in STYLE_PATTERNS.items():
+        for kw in keywords:
+            pattern = r"\b" + re.escape(kw) + r"\b"
+            match = re.search(pattern, text_lower)
+            if match:
+                return style, "EXTRACTED", match.group(0)
+
+    return None, "MISSING", None
+
+
+def extract_mode_and_locations(
+    text_lower: str,
+    raw_text: str,
+    ai_entities: Optional[List[dict]] = None
+) -> Dict[str, Any]:
+    """
+    Memisahkan secara tegas:
+    - learning_mode (OFFLINE, ONLINE, HYBRID / ['OFFLINE', 'ONLINE'])
+    - physical_location (Open Library, TULT, Selasar FTE, Sukabirus, dll. atau Kampus [NEEDS_REVIEW])
+    - online_platform (Google Meet, Discord, Zoom, Teams)
+    Mendukung deteksi negasi ('tidak mau online') dan multi-mode ('bisa online maupun offline').
+    """
+    result = {
+        "learning_mode": {"value": None, "status": "MISSING", "source_text": None},
+        "physical_location": {"value": None, "status": "MISSING", "source_text": None},
+        "online_platform": {"value": None, "status": "MISSING", "source_text": None},
+        "preferred_location": None,
+    }
+
+    # 1. Deteksi Platform Online Spesifik
+    for plat_name, keywords in ONLINE_PLATFORM_PATTERNS.items():
+        for kw in keywords:
+            pattern = r"\b" + re.escape(kw) + r"\b"
+            match = re.search(pattern, text_lower)
+            if match:
+                result["online_platform"] = {
+                    "value": plat_name,
+                    "status": "EXTRACTED",
+                    "source_text": match.group(0)
+                }
+                break
+        if result["online_platform"]["value"]:
+            break
+
+    # 2. Deteksi Lokasi Fisik Spesifik
+    for loc_name, keywords in PHYSICAL_LOCATION_PATTERNS.items():
+        for kw in keywords:
+            pattern = r"\b" + re.escape(kw) + r"\b"
+            match = re.search(pattern, text_lower)
+            if match:
+                result["physical_location"] = {
+                    "value": loc_name,
+                    "status": "EXTRACTED",
+                    "source_text": match.group(0)
+                }
+                break
+        if result["physical_location"]["value"]:
+            break
+
+    # Jika tidak ada lokasi fisik spesifik, cek apakah ada sebutan umum 'kampus'
+    if not result["physical_location"]["value"]:
+        kampus_match = re.search(r"\b(?:di\s+)?kampus\b", text_lower)
+        if kampus_match:
+            result["physical_location"] = {
+                "value": "Kampus",
+                "status": "NEEDS_REVIEW",  # Terlalu luas / umum, butuh konfirmasi gedung
+                "source_text": kampus_match.group(0)
+            }
+
+    # 3. Deteksi Negasi
+    neg_online = re.search(r"\b(?:tidak\s+mau|bukan|jangan|nggak\s+mau|gak\s+mau|ogah|enggan)\s+(?:belajar\s+)?online\b", text_lower)
+    neg_offline = re.search(r"\b(?:tidak\s+mau|bukan|jangan|nggak\s+mau|gak\s+mau|ogah|enggan)\s+(?:belajar\s+)?(?:offline|tatap muka|ke kampus)\b", text_lower)
+
+    if neg_online:
+        result["learning_mode"] = {
+            "value": "OFFLINE",
+            "status": "EXTRACTED",
+            "source_text": neg_online.group(0)
+        }
+    elif neg_offline:
+        result["learning_mode"] = {
+            "value": "ONLINE",
+            "status": "EXTRACTED",
+            "source_text": neg_offline.group(0)
+        }
+    else:
+        # 4. Deteksi Multi-mode / Fleksibilitas (Online maupun Offline)
+        multi_pattern = re.search(
+            r"\b(?:bisa\s+online\s+maupun\s+offline|bisa\s+offline\s+maupun\s+online|online\s+maupun\s+offline|offline\s+maupun\s+online|bisa\s+online\s+atau\s+offline|bisa\s+offline\s+atau\s+online|online\s+atau\s+offline|offline\s+atau\s+online|bisa\s+dua-duanya|bebas\s+online\s+atau\s+offline)\b",
+            text_lower
+        )
+        if multi_pattern:
+            result["learning_mode"] = {
+                "value": ["OFFLINE", "ONLINE"],
+                "status": "EXTRACTED",
+                "source_text": multi_pattern.group(0)
+            }
+        # 5. Jika lokasi fisik DAN online platform keduanya disebut (misal: "di kampus atau Google Meet")
+        elif result["physical_location"]["value"] and result["online_platform"]["value"]:
+            combined_src = f"{result['physical_location']['source_text']} atau {result['online_platform']['source_text']}"
+            result["learning_mode"] = {
+                "value": ["OFFLINE", "ONLINE"],
+                "status": "EXTRACTED",
+                "source_text": combined_src
+            }
+        else:
+            # 6. Deteksi Kata Kunci Mode Tunggal
+            has_offline_word = bool(re.search(r"\b(?:offline|tatap muka)\b", text_lower))
+            has_online_word = bool(re.search(r"\b(?:online|daring)\b", text_lower))
+            has_hybrid_word = bool(re.search(r"\b(?:hybrid|fleksibel)\b", text_lower))
+
+            if has_hybrid_word:
+                result["learning_mode"] = {
+                    "value": "HYBRID",
+                    "status": "EXTRACTED",
+                    "source_text": "hybrid"
+                }
+            elif has_offline_word:
+                result["learning_mode"] = {
+                    "value": "OFFLINE",
+                    "status": "EXTRACTED",
+                    "source_text": "offline"
+                }
+            elif has_online_word:
+                result["learning_mode"] = {
+                    "value": "ONLINE",
+                    "status": "EXTRACTED",
+                    "source_text": "online"
+                }
+            elif result["physical_location"]["value"]:
+                # Lokasi fisik mengindikasikan belajar tatap muka
+                result["learning_mode"] = {
+                    "value": "OFFLINE",
+                    "status": "EXTRACTED",
+                    "source_text": result["physical_location"]["source_text"]
+                }
+            elif result["online_platform"]["value"]:
+                # Platform online mengindikasikan belajar daring
+                result["learning_mode"] = {
+                    "value": "ONLINE",
+                    "status": "EXTRACTED",
+                    "source_text": result["online_platform"]["source_text"]
+                }
+
+    # Backward compatibility: preferred_location
+    if result["physical_location"]["value"]:
+        result["preferred_location"] = result["physical_location"]["value"]
+    elif result["online_platform"]["value"]:
+        result["preferred_location"] = result["online_platform"]["value"]
+
+    return result
+
+
+def extract_group_size(
+    text: str,
+    ai_entities: Optional[List[dict]] = None
+) -> Tuple[Optional[int], Optional[int], str, Optional[str]]:
+    """
+    Mendeteksi ukuran kelompok belajar tanpa default palsu.
+    Returns: (min_size, max_size, status, source_text)
+    Status: 'EXTRACTED' | 'MISSING'
+    """
+    target_text = text
+    src_text = None
+    if ai_entities:
+        for ent in ai_entities:
+            if ent.get("label") in ["group_size", "group"]:
+                target_text = ent.get("text", text)
+                src_text = ent.get("text")
+                break
+
+    # Pola rentang: "2 sampai 4 orang" atau "2-4 orang"
+    range_match = re.search(
+        r"(?:kelompok|group)?\s*(\d+)\s*(?:sampai|s/d|-|hingga)\s*(\d+)\s*(?:orang|mahasiswa|anggota|anak|teman)?",
+        target_text,
+        re.IGNORECASE
+    )
+    if range_match:
+        val1 = int(range_match.group(1))
+        val2 = int(range_match.group(2))
+        return min(val1, val2), max(val1, val2), "EXTRACTED", range_match.group(0)
+
+    # Pola angka tunggal: "4 orang", "kelompok 4", "berisi 4 orang"
+    single_match = re.search(r"(?:kelompok|group|berisi)?\s*(\d+)\s*(?:orang|mahasiswa|anggota)", target_text, re.IGNORECASE)
+    if single_match:
+        val = int(single_match.group(1))
+        return val, val, "EXTRACTED", single_match.group(0)
+
+    # Sebutan kata bilangan bahasa Indonesia
+    words_map = {
+        "berdua": (2, 2),
+        "bertiga": (3, 3),
+        "berempat": (4, 4),
+        "berlima": (5, 5)
+    }
+    for word, (mn, mx) in words_map.items():
+        if re.search(r"\b" + re.escape(word) + r"\b", target_text.lower()):
+            return mn, mx, "EXTRACTED", word
+
+    # Tidak disebutkan -> return None (MISSING)
+    return None, None, "MISSING", None
+
+
+def extract_availabilities(
+    text: str,
+    ai_entities: Optional[List[dict]] = None
+) -> Tuple[List[Dict[str, Any]], str, Optional[str]]:
+    """
+    Mengekstrak hari dan jam ketersediaan waktu secara jujur.
+    Returns: (slots_list, status, source_text)
+    Status: 'EXTRACTED' | 'NEEDS_REVIEW' | 'MISSING'
+    """
+    text_lower = text.lower()
+
+    # 1. Cek apakah ada frasa eksplisit bahwa user belum punya jadwal
+    no_schedule_match = re.search(
+        r"\b(?:belum\s+tahu\s+jadwalnya|jadwal\s+belum\s+tahu|belum\s+ada\s+jadwal|jadwal\s+menyusul|belum\s+menentukan\s+jadwal)\b",
+        text_lower
+    )
+    if no_schedule_match:
+        return [], "MISSING", no_schedule_match.group(0)
+
+    results = []
+
+    # 2. Deteksi Hari
+    found_days = []
+    for day in DAYS_LIST:
+        if re.search(r"\b" + re.escape(day.lower()) + r"\b", text_lower):
+            found_days.append(day)
+
+    # 3. Deteksi Jam Spesifik (e.g. 13.00-15.00, 13:00-15:00)
+    start_time = None
+    end_time = None
+    time_src = None
+
+    # Normalisasi teks lokal jika ada dash unicode
+    text = re.sub(r"[–—]", "-", text)
+
+    time_match = re.search(
+        r"(?:jam|pukul)?\s*(\d{1,2})[.:](\d{2})?\s*(?:sampai|s/d|[-–—]|hingga)\s*(?:jam|pukul)?\s*(\d{1,2})[.:]?(\d{2})?",
+        text,
+        re.IGNORECASE
+    )
+
+    if time_match:
+        s_hour = int(time_match.group(1))
+        s_min = time_match.group(2) or "00"
+        e_hour = int(time_match.group(3))
+        e_min = time_match.group(4) or "00"
+        start_time = f"{s_hour:02d}:{s_min}"
+        end_time = f"{e_hour:02d}:{e_min}"
+        time_src = time_match.group(0)
+    else:
+        simple_time = re.search(
+            r"(?:jam|pukul)\s*(\d{1,2})\s*(?:sampai|s/d|-|hingga)\s*(\d{1,2})",
+            text,
+            re.IGNORECASE
+        )
+        if simple_time:
+            s_hour = int(simple_time.group(1))
+            e_hour = int(simple_time.group(2))
+            start_time = f"{s_hour:02d}:00"
+            end_time = f"{e_hour:02d}:00"
+            time_src = simple_time.group(0)
+
+    # 4. Deteksi Waktu Relatif / Kisaran (Pagi, Siang, Sore, Malam)
+    # Ini ambigu sehingga harus ditandai NEEDS_REVIEW
+    is_approximate_time = False
+    if not start_time:
+        if re.search(r"\bsore\b", text_lower):
+            start_time = "15:00"
+            end_time = "18:00"
+            time_src = "sore"
+            is_approximate_time = True
+        elif re.search(r"\bpagi\b", text_lower):
+            start_time = "08:00"
+            end_time = "11:00"
+            time_src = "pagi"
+            is_approximate_time = True
+        elif re.search(r"\bsiang\b", text_lower):
+            start_time = "11:00"
+            end_time = "14:00"
+            time_src = "siang"
+            is_approximate_time = True
+        elif re.search(r"\bmalam\b", text_lower):
+            start_time = "19:00"
+            end_time = "21:00"
+            time_src = "malam"
+            is_approximate_time = True
+
+    # 5. Bangun Hasil Slot Waktu
+    if not found_days and not start_time:
+        return [], "MISSING", None
+
+    # Ada hari tapi tidak ada jam sama sekali -> NEEDS_REVIEW
+    if found_days and not start_time:
+        for idx, d in enumerate(found_days):
+            results.append({
+                "day_or_date": d,
+                "start_time": "",
+                "end_time": "",
+                "priority_rank": idx + 1,
+                "status": "NEEDS_TIME"
+            })
+        return results, "NEEDS_REVIEW", ", ".join(found_days)
+
+    # Ada jam tapi tidak ada hari -> NEEDS_REVIEW
+    if start_time and not found_days:
+        results.append({
+            "day_or_date": "",
+            "start_time": start_time,
+            "end_time": end_time,
+            "priority_rank": 1,
+            "status": "NEEDS_DAY"
+        })
+        return results, "NEEDS_REVIEW", time_src
+
+    # Lengkap (Ada hari DAN ada jam)
+    for idx, d in enumerate(found_days):
+        results.append({
+            "day_or_date": d,
+            "start_time": start_time,
+            "end_time": end_time,
+            "priority_rank": idx + 1,
+            "status": "COMPLETE" if not is_approximate_time else "APPROXIMATE_TIME"
+        })
+
+    overall_status = "NEEDS_REVIEW" if (is_approximate_time or len(found_days) > 1) else "EXTRACTED"
+    combined_src = f"{', '.join(found_days)} {time_src}" if time_src else ", ".join(found_days)
+    return results, overall_status, combined_src
 
 
 # ==============================================================================
-# 4. PIPELINE EKSTRAKSI UTAMA
+# 4. PIPELINE EKSTRAKSI UTAMA (PROCESS_CHAT_FOR_STUDY_INTENT)
 # ==============================================================================
+
 def process_chat_for_study_intent(raw_text: str, db: Session) -> Dict[str, Any]:
     """
     Fungsi Utama:
-    Menerima 1 pesan mentah dari mahasiswa -> mengekstrak entitas dengan GLiNER ->
-    melakukan normalisasi parameter -> menghasilkan objek data lengkap untuk form frontend.
+    Menerima 1 pesan mentah dari mahasiswa -> ekstraksi GLiNER & Normalizer ->
+    memberikan format output terstruktur dengan 3 status: EXTRACTED, NEEDS_REVIEW, MISSING.
+    Memastikan integritas data: parameter yang tidak disebut bernilai None / [].
     """
     cleaned_text = preprocess_text(raw_text)
     text_lower = cleaned_text.lower()
@@ -488,7 +736,6 @@ def process_chat_for_study_intent(raw_text: str, db: Session) -> Dict[str, Any]:
     try:
         model = get_gliner_model()
         if model is not None:
-            # Taxonomy seragam 100% konsisten dengan training & dataset
             raw_preds = model.predict_entities(
                 cleaned_text,
                 ["course", "topic", "learning_goal", "schedule", "group_size", "study_mode"],
@@ -508,41 +755,101 @@ def process_chat_for_study_intent(raw_text: str, db: Session) -> Dict[str, Any]:
         logger.error(f"Error inferensi GLiNER: {e}")
         model_name_tag = "Pattern-Based Fallback (Offline)"
 
-    # 2. Deteksi mata kuliah dari database SQLite
-    course = match_course_from_database(text_lower, db, ai_entities)
+    # 2. Ekstraksi Course
+    course, course_status, course_src = match_course_from_database(text_lower, db, ai_entities)
     course_id = course.course_id if course else None
     course_name = course.course_name if course else None
 
-    # 3. Deteksi Topik Materi (Dipadukan dengan AI Entities)
-    topics = extract_topics(cleaned_text, course_name, ai_entities)
+    # 3. Ekstraksi Topics
+    topics, topic_status, topic_src = extract_topics(cleaned_text, course_name, ai_entities)
 
-    # 4. Deteksi Parameter Tujuan, Gaya, Mode, Lokasi, dan Ukuran Grup (Tanpa Default Palsu)
-    learning_goal = extract_learning_goal(text_lower, ai_entities)
-    collaboration_style = extract_collaboration_style(text_lower)
-    learning_mode = extract_learning_mode(text_lower, ai_entities)
-    preferred_location = extract_preferred_location(text_lower)
-    min_size, max_size = extract_group_size(cleaned_text, ai_entities)
+    # 4. Ekstraksi Learning Goal & Collaboration Style
+    learning_goal, goal_status, goal_src = extract_learning_goal(text_lower, ai_entities)
+    collaboration_style, style_status, style_src = extract_collaboration_style(text_lower)
 
-    # 5. Deteksi Jadwal Waktu Ketersediaan (Jujur: tidak mengisi jam jika tidak ada)
-    availabilities = extract_availabilities(cleaned_text, ai_entities)
+    # 5. Ekstraksi Mode Belajar, Lokasi Fisik, dan Platform Online
+    mode_loc = extract_mode_and_locations(text_lower, cleaned_text, ai_entities)
+    learning_mode_obj = mode_loc["learning_mode"]
+    phys_loc_obj = mode_loc["physical_location"]
+    online_plat_obj = mode_loc["online_platform"]
+    preferred_loc = mode_loc["preferred_location"]
 
-    # 6. Status parameter (Transparansi: EXTRACTED vs MISSING)
-    extraction_status = {
-        "course": "EXTRACTED" if course_id else "MISSING",
-        "topics": "EXTRACTED" if topics else "MISSING",
-        "learning_goal": "EXTRACTED" if learning_goal else "MISSING",
-        "collaboration_style": "EXTRACTED" if collaboration_style else "MISSING",
-        "learning_mode": "EXTRACTED" if learning_mode else "MISSING",
-        "preferred_location": "EXTRACTED" if preferred_location else "MISSING",
-        "group_size": "EXTRACTED" if min_size is not None else "MISSING",
-        "schedule": "EXTRACTED" if (availabilities and all(s.get("status") == "COMPLETE" for s in availabilities)) else ("NEEDS_REVIEW" if availabilities else "MISSING"),
+    # 6. Ekstraksi Ukuran Kelompok
+    min_size, max_size, group_status, group_src = extract_group_size(cleaned_text, ai_entities)
+
+    # 7. Ekstraksi Jadwal Waktu Ketersediaan
+    availabilities, avail_status, avail_src = extract_availabilities(cleaned_text, ai_entities)
+
+    # Struktur parameter detail dengan status & source text (Task 3 & 4)
+    extracted_parameters = {
+        "course": {
+            "value": course_name,
+            "course_id": course_id,
+            "status": course_status,
+            "source_text": course_src
+        },
+        "topic": {
+            "value": topics,
+            "status": topic_status,
+            "source_text": topic_src
+        },
+        "learning_goal": {
+            "value": learning_goal,
+            "status": goal_status,
+            "source_text": goal_src
+        },
+        "collaboration_style": {
+            "value": collaboration_style,
+            "status": style_status,
+            "source_text": style_src
+        },
+        "learning_mode": {
+            "value": learning_mode_obj["value"],
+            "status": learning_mode_obj["status"],
+            "source_text": learning_mode_obj["source_text"]
+        },
+        "physical_location": {
+            "value": phys_loc_obj["value"],
+            "status": phys_loc_obj["status"],
+            "source_text": phys_loc_obj["source_text"]
+        },
+        "online_platform": {
+            "value": online_plat_obj["value"],
+            "status": online_plat_obj["status"],
+            "source_text": online_plat_obj["source_text"]
+        },
+        "group_size": {
+            "value": {"min_group_size": min_size, "max_group_size": max_size} if min_size is not None else None,
+            "status": group_status,
+            "source_text": group_src
+        },
+        "availability": {
+            "value": availabilities if availabilities else None,
+            "status": avail_status,
+            "source_text": avail_src
+        }
     }
 
-    # 7. Rentang Tanggal Default: Dikosongkan jika tidak disebut spesifik
-    earliest_date = None
-    latest_date = None
+    # Summary dictionary status
+    extraction_status = {
+        "course": course_status,
+        "topic": topic_status,
+        "learning_goal": goal_status,
+        "collaboration_style": style_status,
+        "learning_mode": learning_mode_obj["status"],
+        "physical_location": phys_loc_obj["status"],
+        "online_platform": online_plat_obj["status"],
+        "group_size": group_status,
+        "availability": avail_status
+    }
 
-    # 8. Format data balasan terstruktur bersih
+    # Format kompatibel dengan frontend radio button
+    primary_mode_for_ui = None
+    if isinstance(learning_mode_obj["value"], list):
+        primary_mode_for_ui = "HYBRID"
+    elif isinstance(learning_mode_obj["value"], str):
+        primary_mode_for_ui = learning_mode_obj["value"]
+
     return {
         "status": "success",
         "course_id": course_id,
@@ -550,15 +857,23 @@ def process_chat_for_study_intent(raw_text: str, db: Session) -> Dict[str, Any]:
         "topics": topics,
         "learning_goal": learning_goal,
         "collaboration_style": collaboration_style,
-        "learning_mode": learning_mode,
-        "preferred_location": preferred_location,
-        "earliest_date": earliest_date,
-        "latest_date": latest_date,
+        "learning_mode": primary_mode_for_ui,
+        "preferred_location": preferred_loc,
+        "physical_location": phys_loc_obj["value"],
+        "online_platform": online_plat_obj["value"],
+        "earliest_date": None,
+        "latest_date": None,
         "min_group_size": min_size,
         "max_group_size": max_size,
         "availabilities": availabilities,
         "extraction_status": extraction_status,
+        "extracted_parameters": extracted_parameters,
+        "source_text": raw_text,
         "ai_model": model_name_tag,
         "ai_raw_entities": ai_entities,
         "message": "Informasi berhasil diproses dengan aman (parameter tidak disebut dibiarkan kosong)."
     }
+
+
+# Alias fungsi agar kompatibel dengan pemanggilan extract_study_intent
+extract_study_intent = process_chat_for_study_intent
