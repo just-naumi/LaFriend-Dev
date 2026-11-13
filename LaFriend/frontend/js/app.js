@@ -563,17 +563,6 @@ async function initCreateIntentPage() {
 // LOGIKA EKSTRAKSI AI OTOMATIS DARI PROMPT DASHBOARD
 // ==============================================================================
 async function extractAndApplyPrompt(rawText) {
-  const feedback = document.getElementById("aiStatusFeedback");
-  if (feedback) {
-    feedback.style.display = "block";
-    feedback.innerHTML = `
-      <div class="alert alert-info py-2 px-3 small mb-0 d-flex align-items-center gap-2">
-        <span class="spinner-border spinner-border-sm text-primary"></span>
-        <span>AI sedang menganalisis kebutuhan belajarmu: "<em>${escapeHtml(rawText)}</em>"...</span>
-      </div>
-    `;
-  }
-
   try {
     const res = await app.request("/study-intents/extract-ai", {
       method: "POST",
@@ -581,38 +570,18 @@ async function extractAndApplyPrompt(rawText) {
     });
 
     applyAIExtractionResult(res);
-
-    if (feedback) {
-      feedback.innerHTML = `
-        <div class="alert alert-success py-2 px-3 small mb-0 d-flex align-items-center gap-2" style="background: #ECFDF5; border: 1px solid #A7F3D0; color: #065F46; border-radius: 12px;">
-          <i class="bi bi-stars text-success fs-5"></i>
-          <div>
-            <strong>Berhasil Diisi oleh AI!</strong>
-            <div style="font-size: 0.74rem;">${escapeHtml(res.message)}. Silakan verifikasi dan lengkapi formulir sebelum menyimpan.</div>
-          </div>
-        </div>
-      `;
-    }
   } catch (err) {
-    if (feedback) {
-      feedback.innerHTML = `
-        <div class="alert alert-warning py-2 px-3 small mb-0">
-          <i class="bi bi-exclamation-circle me-1"></i> Tidak dapat mengekstrak otomatis: ${escapeHtml(err.message)}
-        </div>
-      `;
-    }
+    console.error("Gagal mengekstrak otomatis:", err);
   }
 }
 
-// Memasukkan hasil ekstraksi AI ke dalam input form
+// Memasukkan hasil ekstraksi AI ke dalam input form secara langsung
 function applyAIExtractionResult(res) {
   // 1. Isi Mata Kuliah jika terdeteksi
   if (res.course_id) {
     const selectCourse = document.getElementById("selectCourse");
     if (selectCourse) {
       selectCourse.value = res.course_id;
-      const bCourse = document.getElementById("aiBadgeCourse");
-      if (bCourse) bCourse.style.display = "inline-block";
     }
   }
 
@@ -621,8 +590,6 @@ function applyAIExtractionResult(res) {
     const inputTopics = document.getElementById("inputTopics");
     if (inputTopics) {
       inputTopics.value = res.topics;
-      const bTopics = document.getElementById("aiBadgeTopics");
-      if (bTopics) bTopics.style.display = "inline-block";
     }
   }
 
@@ -638,8 +605,6 @@ function applyAIExtractionResult(res) {
     const radioId = goalRadioMap[res.learning_goal];
     if (radioId && document.getElementById(radioId)) {
       document.getElementById(radioId).checked = true;
-      const bGoal = document.getElementById("aiBadgeGoal");
-      if (bGoal) bGoal.style.display = "inline-block";
     }
   }
 
@@ -654,8 +619,6 @@ function applyAIExtractionResult(res) {
     const radioId = styleRadioMap[res.collaboration_style];
     if (radioId && document.getElementById(radioId)) {
       document.getElementById(radioId).checked = true;
-      const bStyle = document.getElementById("aiBadgeStyle");
-      if (bStyle) bStyle.style.display = "inline-block";
     }
   }
 
@@ -669,8 +632,6 @@ function applyAIExtractionResult(res) {
     const radioId = modeRadioMap[res.learning_mode];
     if (radioId && document.getElementById(radioId)) {
       document.getElementById(radioId).checked = true;
-      const bMode = document.getElementById("aiBadgeMode");
-      if (bMode) bMode.style.display = "inline-block";
     }
   }
 
@@ -681,8 +642,6 @@ function applyAIExtractionResult(res) {
   if (res.max_group_size && document.getElementById("maxGroupSize")) {
     document.getElementById("maxGroupSize").value = res.max_group_size;
   }
-  const bGroup = document.getElementById("aiBadgeGroup");
-  if (bGroup) bGroup.style.display = "inline-block";
 
   // 7. Slot Waktu Ketersediaan
   if (res.availabilities && res.availabilities.length > 0) {
@@ -694,8 +653,6 @@ function applyAIExtractionResult(res) {
         const day = slot.day_or_date || slot.day || "Rabu";
         addTimeSlotRow(day, slot.start_time, slot.end_time, slot.priority_rank || (idx + 1));
       });
-      const bSlot = document.getElementById("aiBadgeSlot");
-      if (bSlot) bSlot.style.display = "inline-block";
     }
   }
 
@@ -706,7 +663,7 @@ function applyAIExtractionResult(res) {
   }
 }
 
-// Memuat daftar mata kuliah ke tag <select>
+// Memuat daftar mata kuliah ke tag <select> (Dikelompokkan per Semester)
 async function loadCoursesDropdown() {
   const select = document.getElementById("selectCourse");
   if (!select) return;
@@ -716,49 +673,88 @@ async function loadCoursesDropdown() {
 
   try {
     const courses = await app.request("/courses");
-    select.innerHTML = `<option value="" disabled ${!preselectedCourseId ? 'selected' : ''}>Pilih mata kuliah...</option>` +
-      courses.map(c => `
-        <option value="${c.course_id}" ${preselectedCourseId === c.course_id ? 'selected' : ''}>
-          ${c.course_code} — ${c.course_name}
-        </option>
-      `).join("");
+    
+    // Kelompokkan mata kuliah berdasarkan semester / program studi
+    const groups = {};
+    courses.forEach(c => {
+      const groupKey = c.study_program || "S1 Teknik Komputer";
+      if (!groups[groupKey]) groups[groupKey] = [];
+      groups[groupKey].push(c);
+    });
+
+    let html = `<option value="" disabled ${!preselectedCourseId ? 'selected' : ''}>Pilih mata kuliah...</option>`;
+    for (const [groupName, list] of Object.entries(groups)) {
+      html += `<optgroup label="${escapeHtml(groupName)}">`;
+      list.forEach(c => {
+        html += `
+          <option value="${c.course_id}" ${preselectedCourseId === c.course_id ? 'selected' : ''}>
+            ${c.course_code} — ${c.course_name}
+          </option>
+        `;
+      });
+      html += `</optgroup>`;
+    }
+
+    select.innerHTML = html;
   } catch (err) {
     select.innerHTML = `<option value="" disabled>Gagal memuat katalog mata kuliah</option>`;
   }
 }
 
-// Menambahkan baris slot waktu ketersediaan baru
+// Menambahkan baris slot waktu ketersediaan baru (Desain Lega, Rapi & Tidak Menumpuk)
 function addTimeSlotRow(day = "Rabu", start = "09:00", end = "12:00", priority = 1) {
   slotCounter++;
   const rowId = `slotRow_${slotCounter}`;
   const container = document.getElementById("slotsContainer");
   if (!container) return;
 
+  const daysList = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"];
+  const isCustomDay = day && !daysList.includes(day);
+
   const html = `
     <div class="slot-row-card" id="${rowId}">
-      <div class="row g-2 align-items-center">
-        <div class="col-5">
-          <input type="text" class="form-control-clean p-1 px-2 slot-day" value="${day}" placeholder="Hari/Tanggal" style="font-size:0.8rem;" required>
+      <!-- Header Slot: Label Slot, Prioritas & Tombol Hapus -->
+      <div class="d-flex justify-content-between align-items-center mb-2 pb-2" style="border-bottom: 1px solid #F1F5F9;">
+        <div class="d-flex align-items-center gap-2">
+          <span class="badge" style="background: rgba(124, 58, 237, 0.1); color: #7C3AED; font-weight: 700; font-size: 0.72rem; padding: 4px 8px; border-radius: 6px;">
+            Slot #${slotCounter}
+          </span>
+          <select class="form-select-clean slot-priority" style="width: auto; font-size: 0.76rem; padding: 4px 10px; height: auto; border-radius: 8px; font-weight: 600; color: #475569; background-color: #F8FAFC; border-color: #E2E8F0;">
+            <option value="1" ${priority === 1 ? 'selected' : ''}>P1 (Prioritas Utama)</option>
+            <option value="2" ${priority === 2 ? 'selected' : ''}>P2 (Cadangan)</option>
+            <option value="3" ${priority === 3 ? 'selected' : ''}>P3 (Fleksibel)</option>
+          </select>
         </div>
-        <div class="col-3">
-          <input type="time" class="form-control-clean p-1 px-1 slot-start" value="${start}" style="font-size:0.8rem;" required>
-        </div>
-        <div class="col-3">
-          <input type="time" class="form-control-clean p-1 px-1 slot-end" value="${end}" style="font-size:0.8rem;" required>
-        </div>
-        <div class="col-1 text-end">
-          <button type="button" class="btn btn-sm btn-link text-danger p-0" onclick="removeTimeSlotRow('${rowId}')" title="Hapus Slot">
-            <i class="bi bi-x-circle-fill"></i>
-          </button>
-        </div>
+        <button type="button" class="slot-delete-btn" onclick="removeTimeSlotRow('${rowId}')" title="Hapus Slot">
+          <i class="bi bi-trash3-fill"></i>
+        </button>
       </div>
-      <div class="d-flex justify-content-between align-items-center mt-2 pt-1 border-top" style="border-color: var(--border) !important;">
-        <small class="text-muted" style="font-size:0.72rem;">Tingkat Prioritas:</small>
-        <select class="form-select-clean p-0 px-2 slot-priority" style="width: auto; font-size:0.75rem;">
-          <option value="1" ${priority === 1 ? 'selected' : ''}>P1 (Utama)</option>
-          <option value="2" ${priority === 2 ? 'selected' : ''}>P2 (Cadangan)</option>
-          <option value="3" ${priority === 3 ? 'selected' : ''}>P3 (Fleksibel)</option>
+
+      <!-- Baris 1: Pilihan Hari -->
+      <div class="mb-2">
+        <label class="form-label-clean mb-1" style="font-size: 0.74rem; color: #64748B; font-weight: 600;">
+          <i class="bi bi-calendar3 me-1 text-primary"></i> Hari Belajar
+        </label>
+        <select class="form-select-clean slot-day" style="font-size: 0.88rem; padding: 9px 12px; font-weight: 600; border-radius: 10px; background-color: #F8FAFC;">
+          ${daysList.map(d => `<option value="${d}" ${day === d ? 'selected' : ''}>${d}</option>`).join("")}
+          ${isCustomDay ? `<option value="${escapeHtml(day)}" selected>${escapeHtml(day)}</option>` : ''}
         </select>
+      </div>
+
+      <!-- Baris 2: Jam Mulai & Jam Selesai (2 Kolom Lebar & Lega) -->
+      <div class="row g-2">
+        <div class="col-6">
+          <label class="form-label-clean mb-1" style="font-size: 0.74rem; color: #64748B; font-weight: 600;">
+            <i class="bi bi-clock me-1 text-primary"></i> Jam Mulai
+          </label>
+          <input type="time" class="slot-time-input slot-start" value="${start}" required>
+        </div>
+        <div class="col-6">
+          <label class="form-label-clean mb-1" style="font-size: 0.74rem; color: #64748B; font-weight: 600;">
+            <i class="bi bi-clock-history me-1 text-primary"></i> Jam Selesai
+          </label>
+          <input type="time" class="slot-time-input slot-end" value="${end}" required>
+        </div>
       </div>
     </div>
   `;

@@ -1,0 +1,49 @@
+# ==============================================================
+# LaFriend-Dev .gitignore
+# ==============================================================
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+
+# AI Model Weights, Checkpoints & Large Binaries (>100MB)
+*.bin
+*.pt
+*.pth
+*.safetensors
+*.h5
+*.tflite
+*.onnx
+*.ckpt
+**/checkpoints/**
+**/weights/**
+LaFriend Token Classification/checkpoints/
+LaFriend/backend/app/weights/
+
+# SQLite & Local Databases
+*.db
+*.sqlite
+*.sqlite3
+database/*.db
+backend/*.db
+
+# Environment Secrets
+.env
+.env.*
+!.env.example
+
+# OS & IDE Files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log

@@ -28,20 +28,69 @@ from app.routes import api_router, hash_password
 # Fungsi ini mengisi data awal jika database masih kosong, sehingga kita bisa
 # langsung mencoba aplikasi tanpa perlu input mata kuliah manual satu per satu.
 def seed_data_awal(db):
-    # 1. Cek dan isi katalog mata kuliah standar jika belum ada
-    if db.query(Course).count() == 0:
-        daftar_mk = [
-            Course(course_code="TC2043", course_name="Struktur Data", study_program="S1 Teknik Komputer"),
-            Course(course_code="TC2033", course_name="Basis Data", study_program="S1 Teknik Komputer"),
-            Course(course_code="TC1023", course_name="Algoritma Pemrograman", study_program="S1 Teknik Komputer"),
-            Course(course_code="TC2013", course_name="Matematika Diskrit", study_program="S1 Teknik Komputer"),
-            Course(course_code="TC1013", course_name="Kalkulus", study_program="S1 Teknik Komputer"),
-            Course(course_code="TC3013", course_name="Jaringan Komputer", study_program="S1 Teknik Komputer"),
-            Course(course_code="TC3023", course_name="Sistem Operasi", study_program="S1 Teknik Komputer"),
-        ]
-        db.add_all(daftar_mk)
+    # 1. Katalog lengkap Mata Kuliah S1 Teknik Komputer Telkom University (Semester 1 s/d 8)
+    daftar_mk_kurikulum = [
+        # Semester 1
+        ("DUK1A3", "Kalkulus 1", "S1 Teknik Komputer (Semester 1)"),
+        ("DUK1B3", "Fisika 1", "S1 Teknik Komputer (Semester 1)"),
+        ("DUK1D3", "Kimia", "S1 Teknik Komputer (Semester 1)"),
+        ("ACK1A2", "Pengenalan Teknik Komputer", "S1 Teknik Komputer (Semester 1)"),
+        ("DUK1E2", "Logika Matematika", "S1 Teknik Komputer (Semester 1)"),
+        ("ACK1B3", "Pengantar Rekayasa dan Desain", "S1 Teknik Komputer (Semester 1)"),
+        # Semester 2
+        ("DUK2A3", "Kalkulus 2", "S1 Teknik Komputer (Semester 2)"),
+        ("DUK2B3", "Fisika 2", "S1 Teknik Komputer (Semester 2)"),
+        ("ACK1C3", "Algoritma dan Pemrograman", "S1 Teknik Komputer (Semester 2)"),
+        ("ACK1D3", "Matematika Diskrit", "S1 Teknik Komputer (Semester 2)"),
+        ("ACK1E3", "Jaringan Komputer dan Data", "S1 Teknik Komputer (Semester 2)"),
+        # Semester 3
+        ("ACK2AAB3", "Struktur Data", "S1 Teknik Komputer (Semester 3)"),
+        ("ACK2BAB3", "Keamanan Jaringan", "S1 Teknik Komputer (Semester 3)"),
+        ("AZK2DAB3", "Rangkaian Listrik", "S1 Teknik Komputer (Semester 3)"),
+        ("AZK2CAB3", "Persamaan Diferensial", "S1 Teknik Komputer (Semester 3)"),
+        ("AZK2AAB3", "Probabilitas dan Statistika", "S1 Teknik Komputer (Semester 3)"),
+        ("AZK1KAB3", "Aljabar Linier", "S1 Teknik Komputer (Semester 3)"),
+        # Semester 4
+        ("AZK2HAB3", "Sistem Digital", "S1 Teknik Komputer (Semester 4)"),
+        ("AZK2FAB3", "Elektronika", "S1 Teknik Komputer (Semester 4)"),
+        ("ACK2DAB3", "Komputasi Awan", "S1 Teknik Komputer (Semester 4)"),
+        ("AZK2GAB3", "Pengolahan Sinyal Waktu Kontinu", "S1 Teknik Komputer (Semester 4)"),
+        ("ACK2EAB3", "Analisis dan Desain Sistem", "S1 Teknik Komputer (Semester 4)"),
+        ("ACK2FAB3", "Perancangan Catu Daya", "S1 Teknik Komputer (Semester 4)"),
+        # Semester 5
+        ("ACK3AAB3", "Organisasi dan Arsitektur Komputer", "S1 Teknik Komputer (Semester 5)"),
+        ("ACK3BAB3", "Sistem Mikroprosesor", "S1 Teknik Komputer (Semester 5)"),
+        ("ACK3CAB3", "Basis Data", "S1 Teknik Komputer (Semester 5)"),
+        ("ACK3DAB3", "Sistem Jaringan Lanjut", "S1 Teknik Komputer (Semester 5)"),
+        ("AZK3AAB3", "Pengolahan Sinyal Digital", "S1 Teknik Komputer (Semester 5)"),
+        # Semester 6
+        ("ACK3FAB3", "Sistem Tertanam & IoT", "S1 Teknik Komputer (Semester 6)"),
+        ("ACK3GAB3", "Sistem Operasi & RTOS", "S1 Teknik Komputer (Semester 6)"),
+        ("ACK3HAB3", "Kecerdasan Buatan & Machine Learning", "S1 Teknik Komputer (Semester 6)"),
+        ("ACK3IAB3", "Sistem Kendali dan Robotika", "S1 Teknik Komputer (Semester 6)"),
+        # Semester 7 & 8
+        ("ACK4BAB3", "Manajemen Proyek TI", "S1 Teknik Komputer (Semester 7)"),
+        ("ACK4CAB3", "Keamanan Sistem Komputer", "S1 Teknik Komputer (Semester 7)"),
+        ("ACK4AAB2", "Proposal Tugas Akhir", "S1 Teknik Komputer (Semester 7)"),
+        ("ACK4EAB4", "Tugas Akhir / Skripsi", "S1 Teknik Komputer (Semester 8)"),
+        # Peminatan Khusus
+        ("ACK4P01", "Pembelajaran Mendalam (Deep Learning)", "S1 Teknik Komputer (Peminatan)"),
+        ("ACK4P02", "Komputer Forensik", "S1 Teknik Komputer (Peminatan)"),
+        ("ACK4P03", "DevSecOps", "S1 Teknik Komputer (Peminatan)"),
+        ("ACK4P04", "Perancangan Sistem VLSI", "S1 Teknik Komputer (Peminatan)"),
+        ("ACK4P05", "Teknologi Big Data", "S1 Teknik Komputer (Peminatan)"),
+    ]
+
+    new_courses = []
+    for code, name, major in daftar_mk_kurikulum:
+        existing = db.query(Course).filter(Course.course_name.ilike(name)).first()
+        if not existing:
+            new_courses.append(Course(course_code=code, course_name=name, study_program=major))
+    
+    if new_courses:
+        db.add_all(new_courses)
         db.commit()
-        print(">> [Seeder] 7 Mata kuliah awal berhasil ditambahkan ke database.")
+        print(f">> [Seeder] {len(new_courses)} Mata Kuliah S1 Teknik Komputer berhasil ditambahkan.")
 
     # 2. Cek dan isi akun mahasiswa awal (Andi Pratama)
     andi = db.query(Student).filter(Student.email == "andi@student.telkomuniversity.ac.id").first()

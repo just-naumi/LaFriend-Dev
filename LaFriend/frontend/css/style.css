@@ -736,13 +736,72 @@ body {
   border-radius: var(--radius-pill);
 }
 
-/* Time slot row inside form */
+/* Time slot card inside form (Lega, Bersih, Tidak Menumpuk) */
 .slot-row-card {
-  background: var(--surface);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 10px 12px;
-  margin-bottom: 8px;
+  background: #FFFFFF;
+  border: 1.5px solid #E2E8F0;
+  border-radius: 14px;
+  padding: 14px 14px 12px 14px;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+  transition: all 0.2s ease;
+}
+
+.slot-row-card:hover {
+  border-color: #CBD5E1;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.slot-time-input {
+  width: 100%;
+  padding: 9px 12px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #1E1B4B;
+  background-color: #F8FAFC;
+  border: 1.5px solid #E2E8F0;
+  border-radius: 10px;
+  outline: none;
+  min-height: 42px;
+  transition: all 0.2s ease;
+}
+
+.slot-time-input:focus {
+  background-color: #FFFFFF;
+  border-color: #7C3AED;
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.12);
+}
+
+.slot-time-input::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  padding: 0;
+  margin-left: 4px;
+  opacity: 0.65;
+}
+
+.slot-time-input::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+.slot-delete-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: #FEE2E2;
+  color: #EF4444;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.slot-delete-btn:hover {
+  background: #FCA5A5;
+  color: #B91C1C;
+  transform: scale(1.05);
 }
 /* Onboarding / Splash Screen (Like User Reference Image) */
 .onboarding-screen {

@@ -117,9 +117,6 @@
     <!-- WHITE SHEET CONTENT CONTAINER -->
     <main class="white-sheet-container">
 
-      <!-- Status Notifikasi Hasil Ekstrak AI (jika datang dari search dashboard) -->
-      <div id="aiStatusFeedback" class="mb-3" style="display: none;"></div>
-
       <!-- Alert Notifikasi Hasil Simpan -->
       <div id="formAlert"></div>
 
@@ -130,7 +127,6 @@
         <div class="form-group-clean">
           <label class="form-label-clean" for="selectCourse">
             <i class="bi bi-book-half text-primary me-1"></i> 1. Mata Kuliah
-            <span id="aiBadgeCourse" class="badge-purple ms-1" style="display: none;">Diisi AI</span>
           </label>
           <select id="selectCourse" class="form-select-clean" required>
             <option value="" disabled selected>Memuat katalog mata kuliah...</option>
@@ -141,7 +137,6 @@
         <div class="form-group-clean">
           <label class="form-label-clean" for="inputTopics">
             <i class="bi bi-tag-fill text-primary me-1"></i> 2. Topik yang Ingin Dipelajari
-            <span id="aiBadgeTopics" class="badge-purple ms-1" style="display: none;">Diisi AI</span>
           </label>
           <input 
             type="text" 
@@ -156,7 +151,6 @@
         <div class="form-group-clean">
           <label class="form-label-clean">
             <i class="bi bi-bullseye text-primary me-1"></i> 3. Tujuan Belajar (Learning Goal)
-            <span id="aiBadgeGoal" class="badge-purple ms-1" style="display: none;">Diisi AI</span>
           </label>
           <div class="chip-grid-3">
             <div>
@@ -201,7 +195,6 @@
         <div class="form-group-clean">
           <label class="form-label-clean">
             <i class="bi bi-people-fill text-primary me-1"></i> 4. Gaya Belajar (Collaboration Style)
-            <span id="aiBadgeStyle" class="badge-purple ms-1" style="display: none;">Diisi AI</span>
           </label>
           <div class="chip-grid-2">
             <div>
@@ -239,7 +232,6 @@
         <div class="form-group-clean">
           <label class="form-label-clean">
             <i class="bi bi-geo-alt-fill text-primary me-1"></i> 5. Mode Belajar
-            <span id="aiBadgeMode" class="badge-purple ms-1" style="display: none;">Diisi AI</span>
           </label>
           <div class="chip-grid-3">
             <div>
@@ -273,12 +265,12 @@
           </label>
           <div class="row g-2">
             <div class="col-6">
-              <small class="text-muted d-block mb-1" style="font-size:0.75rem;">Mulai Dari:</small>
-              <input type="date" id="earliestDate" class="form-control-clean p-2" required>
+              <small class="text-muted d-block mb-1" style="font-size:0.74rem; font-weight:600;">Mulai Dari:</small>
+              <input type="date" id="earliestDate" class="form-control-clean" style="font-size:0.84rem; padding: 9px 10px; font-weight:600; border-radius:10px;" required>
             </div>
             <div class="col-6">
-              <small class="text-muted d-block mb-1" style="font-size:0.75rem;">Sampai:</small>
-              <input type="date" id="latestDate" class="form-control-clean p-2" required>
+              <small class="text-muted d-block mb-1" style="font-size:0.74rem; font-weight:600;">Sampai:</small>
+              <input type="date" id="latestDate" class="form-control-clean" style="font-size:0.84rem; padding: 9px 10px; font-weight:600; border-radius:10px;" required>
             </div>
           </div>
         </div>
@@ -288,10 +280,9 @@
           <div class="d-flex justify-content-between align-items-center mb-2">
             <label class="form-label-clean mb-0">
               <i class="bi bi-clock-fill text-primary me-1"></i> 7. Jadwal Ketersediaan Waktu
-              <span id="aiBadgeSlots" class="badge-purple ms-1" style="display: none;">Diisi AI</span>
             </label>
-            <button type="button" class="btn btn-sm btn-link text-primary p-0 fw-bold text-decoration-none" id="btnAddSlot" style="font-size:0.8rem;">
-              + Tambah Slot
+            <button type="button" class="btn btn-sm btn-link text-primary p-0 fw-bold text-decoration-none" id="btnAddSlot" style="font-size:0.82rem;">
+              <i class="bi bi-plus-circle me-1"></i> Tambah Slot
             </button>
           </div>
           
@@ -304,16 +295,15 @@
         <div class="form-group-clean">
           <label class="form-label-clean">
             <i class="bi bi-people text-primary me-1"></i> 8. Ukuran Grup Belajar
-            <span id="aiBadgeGroup" class="badge-purple ms-1" style="display: none;">Diisi AI</span>
           </label>
           <div class="row g-2">
             <div class="col-6">
-              <small class="text-muted d-block mb-1" style="font-size:0.75rem;">Min Anggota:</small>
-              <input type="number" id="minGroupSize" class="form-control-clean p-2" value="2" min="2" max="10" required>
+              <small class="text-muted d-block mb-1" style="font-size:0.74rem; font-weight:600;">Min Anggota:</small>
+              <input type="number" id="minGroupSize" class="form-control-clean" style="font-size:0.88rem; padding: 9px 12px; font-weight:600; border-radius:10px;" value="2" min="2" max="10" required>
             </div>
             <div class="col-6">
-              <small class="text-muted d-block mb-1" style="font-size:0.75rem;">Max Anggota:</small>
-              <input type="number" id="maxGroupSize" class="form-control-clean p-2" value="4" min="2" max="10" required>
+              <small class="text-muted d-block mb-1" style="font-size:0.74rem; font-weight:600;">Max Anggota:</small>
+              <input type="number" id="maxGroupSize" class="form-control-clean" style="font-size:0.88rem; padding: 9px 12px; font-weight:600; border-radius:10px;" value="4" min="2" max="10" required>
             </div>
           </div>
         </div>

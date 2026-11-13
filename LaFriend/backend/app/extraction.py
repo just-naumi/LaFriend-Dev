@@ -68,24 +68,29 @@ def get_gliner_model():
 # ==============================================================================
 
 GOAL_PATTERNS = {
-    "EXAM_PREP": ["uas", "uts", "ujian", "persiapan ujian", "persiapan uas", "persiapan uts", "midterm", "final exam", "kuis", "quiz"],
-    "PRACTICE": ["latihan soal", "latihan koding", "latihan", "ngoding bareng", "praktik", "solve problem", "soal"],
-    "ASSIGNMENT": ["tugas", "tubes", "tugas besar", "praktikum", "laporan", "pr"],
-    "DISCUSSION": ["diskusi", "bedah materi", "sharing materi", "brainstorming", "tanya jawab"],
+    "EXAM_PREP": ["uas", "uts", "ujian", "persiapan ujian", "persiapan uas", "persiapan uts", "midterm", "final exam", "kuis", "quiz", "kuis praktikum", "responsi", "responsi lab", "tes awal", "asessment 1", "asessment 2", "asessment", "remedial"],
+    "PRACTICE": ["latihan soal", "latihan koding", "latihan", "ngoding bareng", "praktik", "solve problem", "soal", "ngoding"],
+    "ASSIGNMENT": ["tugas", "tubes", "tugas besar", "praktikum", "laporan", "pr", "jurnal praktikum", "tugas mingguan", "nyicil tubes"],
+    "DISCUSSION": ["diskusi", "bedah materi", "sharing materi", "brainstorming", "tanya jawab", "bahas tuntas"],
     "UNDERSTAND": ["paham", "pemahaman", "konsep", "belajar dasar", "materi awal", "mengerti", "dasar"]
 }
 
 STYLE_PATTERNS = {
     "PRACTICE": ["praktik", "latihan bersama", "hands on", "ngoding", "live coding"],
-    "DISCUSSION": ["diskusi interaktif", "diskusi", "tanya jawab", "aktif diskusi"],
+    "DISCUSSION": ["diskusi interaktif", "diskusi", "tanya jawab", "aktif diskusi", "bedah materi", "sharing"],
     "TEACHING": ["saling mengajar", "mengajar", "mentor", "peer tutoring", "ajari"],
-    "FOCUS_STUDY": ["belajar tenang", "hening", "fokus", "silent study", "mandiri bareng"]
+    "FOCUS_STUDY": ["belajar tenang", "hening", "fokus", "silent study", "mandiri bareng", "nyicil"]
 }
 
 MODE_PATTERNS = {
     "ONLINE": ["online", "daring", "gmeet", "google meet", "zoom", "discord", "virtual"],
     "HYBRID": ["hybrid", "fleksibel", "bisa online bisa offline", "bebas"],
-    "OFFLINE": ["offline", "tatap muka", "kampus", "perpus", "perpus telkom", "tult", "kelas", "langsung"]
+    "OFFLINE": [
+        "offline", "tatap muka", "kampus", "perpus", "perpus telkom", "open library",
+        "oplib", "mezzanine", "tult", "tult lantai 5", "kelas", "langsung",
+        "selasar fte", "selasar fit", "selasar gd b", "kantin tult", "sukabirus",
+        "sukapura", "kosan", "cafe sukabirus", "discussion room"
+    ]
 }
 
 DAYS_LIST = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
@@ -127,16 +132,99 @@ def match_course_from_database(text_lower: str, db: Session, ai_entities: Option
             
     # 3. Cek kecocokan kata kunci singkatan umum di Telkom University
     keyword_alias = {
-        "strukdat": "Struktur Data",
-        "struktur data": "Struktur Data",
-        "basdat": "Basis Data",
-        "basis data": "Basis Data",
+        # Semester 1
+        "kalkulus 1": "Kalkulus 1",
+        "kalkul 1": "Kalkulus 1",
+        "fisika 1": "Fisika 1",
+        "fisdas 1": "Fisika 1",
+        "kimia": "Kimia",
+        "ptk": "Pengenalan Teknik Komputer",
+        "pengenalan tekkom": "Pengenalan Teknik Komputer",
+        "logmat": "Logika Matematika",
+        "logika matematika": "Logika Matematika",
+        "prd": "Pengantar Rekayasa dan Desain",
+        "rekayasa desain": "Pengantar Rekayasa dan Desain",
+        # Semester 2
+        "kalkulus 2": "Kalkulus 2",
+        "kalkul 2": "Kalkulus 2",
+        "fisika 2": "Fisika 2",
+        "fisdas 2": "Fisika 2",
         "alpro": "Algoritma Pemrograman",
         "algoritma": "Algoritma Pemrograman",
         "matdis": "Matematika Diskrit",
         "diskrit": "Matematika Diskrit",
+        "jarkom data": "Jaringan Komputer dan Data",
+        # Semester 3
+        "strukdat": "Struktur Data",
+        "struktur data": "Struktur Data",
+        "kamjar": "Keamanan Jaringan",
+        "keamanan jaringan": "Keamanan Jaringan",
+        "rl": "Rangkaian Listrik",
+        "rangkaian listrik": "Rangkaian Listrik",
+        "pdl": "Persamaan Diferensial",
+        "pers diff": "Persamaan Diferensial",
+        "persamaan diferensial": "Persamaan Diferensial",
+        "probstat": "Probabilitas dan Statistika",
+        "alin": "Aljabar Linier",
+        "aljabar linier": "Aljabar Linier",
+        # Semester 4
+        "sisdig": "Sistem Digital",
+        "sistem digital": "Sistem Digital",
+        "teknik digital": "Sistem Digital",
+        "elka": "Elektronika",
+        "elektronika": "Elektronika",
+        "cloud": "Komputasi Awan",
+        "komputasi awan": "Komputasi Awan",
+        "sinyal kontinu": "Pengolahan Sinyal Waktu Kontinu",
+        "ads": "Analisis dan Desain Sistem",
+        "catu daya": "Perancangan Catu Daya",
+        "power supply": "Perancangan Catu Daya",
+        # Semester 5
+        "orkom": "Organisasi dan Arsitektur Komputer",
+        "arkom": "Organisasi dan Arsitektur Komputer",
+        "arsitektur komputer": "Organisasi dan Arsitektur Komputer",
+        "sismin": "Sistem Mikroprosesor",
+        "mikroprosesor": "Sistem Mikroprosesor",
+        "mikrokontroler": "Sistem Mikroprosesor",
+        "basdat": "Basis Data",
+        "basis data": "Basis Data",
+        "jarkom lanjut": "Sistem Jaringan Lanjut",
+        "routing": "Sistem Jaringan Lanjut",
         "jarkom": "Jaringan Komputer",
+        "dsp": "Pengolahan Sinyal Digital",
+        "sinyal digital": "Pengolahan Sinyal Digital",
+        # Semester 6
+        "sisbed": "Sistem Tertanam",
+        "embedded": "Sistem Tertanam",
+        "sistem tertanam": "Sistem Tertanam",
+        "iot": "Sistem Tertanam & IoT",
         "sisop": "Sistem Operasi",
+        "sistem operasi": "Sistem Operasi",
+        "rtos": "Sistem Operasi & RTOS",
+        "ai": "Kecerdasan Buatan",
+        "machine learning": "Kecerdasan Buatan & Machine Learning",
+        "ml": "Kecerdasan Buatan & Machine Learning",
+        "kecerdasan buatan": "Kecerdasan Buatan & Machine Learning",
+        "robotika": "Sistem Kendali dan Robotika",
+        "sistem kendali": "Sistem Kendali dan Robotika",
+        # Semester 7 & 8
+        "manpro": "Manajemen Proyek TI",
+        "manajemen proyek": "Manajemen Proyek TI",
+        "kamsis": "Keamanan Sistem Komputer",
+        "proposal ta": "Proposal Tugas Akhir",
+        "pra-ta": "Proposal Tugas Akhir",
+        "ta": "Tugas Akhir / Skripsi",
+        "skripsi": "Tugas Akhir / Skripsi",
+        "tugas akhir": "Tugas Akhir / Skripsi",
+        # Peminatan
+        "deep learning": "Pembelajaran Mendalam (Deep Learning)",
+        "dl": "Pembelajaran Mendalam (Deep Learning)",
+        "komputer forensik": "Komputer Forensik",
+        "forensik": "Komputer Forensik",
+        "devsecops": "DevSecOps",
+        "vlsi": "Perancangan Sistem VLSI",
+        "fpga": "Perancangan Sistem VLSI",
+        "big data": "Teknologi Big Data",
         "kalkulus": "Kalkulus"
     }
     for alias, full_name in keyword_alias.items():
