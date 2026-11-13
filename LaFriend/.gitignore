@@ -15,6 +15,7 @@ database/*.db
 database/*.sqlite
 database/*.sqlite3
 backend/*.db
+backend/app/weights/
 
 # VS Code
 .vscode/
