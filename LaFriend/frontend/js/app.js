@@ -339,7 +339,7 @@ async function initDashboardPage() {
 
     // Step 1: Pesan Belajar Diterima
     setStepState(1, "active");
-    await delay(600);
+    await delay(750);
 
     // Jalankan request ekstraksi AI ke backend secara paralel di background
     let extractPromise = app.request("/study-intents/extract-ai", {
@@ -353,12 +353,12 @@ async function initDashboardPage() {
     // Step 2: Ekstraksi Span NLP (GLiNER)
     setStepState(1, "completed");
     setStepState(2, "active");
-    await delay(700);
+    await delay(800);
 
     // Step 3: Validasi Kurikulum Telkom University
     setStepState(2, "completed");
     setStepState(3, "active");
-    await delay(700);
+    await delay(850);
 
     // Tunggu hasil ekstraksi dari backend jika belum selesai
     const extractionResult = await extractPromise;
@@ -366,12 +366,14 @@ async function initDashboardPage() {
     // Step 4: Normalisasi Waktu & Lokasi
     setStepState(3, "completed");
     setStepState(4, "active");
-    await delay(650);
+    await delay(750);
 
     // Step 5: Formulir Siap Digunakan
     setStepState(4, "completed");
+    setStepState(5, "active");
+    await delay(700);
     setStepState(5, "completed");
-    await delay(500);
+    await delay(600);
 
     // Simpan hasil ekstraksi ke sessionStorage agar form create-intent langsung terisi instan
     if (extractionResult) {
@@ -714,7 +716,7 @@ async function extractWithTimelineAnimation(rawText) {
 
     // Step 1: Pesan Belajar Diterima
     setStepState(1, "active");
-    await delay(350);
+    await delay(750);
 
     // Jalankan request ke backend AI secara paralel di background
     let extractPromise = app.request("/study-intents/extract-ai", {
@@ -728,12 +730,12 @@ async function extractWithTimelineAnimation(rawText) {
     // Step 2: Ekstraksi Span NLP (GLiNER)
     setStepState(1, "completed");
     setStepState(2, "active");
-    await delay(450);
+    await delay(800);
 
     // Step 3: Validasi Kurikulum Tel-U
     setStepState(2, "completed");
     setStepState(3, "active");
-    await delay(450);
+    await delay(850);
 
     // Tunggu hasil ekstraksi dari backend jika belum selesai
     const res = await extractPromise;
@@ -741,12 +743,14 @@ async function extractWithTimelineAnimation(rawText) {
     // Step 4: Normalisasi Waktu & Lokasi
     setStepState(3, "completed");
     setStepState(4, "active");
-    await delay(400);
+    await delay(750);
 
     // Step 5: Formulir Siap Digunakan
     setStepState(4, "completed");
+    setStepState(5, "active");
+    await delay(700);
     setStepState(5, "completed");
-    await delay(400);
+    await delay(600);
 
     // Terapkan hasil ekstraksi ke formulir
     if (res) {
