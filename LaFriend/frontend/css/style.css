@@ -1082,23 +1082,23 @@ body {
 }
 
 /* ==============================================================
-   AI EXTRACTION SUMMARY CARD (CLEAN, ENAK DIBACA, USER-CENTRIC)
+   AI EXTRACTION SUMMARY (FLAT LANGSUNG DI BACKGROUND, TANPA KARTU)
    ============================================================== */
 .ai-review-card {
-  background: #FFFFFF;
-  border: 1px solid #E2E8F0;
-  border-radius: 20px;
-  padding: 18px 16px;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 0 2px !important;
   margin-bottom: 22px;
-  box-shadow: 0 4px 18px -4px rgba(124, 58, 237, 0.08);
+  box-shadow: none !important;
 }
 
 .ai-review-header {
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .ai-review-title {
-  font-size: 0.98rem;
+  font-size: 1rem;
   font-weight: 800;
   color: #0F172A;
   display: flex;
@@ -1109,7 +1109,7 @@ body {
 .ai-review-sub {
   font-size: 0.78rem;
   color: #64748B;
-  line-height: 1.4;
+  line-height: 1.45;
   margin-top: 4px;
   margin-bottom: 12px;
 }
@@ -1124,8 +1124,8 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 4px;
-  border-bottom: 1px solid #F1F5F9;
+  padding: 8px 0;
+  border-bottom: 1px solid #E2E8F0;
 }
 
 .ai-status-row:last-child {
@@ -1249,14 +1249,24 @@ body {
   100% { transform: scale(1); box-shadow: 0 0 0 5px rgba(239, 68, 68, 0.3); }
 }
 
-/* Area Putih / White Sheet Kontainer */
+/* Area Putih / White Sheet Kontainer (Scrollable) */
 .white-sheet-container {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
   padding: 0;
   position: relative;
   background-color: #FFFFFF;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.white-sheet-container::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 

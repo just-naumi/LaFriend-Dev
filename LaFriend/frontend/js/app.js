@@ -266,10 +266,22 @@ async function initDashboardPage() {
 
   // ==============================================================
   // SPEECH RECOGNITION (VOICE INPUT BAHASA INDONESIA PADA SEARCH BAR)
+  // Jeda hening lebih panjang (4 detik) agar tidak cepat berhenti
   // ==============================================================
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   let recognition = null;
   let isListening = false;
+  let silenceTimer = null;
+  const SILENCE_TIMEOUT_MS = 4000; // 4 detik jeda hening sebelum otomatis berhenti
+
+  function resetSilenceTimer() {
+    if (silenceTimer) clearTimeout(silenceTimer);
+    silenceTimer = setTimeout(() => {
+      if (isListening) {
+        stopVoiceRecognition();
+      }
+    }, SILENCE_TIMEOUT_MS);
+  }
 
   function toggleVoiceRecognition() {
     if (isListening) {
@@ -290,42 +302,50 @@ async function initDashboardPage() {
       recognition = new SpeechRecognition();
       recognition.lang = "id-ID";
       recognition.interimResults = true;
-      recognition.continuous = false;
+      recognition.continuous = true; // Mengizinkan bicara bersambung dengan jeda hening panjang
 
       recognition.onstart = () => {
         isListening = true;
         if (btnHeaderVoice) btnHeaderVoice.classList.add("listening");
         if (aiNeedInput) {
-          aiNeedInput.placeholder = "Mendengarkan suara... Silakan berbicara...";
+          aiNeedInput.placeholder = "Mendengarkan... Silakan berbicara...";
         }
+        resetSilenceTimer();
       };
 
       recognition.onresult = (e) => {
-        let interim = "";
-        let final = "";
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          if (e.results[i].isFinal) {
-            final += e.results[i][0].transcript;
-          } else {
-            interim += e.results[i][0].transcript;
-          }
+        let fullTranscript = "";
+        for (let i = 0; i < e.results.length; i++) {
+          fullTranscript += e.results[i][0].transcript + " ";
         }
-        const transcript = (final || interim).trim();
-        if (transcript && aiNeedInput) {
-          aiNeedInput.value = transcript;
+        const cleanTranscript = fullTranscript.trim();
+        if (cleanTranscript && aiNeedInput) {
+          aiNeedInput.value = cleanTranscript;
         }
+        resetSilenceTimer();
       };
 
       recognition.onerror = (e) => {
         console.warn("Speech error:", e.error);
-        stopVoiceRecognition();
         if (e.error === "not-allowed") {
-          alert("Izin mikrofon belum aktif. Silakan izinkan akses mikrofon di pengaturan browser.");
+          alert("Izin mikrofon belum aktif. Silakan izinkan akses mikrofon di browser.");
+          stopVoiceRecognition();
+        } else if (e.error === "no-speech") {
+          // Abaikan kesalahan no-speech sesaat agar tidak langsung tertutup sebelum timeout
         }
       };
 
       recognition.onend = () => {
-        stopVoiceRecognition();
+        // Jika recognition tertutup prematur padahal pengguna masih dalam mode rekam, pertahankan
+        if (isListening) {
+          try {
+            recognition.start();
+          } catch (e) {
+            stopVoiceRecognition();
+          }
+        } else {
+          stopVoiceRecognition();
+        }
       };
 
       recognition.start();
@@ -337,6 +357,10 @@ async function initDashboardPage() {
 
   function stopVoiceRecognition() {
     isListening = false;
+    if (silenceTimer) {
+      clearTimeout(silenceTimer);
+      silenceTimer = null;
+    }
     if (btnHeaderVoice) btnHeaderVoice.classList.remove("listening");
     if (aiNeedInput) {
       aiNeedInput.placeholder = "Ceritakan kebutuhan belajarmu ke AI...";
