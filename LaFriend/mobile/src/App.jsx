@@ -4,7 +4,7 @@ import { api, hasToken, setToken } from "./api.js";
 import { Auth, Onboarding, Splash } from "./Auth.jsx";
 import { Group, Results } from "./Group.jsx";
 import Request, { Speech } from "./Request.jsx";
-import { Button, Confetti, Icon, Logo, Page, Sheet, fmtSlot, spring } from "./ui.jsx";
+import { Button, Confetti, Doodle, Icon, Logo, Page, Sheet, fmtSlot } from "./ui.jsx";
 
 const read = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
 const write = (k, v) => { try { localStorage.setItem(k, v); } catch { /* tidak wajib */ } };
@@ -150,15 +150,19 @@ function Home({ st, act, go }) {
   const start = (course, topic) => act(() => api("/api/assistant", { text: `${course}, ${topic}` })).then(ok => ok && go("belajar"));
   return (
     <Page>
-      <div className="tiles">
-        <motion.button type="button" className="tile tall" onClick={() => go(to)} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
-          <span className="next-label">Langkah berikutnya</span>
-          <span><strong>{title}</strong><small>{sub}</small></span>
-          <span className="cta">{cta}</span>
-          <span className="go" aria-hidden="true"><Icon name="arrow" size={18} /></span>
-        </motion.button>
-        <div className="tile butter stat"><span className="stat-n">{st.intent ? recs.length : "–"}</span><small>{st.intent ? `teman cocok untuk ${st.intent.course}` : "belum ada permintaan belajar"}</small></div>
-        <div className="tile dark stat"><span className="stat-n">{upcoming.length}</span><small>sesi terjadwal</small></div>
+      {/* pola sama di semua tab: ilustrasi berwarna (+ angka), panel gelap berisi aksi, lalu daftar baris */}
+      <div className="art butter has-stats">
+        <Doodle name="calendar" />
+        <div className="art-stats">
+          <p><strong>{st.intent ? recs.length : "–"}</strong>teman cocok</p>
+          <p><strong>{upcoming.length}</strong>sesi terjadwal</p>
+        </div>
+      </div>
+      <div className="panel">
+        <p className="eyebrow">Langkah berikutnya</p>
+        <h1 className="display sm">{title}</h1>
+        <p className="lead">{sub}</p>
+        <Button onClick={() => go(to)}>{cta}</Button>
       </div>
 
       {recs.length > 0 && <>

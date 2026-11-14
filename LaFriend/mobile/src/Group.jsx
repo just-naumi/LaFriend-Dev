@@ -115,7 +115,7 @@ export function Results({ st, act, testMode }) {
   return (
     <Page>
       {/* pola referensi: bagian atas berwarna dengan ilustrasi dan dua angka, daftar di panel gelap */}
-      <div className="art coral">
+      <div className="art coral has-stats">
         <Doodle name="chart" />
         <div className="art-stats">
           <p><strong>{done}</strong>sesi selesai</p>
@@ -141,11 +141,14 @@ export function Results({ st, act, testMode }) {
           const none = !m[k].denominator;
           const pct = none ? 0 : k === "mss" ? (m[k].value / 5) * 100 : m[k].value;
           return (
-            <li key={k} className={`c${n}`}>
-              <strong>{none ? "–" : `${String(m[k].value).replace(".", ",")}${unit}`}</strong>
-              <span>{name}</span>
-              <small>{none ? "belum ada data" : k === "mss" ? `${m[k].denominator} jawaban` : `${m[k].numerator} dari ${m[k].denominator}`}</small>
-              <span className="meter"><motion.i style={{ width: `${pct}%` }} initial={{ scaleX: 0 }} animate={{ scaleX: 1 }} transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }} /></span>
+            <li key={k}>
+              {/* baris daftar seperti anggota kelompok: lencana angka berwarna di kiri */}
+              <strong className={`metric-n c${n}`}>{none ? "–" : `${String(m[k].value).replace(".", ",")}${unit}`}</strong>
+              <span className="grow">
+                <span className="metric-name">{name}</span>
+                <small>{none ? "belum ada data" : k === "mss" ? `${m[k].denominator} jawaban` : `${m[k].numerator} dari ${m[k].denominator}`}</small>
+                <span className={`meter c${n}`}><motion.i style={{ width: `${pct}%` }} initial={{ scaleX: 0 }} animate={{ scaleX: 1 }} transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }} /></span>
+              </span>
             </li>
           );
         })}
