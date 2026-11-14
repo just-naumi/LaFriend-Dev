@@ -40,6 +40,8 @@ def parse_time_minutes(time_str: str) -> int:
     if not match:
         raise ValueError(f"Format waktu '{time_str}' tidak valid, gunakan format HH:MM")
     h, m = int(match.group(1)), int(match.group(2))
+    if not (0 <= h <= 23 and 0 <= m <= 59):
+        raise ValueError(f"Waktu '{time_str}' di luar rentang kalender valid (jam 00-23, menit 00-59)")
     return h * 60 + m
 
 
@@ -164,11 +166,11 @@ def find_common_schedule(windows_a: List[Dict[str, Any]], windows_b: List[Dict[s
     Membandingkan dua daftar jendela ketersediaan dan mencari slot irisan dengan durasi >= min_duration menit.
     Aturan Day 14:
     - Jadwal dibandingkan strictly per tanggal kalender yang sama.
-    - Irisan minimal harus >= 60 menit.
-    - Slot identik pada tanggal dan jam yang sama di-deduplikasi otomatis.
+    - Irisan minimal harus >= 60 menit (aturan produk non-negotiable floor: max(60, min_duration)).
+    - Jika terdapat beberapa kombinasi slot pada tanggal & jam yang sama, pertahankan prioritas terbaik (nilai numerik terkecil).
     """
-    common_slots: List[Dict[str, Any]] = []
-    seen_slots = set()
+    effective_min_duration = max(60, int(min_duration))
+    slots_by_key: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
 
     for wa in windows_a:
         for wb in windows_b:
@@ -181,37 +183,46 @@ def find_common_schedule(windows_a: List[Dict[str, Any]], windows_b: List[Dict[s
                 wb["start_time"], wb["end_time"]
             )
 
-            if duration >= min_duration and overlap_start and overlap_end:
+            if duration >= effective_min_duration and overlap_start and overlap_end:
                 slot_key = (wa["date"], overlap_start, overlap_end)
-                if slot_key not in seen_slots:
-                    seen_slots.add(slot_key)
-                    common_slots.append({
+                prio_a = wa.get("priority", 1) or 1
+                prio_b = wb.get("priority", 1) or 1
+
+                if slot_key not in slots_by_key:
+                    slots_by_key[slot_key] = {
                         "date": wa["date"],
                         "start_time": overlap_start,
                         "end_time": overlap_end,
                         "duration_minutes": duration,
-                        "priority_a": wa.get("priority", 1),
-                        "priority_b": wb.get("priority", 1)
-                    })
+                        "priority_a": prio_a,
+                        "priority_b": prio_b
+                    }
+                else:
+                    # Pertahankan prioritas terbaik (peringkat angka lebih kecil = prioritas lebih tinggi)
+                    slots_by_key[slot_key]["priority_a"] = min(slots_by_key[slot_key]["priority_a"], prio_a)
+                    slots_by_key[slot_key]["priority_b"] = min(slots_by_key[slot_key]["priority_b"], prio_b)
 
-    return common_slots
+    return list(slots_by_key.values())
 
 
 # ==============================================================================
 # 4. KOMPATIBILITAS MODE BELAJAR (is_learning_mode_compatible)
 # ==============================================================================
+VALID_LEARNING_MODES = {"ONLINE", "OFFLINE", "HYBRID"}
+
 def is_learning_mode_compatible(mode1: str, mode2: str) -> Tuple[bool, Optional[str]]:
     """
     Memeriksa kompatibilitas mode belajar:
+    - Whitelist ketat: ONLINE, OFFLINE, HYBRID. Mode di luar whitelist ditolak.
     - ONLINE + ONLINE -> (True, 'ONLINE')
     - OFFLINE + OFFLINE -> (True, 'OFFLINE')
-    - HYBRID + apa pun -> (True, mode spesifik / 'HYBRID')
+    - HYBRID + apa pun yang valid -> (True, mode spesifik / 'HYBRID')
     - ONLINE + OFFLINE -> (False, None)
     """
     m1 = (mode1 or "").strip().upper()
     m2 = (mode2 or "").strip().upper()
 
-    if not m1 or not m2:
+    if m1 not in VALID_LEARNING_MODES or m2 not in VALID_LEARNING_MODES:
         return False, None
 
     if m1 == m2:
@@ -231,13 +242,23 @@ def is_learning_mode_compatible(mode1: str, mode2: str) -> Tuple[bool, Optional[
 # ==============================================================================
 def is_group_capacity_compatible(min1: int, max1: int, min2: int, max2: int) -> bool:
     """
-    Memeriksa apakah rentang kapasitas kelompok kedua intent beririsan dan dalam batas wajar [2..10].
+    Memeriksa apakah rentang kapasitas kelompok kedua intent valid [2..10] dan saling beririsan.
     Rumus: max(min1, min2) <= min(max1, max2)
     """
-    effective_min = max(int(min1), int(min2))
-    effective_max = min(int(max1), int(max2))
-    if effective_min < 2 or effective_max > 10:
+    try:
+        n_min1, n_max1 = int(min1), int(max1)
+        n_min2, n_max2 = int(min2), int(max2)
+    except (ValueError, TypeError):
         return False
+
+    # Validasi integritas masing-masing rentang kapasitas
+    if not (2 <= n_min1 <= n_max1 <= 10):
+        return False
+    if not (2 <= n_min2 <= n_max2 <= 10):
+        return False
+
+    effective_min = max(n_min1, n_min2)
+    effective_max = min(n_max1, n_max2)
     return effective_min <= effective_max
 
 
@@ -352,7 +373,8 @@ def filter_candidate_sessions(
             if getattr(s, "session_date", None) and getattr(s, "start_time", None) and getattr(s, "end_time", None)
         ]
 
-        common_schedule = find_common_schedule(intent_windows, session_windows, min_duration=min_duration)
+        effective_min_duration = max(60, int(min_duration))
+        common_schedule = find_common_schedule(intent_windows, session_windows, min_duration=effective_min_duration)
         if not common_schedule:
             continue
 
@@ -378,6 +400,7 @@ def filter_candidate_partners(
     5. Mode belajar kompatibel
     6. Rentang kapasitas kelompok beririsan
     7. Memiliki irisan ketersediaan waktu bersama >= min_duration menit
+    8. Deduplikasi per mahasiswa (1 mahasiswa hanya muncul 1 kali)
 
     Mengembalikan daftar pasangan: [(StudyIntent, common_slots), ...]
     """
@@ -388,7 +411,9 @@ def filter_candidate_partners(
     if not intent_windows:
         return []
 
+    effective_min_duration = max(60, int(min_duration))
     qualified_partners: List[Tuple[StudyIntent, List[Dict[str, Any]]]] = []
+    seen_student_ids = set()
 
     for candidate in candidate_intents:
         # Constraint 1: Status intent kandidat harus ACTIVE
@@ -397,6 +422,10 @@ def filter_candidate_partners(
 
         # Constraint 2: Tidak boleh merekomendasikan diri sendiri (bahkan dengan intent_id berbeda)
         if candidate.student_id == intent.student_id:
+            continue
+
+        # Constraint 2b: Deduplikasi mahasiswa (1 mahasiswa hanya direkomendasikan satu kali)
+        if candidate.student_id in seen_student_ids:
             continue
 
         # Constraint 3: Profil mahasiswa kandidat harus valid
@@ -432,10 +461,11 @@ def filter_candidate_partners(
         if not candidate_windows:
             continue
 
-        common_schedule = find_common_schedule(intent_windows, candidate_windows, min_duration=min_duration)
+        common_schedule = find_common_schedule(intent_windows, candidate_windows, min_duration=effective_min_duration)
         if not common_schedule:
             continue
 
+        seen_student_ids.add(candidate.student_id)
         qualified_partners.append((candidate, common_schedule))
 
     return qualified_partners

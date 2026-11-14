@@ -31,12 +31,15 @@ from datetime import datetime
 backend_dir = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(backend_dir))
 
+from pydantic import ValidationError
 from app.database import engine, Base, SessionLocal
+from app.schemas import AvailabilityCreate
 from app.models import (
     Student, Course, StudyIntent, IntentAvailability,
     StudySession, SessionSlot, SessionMember
 )
 from app.matching import (
+    parse_time_minutes,
     resolve_availability_windows,
     calculate_overlap_minutes,
     find_common_schedule,
@@ -528,6 +531,85 @@ def run_tests():
     )
     intent_andi.max_group_size = 4
     report("Partner Filter: Tolak kandidat dengan irisan hanya 59 menit", len(filter_candidate_partners(intent_andi, [cand_59min])) == 0)
+
+    # ---------------------------------------------------------
+    # SUITE 7: Edge Case Hardening (Audit Temuan 1–7)
+    # ---------------------------------------------------------
+    print("\n--- SUITE 7: Edge Case Hardening (Temuan Audit) ---")
+
+    # 7.1 parse_time_minutes validasi jam 00-23 dan menit 00-59
+    report("parse_time: Jam valid 09:30 dikonversi ke 570", parse_time_minutes("09:30") == 570)
+    report("parse_time: Jam valid 23:59 dikonversi ke 1439", parse_time_minutes("23:59") == 1439)
+    for bad_t in ["24:00", "25:00", "12:60", "12:75", "99:99", "-01:00", "abc"]:
+        try:
+            parse_time_minutes(bad_t)
+            report(f"parse_time: Tolak jam/menit di luar batas ({bad_t})", False, "Should raise ValueError")
+        except ValueError:
+            report(f"parse_time: Tolak jam/menit di luar batas ({bad_t})", True)
+
+    # 7.2 is_group_capacity_compatible validasi seluruh rentang
+    report("Kapasitas: Tolak rentang asal yang melanggar batas (2, 99, 2, 4)", is_group_capacity_compatible(2, 99, 2, 4) is False)
+    report("Kapasitas: Tolak min < 2 (1, 4, 2, 4)", is_group_capacity_compatible(1, 4, 2, 4) is False)
+    report("Kapasitas: Tolak min > max (5, 3, 2, 4)", is_group_capacity_compatible(5, 3, 2, 4) is False)
+    report("Kapasitas: Terima rentang valid [2..4] dan [3..5]", is_group_capacity_compatible(2, 4, 3, 5) is True)
+
+    # 7.3 Whitelist learning mode ketat (ONLINE, OFFLINE, HYBRID)
+    report("Mode: Tolak mode tidak dikenal REMOTE + REMOTE", is_learning_mode_compatible("REMOTE", "REMOTE")[0] is False)
+    report("Mode: Tolak mode tidak dikenal HYBRID + REMOTE", is_learning_mode_compatible("HYBRID", "REMOTE")[0] is False)
+    report("Mode: Terima HYBRID + ONLINE", is_learning_mode_compatible("HYBRID", "ONLINE")[0] is True)
+
+    # 7.4 Tolak priority_rank di luar 1, 2, 3 di schemas.py
+    try:
+        AvailabilityCreate(day_or_date="Senin", start_time="09:00", end_time="11:00", priority_rank=4)
+        report("Schema: Tolak priority_rank=4", False, "Should raise ValidationError")
+    except ValidationError:
+        report("Schema: Tolak priority_rank=4", True)
+
+    try:
+        AvailabilityCreate(day_or_date="Senin", start_time="09:00", end_time="11:00", priority_rank=0)
+        report("Schema: Tolak priority_rank=0", False, "Should raise ValidationError")
+    except ValidationError:
+        report("Schema: Tolak priority_rank=0", True)
+
+    # 7.5 Deduplikasi kandidat partner (1 mahasiswa hanya muncul 1 kali)
+    cand_budi_intent1 = FullDummyCandidateIntent(
+        iid="int_budi_1",
+        student=std_budi,
+        cid="TC1013",
+        mode="OFFLINE",
+        earliest="2026-11-20",
+        latest="2026-11-25",
+        slots=[DummySlot("Rabu", "10:00", "12:00")]
+    )
+    cand_budi_intent2 = FullDummyCandidateIntent(
+        iid="int_budi_2",
+        student=std_budi,
+        cid="TC1013",
+        mode="OFFLINE",
+        earliest="2026-11-20",
+        latest="2026-11-25",
+        slots=[DummySlot("Rabu", "10:00", "12:00")]
+    )
+    res_dedup_partners = filter_candidate_partners(intent_andi, [cand_budi_intent1, cand_budi_intent2])
+    report("Partner: 1 mahasiswa dengan 2 intent hanya muncul 1 kali", len(res_dedup_partners) == 1)
+
+    # 7.6 Pertahankan prioritas terbaik saat deduplikasi slot
+    w_prio1 = [{"date": "2026-11-20", "start_time": "10:00", "end_time": "12:00", "priority": 3}]
+    w_prio2 = [{"date": "2026-11-20", "start_time": "10:00", "end_time": "12:00", "priority": 2}]
+    w_prio3 = [{"date": "2026-11-20", "start_time": "10:00", "end_time": "12:00", "priority": 1}]
+    # Gabung: iterasi kombinasi pertama menghasilkan (3, 2), kombinasi kedua menghasilkan (1, 1)
+    common_prio = find_common_schedule(w_prio1 + w_prio3, w_prio2 + w_prio3, min_duration=60)
+    report(
+        "Jadwal: Pertahankan prioritas terbaik (prio 1) saat deduplikasi slot",
+        len(common_prio) == 1 and common_prio[0]["priority_a"] == 1 and common_prio[0]["priority_b"] == 1,
+        f"Result: {common_prio}"
+    )
+
+    # 7.7 Perlindungan floor minimal 60 menit (pemanggil tidak bisa menurunkan di bawah 60)
+    w_45a = [{"date": "2026-11-20", "start_time": "10:00", "end_time": "10:45"}]
+    w_45b = [{"date": "2026-11-20", "start_time": "10:00", "end_time": "11:00"}]
+    common_floor = find_common_schedule(w_45a, w_45b, min_duration=30)  # Coba request 30 menit
+    report("Jadwal: Floor 60 menit melindungi pemanggilan dengan min_duration=30", len(common_floor) == 0)
 
     # ---------------------------------------------------------
     # SUMMARY

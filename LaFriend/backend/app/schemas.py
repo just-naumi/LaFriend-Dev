@@ -121,7 +121,7 @@ class AvailabilityCreate(BaseModel):
     @classmethod
     def validate_priority_rank(cls, value: int) -> int:
         if value not in (1, 2, 3):
-            return 1
+            raise ValueError(f"priority_rank '{value}' tidak valid. Pilihan prioritas: 1 (Utama), 2 (Cadangan), 3 (Fleksibel)")
         return value
 
     # Validasi relasi: jam selesai harus lebih besar daripada jam mulai
