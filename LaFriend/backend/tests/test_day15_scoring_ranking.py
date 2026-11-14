@@ -37,6 +37,16 @@ from app.scoring import (
     MODE_COMPATIBILITY,
     normalize_learning_mode,
     calculate_mode_compatibility,
+    # Tahap 15.4
+    WEIGHT_TOPIC,
+    WEIGHT_GOAL,
+    WEIGHT_STYLE,
+    WEIGHT_DATE,
+    WEIGHT_MODE,
+    SCORING_WEIGHTS,
+    validate_component_score,
+    calculate_compatibility_score,
+    calculate_compatibility_breakdown,
 )
 
 passed_count = 0
@@ -632,9 +642,138 @@ def test_learning_mode_compatibility():
         report("Mode Function: Tolak mode invalid pada fungsi", True)
 
 
+def test_weighted_compatibility_score():
+    """Menguji formula pembobotan Compatibility Score CS = 100 * (0.30T + 0.25G + 0.15S + 0.15D + 0.15M) (Tahap 15.4)."""
+    print("\n--- SUITE 13: Weighted Compatibility Score Calculation & Bounds ---")
+
+    # 13.1 Verifikasi konstanta bobot resmi
+    report("Weights: Bobot Topic == 0.30", math.isclose(WEIGHT_TOPIC, 0.30))
+    report("Weights: Bobot Goal == 0.25", math.isclose(WEIGHT_GOAL, 0.25))
+    report("Weights: Bobot Style == 0.15", math.isclose(WEIGHT_STYLE, 0.15))
+    report("Weights: Bobot Date == 0.15", math.isclose(WEIGHT_DATE, 0.15))
+    report("Weights: Bobot Mode == 0.15", math.isclose(WEIGHT_MODE, 0.15))
+    total_weights = WEIGHT_TOPIC + WEIGHT_GOAL + WEIGHT_STYLE + WEIGHT_DATE + WEIGHT_MODE
+    report("Weights: Total bobot tepat 1.00 (100%)", math.isclose(total_weights, 1.00))
+
+    # 13.2 Batas ekstrim: skor minimum (0.0) dan skor maksimum (100.0)
+    score_max = calculate_compatibility_score(1.0, 1.0, 1.0, 1.0, 1.0)
+    report("CS Calculation: Seluruh komponen 1.0 -> Skor tepat 100.00", math.isclose(score_max, 100.0))
+
+    score_min = calculate_compatibility_score(0.0, 0.0, 0.0, 0.0, 0.0)
+    report("CS Calculation: Seluruh komponen 0.0 -> Skor tepat 0.00", math.isclose(score_min, 0.0))
+
+    # 13.3 Contoh perhitungan benchmark (Sesuai Audit Reviewer)
+    # T=1.0 (30.0), G=0.9 (22.5), S=0.8 (12.0), D=0.8 (12.0), M=1.0 (15.0) -> Total = 91.50
+    score_bench1 = calculate_compatibility_score(1.0, 0.9, 0.8, 0.8, 1.0)
+    report("CS Benchmark 1: (1.0, 0.9, 0.8, 0.8, 1.0) -> Tepat 91.50", math.isclose(score_bench1, 91.50))
+
+    # T=0.90 (27.0), G=1.00 (25.0), S=0.85 (12.75), D=0.80 (12.0), M=1.00 (15.0) -> Total = 91.75
+    score_bench2 = calculate_compatibility_score(0.90, 1.00, 0.85, 0.80, 1.00)
+    report("CS Benchmark 2: (0.90, 1.00, 0.85, 0.80, 1.00) -> Tepat 91.75", math.isclose(score_bench2, 91.75))
+
+    # Seluruh komponen seimbang 0.50 -> Total = 50.00
+    score_half = calculate_compatibility_score(0.5, 0.5, 0.5, 0.5, 0.5)
+    report("CS Benchmark 3: Seluruh komponen 0.5 -> Tepat 50.00", math.isclose(score_half, 50.00))
+
+    # 13.4 Validasi ketat input: Tolak komponen di luar rentang [0.0, 1.0]
+    out_of_bounds_cases = [
+        ("topic < 0.0", (-0.1, 1.0, 1.0, 1.0, 1.0)),
+        ("topic > 1.0", (1.1, 1.0, 1.0, 1.0, 1.0)),
+        ("goal < 0.0", (1.0, -0.1, 1.0, 1.0, 1.0)),
+        ("goal > 1.0", (1.0, 1.1, 1.0, 1.0, 1.0)),
+        ("style < 0.0", (1.0, 1.0, -0.1, 1.0, 1.0)),
+        ("style > 1.0", (1.0, 1.0, 1.1, 1.0, 1.0)),
+        ("date < 0.0", (1.0, 1.0, 1.0, -0.1, 1.0)),
+        ("date > 1.0", (1.0, 1.0, 1.0, 1.1, 1.0)),
+        ("mode < 0.0", (1.0, 1.0, 1.0, 1.0, -0.1)),
+        ("mode > 1.0", (1.0, 1.0, 1.0, 1.0, 1.1)),
+    ]
+    for desc, args in out_of_bounds_cases:
+        try:
+            calculate_compatibility_score(*args)
+            report(f"CS Validation: Tolak {desc}", False, "Harusnya melempar ValueError")
+        except ValueError:
+            report(f"CS Validation: Tolak {desc}", True)
+
+    # 13.5 Validasi tipe data: Tolak None, boolean, string, NaN, Infinity
+    type_invalid_cases = [
+        ("None", (None, 1.0, 1.0, 1.0, 1.0)),
+        ("Boolean True", (True, 1.0, 1.0, 1.0, 1.0)),
+        ("Boolean False", (1.0, False, 1.0, 1.0, 1.0)),
+        ("String", ("0.5", 1.0, 1.0, 1.0, 1.0)),
+        ("NaN", (float("nan"), 1.0, 1.0, 1.0, 1.0)),
+        ("Infinity", (float("inf"), 1.0, 1.0, 1.0, 1.0)),
+    ]
+    for desc, args in type_invalid_cases:
+        try:
+            calculate_compatibility_score(*args)
+            report(f"CS Validation: Tolak {desc}", False, "Harusnya melempar ValueError")
+        except ValueError:
+            report(f"CS Validation: Tolak {desc}", True)
+
+
+def test_compatibility_breakdown():
+    """Menguji rincian transparan breakdown skor dan konsistensi matematis (Tahap 15.4)."""
+    print("\n--- SUITE 14: Compatibility Breakdown Output & Consistency ---")
+
+    # 14.1 Struktur breakdown benchmark (91.50)
+    bd1 = calculate_compatibility_breakdown(1.0, 0.9, 0.8, 0.8, 1.0)
+    report("Breakdown: Memiliki total_score", "total_score" in bd1)
+    report("Breakdown: total_score tepat 91.50", math.isclose(bd1["total_score"], 91.50))
+    report("Breakdown: Memuat tepat 5 komponen", set(bd1["components"].keys()) == {"topic", "goal", "style", "date", "mode"})
+
+    # 14.2 Nilai kontribusi tiap komponen
+    c_topic = bd1["components"]["topic"]
+    report("Breakdown Topic: weight 0.30", math.isclose(c_topic["weight"], 0.30))
+    report("Breakdown Topic: score 1.00", math.isclose(c_topic["score"], 1.00))
+    report("Breakdown Topic: contribution tepat 30.0", math.isclose(c_topic["contribution"], 30.0))
+
+    c_goal = bd1["components"]["goal"]
+    report("Breakdown Goal: weight 0.25", math.isclose(c_goal["weight"], 0.25))
+    report("Breakdown Goal: score 0.90", math.isclose(c_goal["score"], 0.90))
+    report("Breakdown Goal: contribution tepat 22.5", math.isclose(c_goal["contribution"], 22.5))
+
+    c_style = bd1["components"]["style"]
+    report("Breakdown Style: weight 0.15", math.isclose(c_style["weight"], 0.15))
+    report("Breakdown Style: score 0.80", math.isclose(c_style["score"], 0.80))
+    report("Breakdown Style: contribution tepat 12.0", math.isclose(c_style["contribution"], 12.0))
+
+    c_date = bd1["components"]["date"]
+    report("Breakdown Date: weight 0.15", math.isclose(c_date["weight"], 0.15))
+    report("Breakdown Date: score 0.80", math.isclose(c_date["score"], 0.80))
+    report("Breakdown Date: contribution tepat 12.0", math.isclose(c_date["contribution"], 12.0))
+
+    c_mode = bd1["components"]["mode"]
+    report("Breakdown Mode: weight 0.15", math.isclose(c_mode["weight"], 0.15))
+    report("Breakdown Mode: score 1.00", math.isclose(c_mode["score"], 1.00))
+    report("Breakdown Mode: contribution tepat 15.0", math.isclose(c_mode["contribution"], 15.0))
+
+    # 14.3 Konsistensi: Jumlah kontribusi identik dengan total_score
+    sum_contrib = sum(comp["contribution"] for comp in bd1["components"].values())
+    report("Breakdown: Jumlah kontribusi tepat sama dengan total_score (30+22.5+12+12+15 = 91.5)", math.isclose(sum_contrib, bd1["total_score"]))
+
+    # 14.4 Identitas total_score breakdown dengan calculate_compatibility_score
+    direct_score = calculate_compatibility_score(1.0, 0.9, 0.8, 0.8, 1.0)
+    report("Breakdown: total_score identik dengan calculate_compatibility_score", math.isclose(bd1["total_score"], direct_score))
+
+    # 14.5 Kasus bervariasi dengan pembulatan (63.75)
+    bd2 = calculate_compatibility_breakdown(0.75, 0.60, 0.50, 0.40, 0.85)
+    # Contrib: 22.5 + 15.0 + 7.5 + 6.0 + 12.75 = 63.75
+    report("Breakdown Case 2: total_score tepat 63.75", math.isclose(bd2["total_score"], 63.75))
+    sum_contrib2 = sum(comp["contribution"] for comp in bd2["components"].values())
+    report("Breakdown Case 2: Jumlah kontribusi tepat sama dengan total_score", math.isclose(sum_contrib2, bd2["total_score"]))
+
+    # 14.6 Tolak input invalid pada breakdown
+    try:
+        calculate_compatibility_breakdown(None, 1.0, 1.0, 1.0, 1.0)
+        report("Breakdown: Tolak input None", False, "Harusnya raise ValueError")
+    except ValueError:
+        report("Breakdown: Tolak input None", True)
+
+
 def run_tests():
     print("=" * 70)
-    print("RUNNING DAY 15: SOFT CONSTRAINT SCORING TEST SUITE (TAHAP 15.1, 15.2, & 15.3)")
+    print("RUNNING DAY 15: SOFT CONSTRAINT SCORING TEST SUITE (TAHAP 15.1 - 15.4)")
     print("=" * 70)
 
     test_canonicalizers()
@@ -652,6 +791,8 @@ def run_tests():
     test_topic_similarity_end_to_end()
     test_learning_mode_canonicalizer()
     test_learning_mode_compatibility()
+    test_weighted_compatibility_score()
+    test_compatibility_breakdown()
 
     print("\n" + "=" * 70)
     print(f"TEST RESULT SUMMARY: {passed_count}/{total_count} TESTS PASSED (100% SUCCESS)")

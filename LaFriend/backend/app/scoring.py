@@ -713,3 +713,138 @@ def calculate_topic_similarity_detailed(
     }
 
 
+# ==============================================================================
+# 8. WEIGHTED COMPATIBILITY SCORE & BREAKDOWN (Tahap 15.4)
+# ==============================================================================
+
+# Bobot komponen resmi Day 15: Total = 1.00 (100%)
+WEIGHT_TOPIC: float = 0.30  # T (30%)
+WEIGHT_GOAL: float = 0.25   # G (25%)
+WEIGHT_STYLE: float = 0.15  # S (15%)
+WEIGHT_DATE: float = 0.15   # D (15%)
+WEIGHT_MODE: float = 0.15   # M (15%)
+
+SCORING_WEIGHTS: Dict[str, float] = {
+    "topic": WEIGHT_TOPIC,
+    "goal": WEIGHT_GOAL,
+    "style": WEIGHT_STYLE,
+    "date": WEIGHT_DATE,
+    "mode": WEIGHT_MODE,
+}
+
+
+def validate_component_score(score: Any, name: str) -> float:
+    """
+    Memvalidasi satu nilai skor komponen agar sesuai kontrak Day 15:
+    - Harus berupa angka numerik (int atau float, bukan bool).
+    - Harus finite (bukan NaN, bukan Infinity).
+    - Harus berada dalam rentang [0.0, 1.0].
+    - Melempar ValueError jika melanggar kontrak.
+    """
+    if score is None:
+        raise ValueError(f"Komponen {name} tidak boleh bernilai None")
+    if not isinstance(score, (int, float)) or isinstance(score, bool):
+        raise ValueError(f"Komponen {name} harus berupa angka numerik, diterima: {type(score).__name__}")
+    if not math.isfinite(score):
+        raise ValueError(f"Komponen {name} tidak finite (NaN atau Infinity)")
+    float_val = float(score)
+    if not (0.0 <= float_val <= 1.0):
+        raise ValueError(f"Komponen {name} ({float_val}) harus berada dalam rentang [0.0, 1.0]")
+    return float_val
+
+
+def calculate_compatibility_score(
+    topic_score: Any,
+    goal_score: Any,
+    style_score: Any,
+    date_score: Any,
+    mode_score: Any
+) -> float:
+    """
+    Menghitung skor kecocokan akhir CS dalam rentang [0.0, 100.0]:
+    CS = 100 * (0.30*T + 0.25*G + 0.15*S + 0.15*D + 0.15*M)
+
+    Aturan Day 15:
+    - Seluruh 5 komponen (T, G, S, D, M) wajib tersedia dalam rentang [0.0, 1.0].
+    - Tidak boleh ada normalisasi ulang bobot jika ada komponen yang hilang/None (wajib raise ValueError).
+    - Skor dibatasi pada rentang [0.0, 100.0] dan dibulatkan 2 desimal (round(score, 2)).
+    """
+    t = validate_component_score(topic_score, "topic")
+    g = validate_component_score(goal_score, "goal")
+    s = validate_component_score(style_score, "style")
+    d = validate_component_score(date_score, "date")
+    m = validate_component_score(mode_score, "mode")
+
+    raw_score = 100.0 * (
+        WEIGHT_TOPIC * t +
+        WEIGHT_GOAL * g +
+        WEIGHT_STYLE * s +
+        WEIGHT_DATE * d +
+        WEIGHT_MODE * m
+    )
+    clamped = max(0.0, min(100.0, raw_score))
+    return round(clamped, 2)
+
+
+def calculate_compatibility_breakdown(
+    topic_score: Any,
+    goal_score: Any,
+    style_score: Any,
+    date_score: Any,
+    mode_score: Any
+) -> Dict[str, Any]:
+    """
+    Menghasilkan rincian transparan dari perhitungan Compatibility Score:
+    - total_score: float [0.0, 100.0] identik dengan hasil calculate_compatibility_score
+    - components: kamus kontribusi untuk kelima komponen (topic, goal, style, date, mode)
+      Setiap komponen memuat:
+        * score: nilai mentah [0.0, 1.0] dibulatkan 4 desimal
+        * weight: bobot resmi komponen (0.30, 0.25, 0.15, dll.)
+        * contribution: poin kontribusi ke skor total (100 * weight * score, dibulatkan 2 desimal)
+    """
+    t = validate_component_score(topic_score, "topic")
+    g = validate_component_score(goal_score, "goal")
+    s = validate_component_score(style_score, "style")
+    d = validate_component_score(date_score, "date")
+    m = validate_component_score(mode_score, "mode")
+
+    contrib_topic = round(100.0 * WEIGHT_TOPIC * t, 2)
+    contrib_goal = round(100.0 * WEIGHT_GOAL * g, 2)
+    contrib_style = round(100.0 * WEIGHT_STYLE * s, 2)
+    contrib_date = round(100.0 * WEIGHT_DATE * d, 2)
+    contrib_mode = round(100.0 * WEIGHT_MODE * m, 2)
+
+    total_score = calculate_compatibility_score(t, g, s, d, m)
+
+    return {
+        "total_score": total_score,
+        "components": {
+            "topic": {
+                "score": round(t, 4),
+                "weight": WEIGHT_TOPIC,
+                "contribution": contrib_topic,
+            },
+            "goal": {
+                "score": round(g, 4),
+                "weight": WEIGHT_GOAL,
+                "contribution": contrib_goal,
+            },
+            "style": {
+                "score": round(s, 4),
+                "weight": WEIGHT_STYLE,
+                "contribution": contrib_style,
+            },
+            "date": {
+                "score": round(d, 4),
+                "weight": WEIGHT_DATE,
+                "contribution": contrib_date,
+            },
+            "mode": {
+                "score": round(m, 4),
+                "weight": WEIGHT_MODE,
+                "contribution": contrib_mode,
+            },
+        },
+    }
+
+
