@@ -56,7 +56,6 @@ export default function App() {
 
   return (
     <>
-      <div className="aurora" aria-hidden="true"><i /><i /><i /></div>
       <AnimatePresence mode="wait">{body}</AnimatePresence>
       <Confetti run={party} />
       <AnimatePresence>
@@ -83,9 +82,10 @@ function Shell({ st, act, tab, setTab, testMode, onTest, onOut }) {
   return (
     <div className="shell">
       <header className="top">
-        <span className="brand"><Logo size={22} />LaFriend</span>
-        <p className="hello"><small>Halo,</small>{st.me.name}</p>
+        {/* pola referensi: foto profil, sapaan, tombol bulat di kanan */}
         <button type="button" className="me-btn" onClick={() => setMe(true)} aria-label="Akun saya">{st.account.name[0]}</button>
+        <p className="hello">Halo, {st.me.name}!</p>
+        <span className="brand" role="img" aria-label="LaFriend"><Logo size={22} /></span>
       </header>
       <main className="view" id="view">
         <AnimatePresence mode="wait"><div key={tab}>{screens[tab]}</div></AnimatePresence>

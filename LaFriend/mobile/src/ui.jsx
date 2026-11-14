@@ -58,8 +58,8 @@ export function Logo({ size = 40, animate = false }) {
   const a = animate && !reduce;
   return (
     <motion.span className="logo" style={{ fontSize: size * 1.25, width: size, height: size }} aria-hidden="true"
-      initial={a ? { scale: 2.2, opacity: 0, filter: "blur(12px)", rotate: -8 } : false}
-      animate={{ scale: 1, opacity: 1, filter: "blur(0px)", rotate: 0 }} transition={{ ...spring, delay: 0.1 }}>
+      initial={a ? { scale: 2.2, opacity: 0, rotate: -8 } : false}
+      animate={{ scale: 1, opacity: 1, rotate: 0 }} transition={{ ...spring, delay: 0.1 }}>
       L
     </motion.span>
   );
