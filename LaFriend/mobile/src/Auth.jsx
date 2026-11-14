@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { api } from "./api.js";
-import { Button, Chips, Field, Logo, MODE, Page, STYLE, spring } from "./ui.jsx";
+import { Button, Chips, Doodle, Field, Logo, MODE, Page, STYLE, spring } from "./ui.jsx";
 
 export function Splash({ onDone }) {
   const reduce = useReducedMotion();
@@ -48,12 +48,14 @@ export function Auth({ onIn }) {
       <AnimatePresence mode="wait">
         {mode === "welcome" ? (
           <Page key="w">
-            <div className="hero-orbit" aria-hidden="true"><Logo size={56} /></div>
-            <h1 className="display">Belajar bareng,<br /><span className="hl">tanpa ribet</span> cari jadwal.</h1>
-            <p className="lead">Tulis mau belajar apa dan kapan kosong. LaFriend mencarikan teman satu mata kuliah yang waktunya cocok, lalu membantu membentuk kelompok.</p>
-            <div className="stack-btn">
-              <Button onClick={() => setMode("daftar")}>Buat akun</Button>
-              <Button kind="ghost" onClick={() => setMode("masuk")}>Saya sudah punya akun</Button>
+            <div className="art pink"><span className="art-brand"><Logo size={22} />LaFriend</span><Doodle name="friends" /></div>
+            <div className="panel grow-panel">
+              <h1 className="display">Belajar bareng, <span className="hl">tanpa ribet</span> cari jadwal.</h1>
+              <p className="lead">Tulis mau belajar apa dan kapan kosong. LaFriend mencarikan teman satu mata kuliah yang waktunya cocok, lalu membantu membentuk kelompok.</p>
+              <div className="stack-btn">
+                <Button onClick={() => setMode("daftar")}>Buat akun</Button>
+                <Button kind="ghost" onClick={() => setMode("masuk")}>Saya sudah punya akun</Button>
+              </div>
             </div>
           </Page>
         ) : (

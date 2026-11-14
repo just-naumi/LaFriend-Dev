@@ -247,10 +247,12 @@ function Running({ st, act, go }) {
   }
   return (
     <Page>
-      <p className="eyebrow">Permintaanmu {i.status === "ACTIVE" ? "aktif" : "sedang diproses kelompok"}</p>
-      <h1 className="display sm">{i.course}</h1>
-      <p className="lead">{i.topics} · {GOAL[i.goal]} · {STYLE[i.style]} · {MODE[i.mode]} · {i.min}–{i.max} orang</p>
-      <p className="slots">{i.slots.map((s, n) => <span key={n} className="tag">{fmtSlot(s)}</span>)}</p>
+      <div className="intent-card">
+        <span className="next-label">Permintaanmu {i.status === "ACTIVE" ? "aktif" : "sedang diproses kelompok"}</span>
+        <h1 className="display sm">{i.course}</h1>
+        <p>{i.topics}</p>
+        <span className="tags">{[GOAL[i.goal], STYLE[i.style], MODE[i.mode], `${i.min}–${i.max} orang`, ...i.slots.map(fmtSlot)].map((t, n) => <span key={n} className="tag">{t}</span>)}</span>
+      </div>
 
       {i.status === "ACTIVE" && <>
         <h2 className="h2">Teman yang cocok <small>{st.recommendations.length}</small></h2>

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { motion } from "motion/react";
 import { api } from "./api.js";
-import { Button, Chips, Field, Page, REASON, Sheet, fmtSlot, spring } from "./ui.jsx";
+import { Button, Chips, Doodle, Field, Page, REASON, Sheet, fmtSlot } from "./ui.jsx";
 
 export function Group({ st, act, go, testMode }) {
   const f = st.formation;
@@ -14,8 +14,11 @@ export function Group({ st, act, go, testMode }) {
       <Page>
         <h1 className="display sm">Kelompok</h1>
         {upcoming.map(s => <SessionLine key={s.id} s={s} />)}
-        {!upcoming.length && <p className="lead">{st.intent ? "Belum ada kelompok. Bentuk dari daftar teman yang cocok." : "Buat permintaan belajar dulu, lalu bentuk kelompok dari teman yang cocok."}</p>}
-        <Button kind={upcoming.length ? "ghost" : "primary"} onClick={() => go("belajar")}>{st.intent ? "Lihat teman yang cocok" : "Buat permintaan"}</Button>
+        {!upcoming.length && <div className="art mint"><Doodle name="friends" /></div>}
+        <div className={upcoming.length ? "" : "panel"}>
+          {!upcoming.length && <p className="lead">{st.intent ? "Belum ada kelompok. Bentuk dari daftar teman yang cocok." : "Buat permintaan belajar dulu, lalu bentuk kelompok dari teman yang cocok."}</p>}
+          <Button kind={upcoming.length ? "ghost" : "primary"} onClick={() => go("belajar")}>{st.intent ? "Lihat teman yang cocok" : "Buat permintaan"}</Button>
+        </div>
       </Page>
     );
   }
@@ -30,16 +33,32 @@ export function Group({ st, act, go, testMode }) {
 
   return (
     <Page>
-      <p className="eyebrow">{f.is_host ? "Kamu yang memulai" : "Undangan kelompok"}</p>
-      <h1 className="display sm">{headline}</h1>
-      {f.status === "FAILED" ? <>
-        <p className="lead">Alasannya: {REASON[f.reason_code] || f.reason_code}. Permintaanmu masih aktif, jadi kamu bisa mencoba lagi.</p>
-        <Button onClick={() => go("belajar")}>Coba bentuk lagi</Button>
-      </> : <>
-        <motion.div className="when" initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={spring}>
-          <span className="when-day">{fmtSlot(f.slot)}</span>
-          <small>Jadwal {f.slot_number} dari {f.slot_count} · kecocokan kelompok {Math.round(f.gq)}</small>
-        </motion.div>
+      <div className={`art ${f.status === "FAILED" ? "pink" : "butter"}`}><Doodle name={f.status === "FAILED" ? "friends" : "calendar"} /></div>
+      <div className="panel">
+        <p className="eyebrow">{f.is_host ? "Kamu yang memulai" : "Undangan kelompok"}</p>
+        <h1 className="display sm">{headline}</h1>
+        {f.status === "FAILED" ? <>
+          <p className="lead">Alasannya: {REASON[f.reason_code] || f.reason_code}. Permintaanmu masih aktif, jadi kamu bisa mencoba lagi.</p>
+          <Button onClick={() => go("belajar")}>Coba bentuk lagi</Button>
+        </> : <>
+          <p className="when-day">{fmtSlot(f.slot)}</p>
+          <p className="when-sub">Jadwal {f.slot_number} dari {f.slot_count} · kecocokan kelompok {Math.round(f.gq)}</p>
+          {f.status === "DRAFT" && f.my_invite_pending && (
+            <div className="stack-btn row">
+              <Button busy={busy === "yes"} onClick={() => run("yes", () => api("/api/invite", { answer: "ACCEPTED" }))}>Terima undangan</Button>
+              <Button kind="ghost" busy={busy === "no"} onClick={() => run("no", () => api("/api/invite", { answer: "REJECTED" }))}>Tolak</Button>
+            </div>
+          )}
+          {f.status === "CONFIRMATION_PENDING" && f.my_approval == null && (
+            <div className="stack-btn row">
+              <Button busy={busy === "yes"} onClick={() => run("yes", () => api("/api/schedule", { approve: true }))}>Jadwal ini cocok</Button>
+              <Button kind="ghost" busy={busy === "no"} onClick={() => run("no", () => api("/api/schedule", { approve: false }))}>Tidak bisa</Button>
+            </div>
+          )}
+        </>}
+      </div>
+      {f.status !== "FAILED" && <>
+        <h2 className="h2">Anggota <small>{f.members.length} orang</small></h2>
         <ol className="members">
           {f.members.map(m => (
             <li key={m.id}>
@@ -49,18 +68,6 @@ export function Group({ st, act, go, testMode }) {
             </li>
           ))}
         </ol>
-        {f.status === "DRAFT" && f.my_invite_pending && (
-          <div className="stack-btn">
-            <Button busy={busy === "yes"} onClick={() => run("yes", () => api("/api/invite", { answer: "ACCEPTED" }))}>Terima undangan</Button>
-            <Button kind="ghost" busy={busy === "no"} onClick={() => run("no", () => api("/api/invite", { answer: "REJECTED" }))}>Tolak</Button>
-          </div>
-        )}
-        {f.status === "CONFIRMATION_PENDING" && f.my_approval == null && (
-          <div className="stack-btn">
-            <Button busy={busy === "yes"} onClick={() => run("yes", () => api("/api/schedule", { approve: true }))}>Jadwal ini cocok</Button>
-            <Button kind="ghost" busy={busy === "no"} onClick={() => run("no", () => api("/api/schedule", { approve: false }))}>Tidak bisa</Button>
-          </div>
-        )}
         {testMode && pending.length > 0 && (
           <div className="test">
             <p className="test-title">Mode uji · jawab sebagai teman</p>
@@ -88,7 +95,8 @@ const label = (f, m) => (f.status === "DRAFT" ? (m.host ? "memulai" : m.accepted
 function SessionLine({ s, children }) {
   return (
     <div className="session">
-      <span className="grow"><strong>{s.course}</strong><small>{s.topics} · {fmtSlot(s.slot)} · {s.members.join(", ")}</small></span>
+      <span className="grow"><strong>{s.course}</strong><small>{s.topics}</small>
+        <span className="tags"><span className="tag">{fmtSlot(s.slot)}</span><span className="tag">{s.members.join(", ")}</span></span></span>
       {children}
     </div>
   );
@@ -105,6 +113,7 @@ export function Results({ st, act, testMode }) {
   return (
     <Page>
       <h1 className="display sm">Hasil belajar</h1>
+      {!st.sessions.length && <div className="art lav"><Doodle name="chart" /></div>}
       <h2 className="h2">Sesimu</h2>
       {!st.sessions.length && <p className="muted">Belum ada sesi. Sesi muncul di sini setelah jadwal kelompok disetujui semua anggota.</p>}
       {st.sessions.map(s => (
@@ -117,20 +126,21 @@ export function Results({ st, act, testMode }) {
       ))}
 
       <h2 className="h2">Apakah LaFriend membantu?</h2>
-      <p className="muted small">Lima angka ini sengaja tidak digabung. Dihitung dari semua pengguna.</p>
       <ul className="metrics">
-        {METRICS.map(([k, name, unit]) => {
+        {METRICS.map(([k, name, unit], n) => {
           const none = !m[k].denominator;
           const pct = none ? 0 : k === "mss" ? (m[k].value / 5) * 100 : m[k].value;
           return (
-            <li key={k}>
-              <span className="grow">{name}<small>{none ? "belum ada data" : k === "mss" ? `${m[k].denominator} jawaban` : `${m[k].numerator} dari ${m[k].denominator}`}</small></span>
+            <li key={k} className={`c${n}`}>
               <strong>{none ? "–" : `${String(m[k].value).replace(".", ",")}${unit}`}</strong>
+              <span>{name}</span>
+              <small>{none ? "belum ada data" : k === "mss" ? `${m[k].denominator} jawaban` : `${m[k].numerator} dari ${m[k].denominator}`}</small>
               <span className="meter"><motion.i style={{ width: `${pct}%` }} initial={{ scaleX: 0 }} animate={{ scaleX: 1 }} transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }} /></span>
             </li>
           );
         })}
       </ul>
+      <div className="quote"><span className="quote-ic" aria-hidden="true">“</span><p>Lima angka ini sengaja tidak digabung jadi satu skor. Semuanya dihitung dari semua pengguna.</p></div>
       {!m.data_sufficient && <p className="muted small">Bobot skor baru diuji ulang setelah {m.min_completed_for_weight_test} sesi selesai dengan penilaian. Sekarang baru {m.completed_with_feedback}.</p>}
       <Feedback s={fb} onClose={() => setFb(null)} act={act} />
     </Page>

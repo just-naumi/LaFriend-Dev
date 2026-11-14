@@ -74,7 +74,7 @@ function Shell({ st, act, tab, setTab, testMode, onTest, onOut }) {
     hasil: st.sessions.filter(s => s.finished && !s.feedback_given).length,
   };
   const screens = {
-    beranda: <Home st={st} go={setTab} />,
+    beranda: <Home st={st} act={act} go={setTab} />,
     belajar: <Request st={st} act={act} go={setTab} />,
     kelompok: <Group st={st} act={act} go={setTab} testMode={testMode} />,
     hasil: <Results st={st} act={act} testMode={testMode} />,
@@ -92,7 +92,8 @@ function Shell({ st, act, tab, setTab, testMode, onTest, onOut }) {
       <nav className="tabs" aria-label="Menu utama">
         {TABS.map(([k, name, icon]) => (
           <button key={k} type="button" aria-current={tab === k ? "page" : undefined} onClick={() => setTab(k)}>
-            {tab === k && <motion.span layoutId="tab" className="tab-bg" transition={spring} />}
+            {/* bukan motion layoutId: itu menahan animasi keluar Shell sehingga tombol Keluar macet setelah pindah tab */}
+            {tab === k && <span className="tab-bg" />}
             <span className="tab-icon"><Icon name={icon} /></span>
             <span>{name}</span>
             {badge[k] > 0 && <b className="badge" aria-label={`${badge[k]} menunggu`}>{badge[k]}</b>}
@@ -130,37 +131,64 @@ function next(st) {
   return ["belajar", "Mulai cari teman belajar", "Ceritakan mau belajar apa, lewat chat, suara, atau form.", "Mulai"];
 }
 
-function Home({ st, go }) {
+const IDEAS = [["Basis Data", "latihan soal SQL"], ["Algoritma dan Pemrograman", "memahami rekursi"], ["Jaringan Komputer dan Data", "diskusi subnetting"]];
+
+function Home({ st, act, go }) {
   const [to, title, sub, cta] = next(st);
   const hour = new Date().getHours();
   const hello = hour < 11 ? "Selamat pagi" : hour < 15 ? "Selamat siang" : hour < 19 ? "Selamat sore" : "Selamat malam";
-  const rows = [
-    ["Permintaan", st.intent ? `${st.intent.course} · ${st.intent.topics}` : "Belum ada", "belajar", "pen"],
-    ["Kelompok", st.formation ? { DRAFT: "Menunggu undangan dijawab", CONFIRMATION_PENDING: "Menunggu jadwal disetujui", FAILED: "Belum terbentuk" }[st.formation.status] : "Belum ada", "kelompok", "users"],
-    ["Sesi", st.sessions.length ? `${st.sessions.length} sesi, ${st.sessions.filter(s => !s.feedback_given && s.finished).length} belum dinilai` : "Belum ada", "hasil", "chart"],
-  ];
+  const upcoming = st.sessions.filter(s => !s.finished);
+  const recs = st.intent?.status === "ACTIVE" ? st.recommendations : [];
+  const start = (course, topic) => act(() => api("/api/assistant", { text: `${course}, ${topic}` })).then(ok => ok && go("belajar"));
   return (
     <Page>
-      <p className="eyebrow">{hello}</p>
       <h1 className="display">Halo, {st.me.name}</h1>
-      <motion.div className="next" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
-        <span className="next-label">Langkah berikutnya</span>
-        <h2 className="display">{title}</h2>
-        <p className="lead">{sub}</p>
-        <Button onClick={() => go(to)}>{cta}<Icon name="arrow" size={18} /></Button>
-      </motion.div>
-      <h2 className="h2">Ringkasan</h2>
-      <ul className="summary">
-        {rows.map(([k, v, t, icon]) => (
-          <li key={k}>
-            <button type="button" onClick={() => go(t)}>
-              <span className="row-ic"><Icon name={icon} size={18} /></span>
-              <span className="grow"><span>{k}</span><small>{v}</small></span>
-              <Icon name="arrow" size={18} />
-            </button>
-          </li>
-        ))}
-      </ul>
+      <p className="lead">{hello}. Belajar bareng siapa hari ini?</p>
+      <div className="tiles">
+        <motion.button type="button" className="tile tall" onClick={() => go(to)} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
+          <span className="next-label">Langkah berikutnya</span>
+          <span><strong>{title}</strong><small>{sub}</small></span>
+          <span className="cta">{cta}</span>
+          <span className="go" aria-hidden="true"><Icon name="arrow" size={18} /></span>
+        </motion.button>
+        <div className="tile butter stat"><span className="stat-n">{st.intent ? recs.length : "–"}</span><small>{st.intent ? `teman cocok untuk ${st.intent.course}` : "belum ada permintaan belajar"}</small></div>
+        <div className="tile dark stat"><span className="stat-n">{upcoming.length}</span><small>sesi terjadwal</small></div>
+      </div>
+
+      {recs.length > 0 && <>
+        <div className="sec"><h2 className="h2">Teman yang cocok</h2><button type="button" className="link" onClick={() => go("belajar")}>Lihat semua</button></div>
+        <ul className="feed">
+          {recs.slice(0, 3).map(r => (
+            <li key={r.id}><button type="button" className="feed-card" onClick={() => go("belajar")}>
+              <span className="avatar">{r.name[0]}</span>
+              <span className="grow"><strong>{r.name}</strong><span className="tags"><span className="tag">Skor {Math.round(r.total)}</span><span className="tag">{fmtSlot(r.slot)}</span></span></span>
+              <span className="go" aria-hidden="true"><Icon name="arrow" size={18} /></span>
+            </button></li>
+          ))}
+        </ul>
+      </>}
+      {!recs.length && upcoming.length > 0 && <>
+        <div className="sec"><h2 className="h2">Sesi berikutnya</h2></div>
+        <ul className="feed">
+          {upcoming.slice(0, 3).map(s => (
+            <li key={s.id}><button type="button" className="feed-card" onClick={() => go("kelompok")}>
+              <span className="grow"><strong>{s.course}</strong><span className="tags"><span className="tag">{fmtSlot(s.slot)}</span><span className="tag">{s.members.length} orang</span></span></span>
+              <span className="go" aria-hidden="true"><Icon name="arrow" size={18} /></span>
+            </button></li>
+          ))}
+        </ul>
+      </>}
+      {!st.intent && !upcoming.length && <>
+        <div className="sec"><h2 className="h2">Ide untuk memulai</h2></div>
+        <ul className="feed">
+          {IDEAS.filter(([c]) => st.courses.includes(c)).map(([c, t]) => (
+            <li key={c}><button type="button" className="feed-card" onClick={() => start(c, t)}>
+              <span className="grow"><strong>{c}</strong><span className="tags"><span className="tag">{t}</span><span className="tag">lewat asisten</span></span></span>
+              <span className="go" aria-hidden="true"><Icon name="chat" size={18} /></span>
+            </button></li>
+          ))}
+        </ul>
+      </>}
     </Page>
   );
 }

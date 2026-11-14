@@ -32,6 +32,21 @@ export const Icon = ({ name, size = 22 }) => (
   <svg className="ic" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true"><path d={ICONS[name]} /></svg>
 );
 
+// Gambar garis sederhana di atas lingkaran pastel (gaya ilustrasi referensi Self-care), digambar saat muncul
+const DOODLES = {
+  friends: "M48 78a24 24 0 1 0 48 0a24 24 0 1 0-48 0M104 78a24 24 0 1 0 48 0a24 24 0 1 0-48 0M64 74v4M80 74v4M120 74v4M136 74v4M63 88q9 8 18 0M119 88q9 8 18 0M40 136q30-14 60 0q30-14 60 0v30q-30-14-60 0q-30-14-60 0zM100 136v30M58 56q8-14 18-4t14-8",
+  calendar: "M46 58h108v96H46zM46 84h108M72 44v26M128 44v26M78 120l16 16 30-32",
+  chart: "M44 156h112M62 156v-36M90 156v-70M118 156v-50M146 156v-88M58 96l30-28 28 18 32-36",
+};
+export function Doodle({ name }) {
+  const reduce = useReducedMotion();
+  return (
+    <svg className="doodle" viewBox="0 0 200 200" aria-hidden="true">
+      <motion.path d={DOODLES[name]} initial={reduce ? false : { pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.4, ease: "easeInOut" }} />
+    </svg>
+  );
+}
+
 export function fmtDay(d) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d || "")) return d;
   return new Date(`${d}T00:00:00`).toLocaleDateString("id-ID", { weekday: "short", day: "numeric", month: "short" });
