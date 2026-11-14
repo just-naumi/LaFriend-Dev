@@ -121,8 +121,8 @@ textarea { resize: vertical; min-height: 96px; }
 .tab-icon { display: grid; place-items: center; }
 .tabs { grid-template-columns: repeat(2, 1fr) auto repeat(2, 1fr); }
 .tabs .tab-mic { padding: 0 6px; border-radius: 50%; }
-.tab-mic span { display: grid; place-items: center; width: 60px; height: 60px; translate: 0 -16px; border-radius: 50%; background: var(--mint-ink); color: var(--mint); box-shadow: 0 0 0 5px var(--bg), 0 14px 26px -12px rgba(15, 74, 51, .55); transition: transform .15s ease; }
-.tab-mic:disabled span { background: var(--soft); color: var(--faint); box-shadow: 0 0 0 5px var(--bg); }
+.tab-mic span { display: grid; place-items: center; width: 60px; height: 60px; translate: 0 -16px; border-radius: 50%; background: var(--mint-ink); color: var(--mint); box-shadow: 0 0 0 6px var(--surface), 0 14px 26px -12px rgba(15, 74, 51, .55); transition: transform .15s ease; }
+.tab-mic:disabled span { background: var(--soft); color: var(--faint); box-shadow: 0 0 0 6px var(--surface); }
 .ic { display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .badge { position: absolute; top: 4px; right: calc(50% - 22px); min-width: 18px; height: 18px; border-radius: 9px; background: var(--pink-ink); color: #fff; font-size: 11px; display: grid; place-items: center; }
 

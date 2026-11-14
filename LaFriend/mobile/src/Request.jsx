@@ -13,7 +13,7 @@ export default function Request({ st, act, go, startVoice }) {
   return (
     <AnimatePresence mode="wait">
       {view === "pick" && <Pick key="pick" st={st} onPick={v => (v === "review" ? review(true) : setView(v))} />}
-      {view === "chat" && <Chat key="chat" st={st} act={act} onBack={() => setView("pick")} onReview={() => review(false)} />}
+      {view === "chat" && <Chat key="chat" st={st} act={act} onBack={() => setView("pick")} onReview={() => review(false)} onVoice={() => setView("voice")} />}
       {view === "voice" && <Voice key="voice" act={act} onBack={() => setView("pick")} onSent={() => setView("chat")} />}
       {view === "review" && <Review key="review" st={st} act={act} start={manual ? {} : st.chat.fields} onBack={() => setView(manual ? "pick" : "chat")} />}
     </AnimatePresence>
@@ -48,7 +48,7 @@ function Pick({ st, onPick }) {
   );
 }
 
-function Chat({ st, act, onBack, onReview }) {
+function Chat({ st, act, onBack, onReview, onVoice }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const end = useRef(null);
@@ -91,7 +91,10 @@ function Chat({ st, act, onBack, onReview }) {
       <span ref={end} className="chat-end" />
       <form className="composer" onSubmit={e => { e.preventDefault(); send(); }}>
         <input aria-label="Tulis pesan" value={text} onChange={e => setText(e.target.value)} placeholder="Tulis di sini…" maxLength={500} />
-        <button type="submit" className="icon send" disabled={!text.trim() || busy} aria-label="Kirim"><Icon name="send" size={20} /></button>
+        {/* pola WhatsApp: kotak kosong = mic, sudah mengetik = kirim */}
+        {Speech && !text.trim()
+          ? <button type="button" className="icon send" onClick={onVoice} aria-label="Bicara"><Icon name="mic" size={20} /></button>
+          : <button type="submit" className="icon send" disabled={!text.trim() || busy} aria-label="Kirim"><Icon name="send" size={20} /></button>}
       </form>
       {!c.done && c.messages.length > 0 && <button type="button" className="link center" onClick={onReview}>Lanjut isi di form saja</button>}
     </Page>
