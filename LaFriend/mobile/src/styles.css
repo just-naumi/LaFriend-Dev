@@ -121,7 +121,7 @@ textarea { resize: vertical; min-height: 96px; }
 .tab-icon { display: grid; place-items: center; }
 .tabs { grid-template-columns: repeat(5, 1fr); }
 .tab-mic { border: 0; background: none; display: grid; place-items: center; }
-.tab-mic span { display: grid; place-items: center; width: 62px; height: 62px; margin-top: -30px; border-radius: 50%; background: var(--mint); color: var(--mint-ink); transition: transform .15s ease; }
+.tab-mic span { display: grid; place-items: center; width: 62px; height: 62px; margin-top: -30px; border-radius: 50%; background: var(--lav); color: var(--lav-ink); transition: transform .15s ease; }
 .tab-mic:disabled span { background: var(--dark-2); color: var(--on-dark-2); }
 [data-tab=beranda] .tab-bg { background: var(--butter); }
 [data-tab=kelompok] .tab-bg { background: var(--mint); }
