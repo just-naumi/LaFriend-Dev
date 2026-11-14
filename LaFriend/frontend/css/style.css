@@ -1164,15 +1164,21 @@ body {
 }
 
 .badge-tag-status {
-  font-size: 0.68rem;
+  font-size: 0.70rem;
   font-weight: 700;
-  padding: 4px 9px;
+  padding: 4px 0;
+  width: 78px;
+  min-width: 78px;
+  max-width: 78px;
+  text-align: center;
+  justify-content: center;
   border-radius: 9999px;
   letter-spacing: -0.01em;
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  white-space: nowrap;
+  box-sizing: border-box;
 }
 
 .badge-tag-status.extracted {

@@ -939,13 +939,13 @@ function renderAiExtractionReviewBox(res) {
     if (isNeedsReview || rawStatus === "NEEDS_REVIEW") {
       return {
         badgeClass: "needs-review",
-        badgeLabel: "⚠️ Cek Ulang"
+        badgeLabel: "Cek Ulang"
       };
     }
     if (rawStatus === "EXTRACTED" && hasValue) {
       return {
         badgeClass: "extracted",
-        badgeLabel: "✓ Terisi"
+        badgeLabel: "Terisi"
       };
     }
     return {
