@@ -958,7 +958,7 @@ function renderAiExtractionReviewBox(res) {
   const hasCourse = Boolean(res.course_id || res.course_name);
   const courseBadge = resolveStatusBadge("course", hasCourse);
   const courseDisplay = hasCourse
-    ? (res.course_name ? `${res.course_name} (${res.course_code || 'Tel-U'})` : res.course_id)
+    ? (res.course_name ? `${escapeHtml(res.course_name)} (${escapeHtml(res.course_code || 'Tel-U')})` : escapeHtml(res.course_id))
     : `<span class="empty-val">Belum ditentukan</span>`;
 
   // 2. Topik
@@ -979,7 +979,7 @@ function renderAiExtractionReviewBox(res) {
   const hasGoal = Boolean(res.learning_goal);
   const goalBadge = resolveStatusBadge("learning_goal", hasGoal);
   const goalDisplay = hasGoal
-    ? (goalMap[(res.learning_goal || "").toUpperCase()] || res.learning_goal)
+    ? escapeHtml(goalMap[(res.learning_goal || "").toUpperCase()] || res.learning_goal)
     : `<span class="empty-val">Belum ditentukan</span>`;
 
   // 4. Mode & Lokasi
@@ -989,11 +989,11 @@ function renderAiExtractionReviewBox(res) {
   if (res.learning_mode === "ONLINE") modeParts.push("Daring (Online)");
   else if (res.learning_mode === "OFFLINE") modeParts.push("Tatap Muka (Offline)");
   else if (res.learning_mode === "HYBRID" || res.learning_mode === "BOTH") modeParts.push("Fleksibel (Online / Offline)");
-  else if (res.learning_mode) modeParts.push(res.learning_mode);
+  else if (res.learning_mode) modeParts.push(escapeHtml(String(res.learning_mode)));
 
   let locDetails = [];
-  if (res.physical_location) locDetails.push(res.physical_location);
-  if (res.online_platform) locDetails.push(res.online_platform);
+  if (res.physical_location) locDetails.push(escapeHtml(res.physical_location));
+  if (res.online_platform) locDetails.push(escapeHtml(res.online_platform));
   if (locDetails.length > 0) {
     modeParts.push(`(${locDetails.join(", ")})`);
   }
@@ -1010,12 +1010,12 @@ function renderAiExtractionReviewBox(res) {
 
   if (hasSchedule) {
     schedFormatted = res.availabilities.map(s => {
-      const day = s.day_or_date || s.day || "Hari belum ditentukan";
+      const day = escapeHtml(s.day_or_date || s.day || "Hari belum ditentukan");
       let time = "";
       if (s.start_time && s.end_time) {
-        time = `${s.start_time}–${s.end_time}`;
+        time = `${escapeHtml(s.start_time)}–${escapeHtml(s.end_time)}`;
       } else if (s.start_time) {
-        time = `${s.start_time}`;
+        time = `${escapeHtml(s.start_time)}`;
       } else {
         time = "Waktu belum spesifik";
         isSchedReview = true;
@@ -1036,12 +1036,12 @@ function renderAiExtractionReviewBox(res) {
   if (hasGroup) {
     if (res.min_group_size && res.max_group_size) {
       groupDisplay = res.min_group_size === res.max_group_size
-        ? `${res.min_group_size} Orang`
-        : `${res.min_group_size} – ${res.max_group_size} Orang`;
+        ? `${Number(res.min_group_size)} Orang`
+        : `${Number(res.min_group_size)} – ${Number(res.max_group_size)} Orang`;
     } else if (res.max_group_size) {
-      groupDisplay = `Maks. ${res.max_group_size} Orang`;
+      groupDisplay = `Maks. ${Number(res.max_group_size)} Orang`;
     } else if (res.min_group_size) {
-      groupDisplay = `Min. ${res.min_group_size} Orang`;
+      groupDisplay = `Min. ${Number(res.min_group_size)} Orang`;
     }
   }
 
@@ -1383,29 +1383,51 @@ async function handleCreateIntentSubmit(e) {
     return;
   }
 
-  // Validasi: Wajib menentukan rentang tanggal riil
+  // Validasi: Wajib menentukan rentang tanggal riil dan tanggal awal <= tanggal akhir
   const earliestVal = (document.getElementById("earliestDate").value || "").trim();
   const latestVal = (document.getElementById("latestDate").value || "").trim();
   if (!earliestVal || !latestVal) {
     if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">Silakan tentukan <b>Rentang Tanggal Belajar</b> (Mulai Dari & Sampai) pada Bagian 6!</div>`;
     return;
   }
-
-  // Kumpulkan data ketersediaan waktu dari form
-  const slotCards = document.querySelectorAll(".slot-row-card");
-  const availabilities = [];
-  slotCards.forEach(c => {
-    availabilities.push({
-      day_or_date: c.querySelector(".slot-day").value.trim(),
-      start_time: c.querySelector(".slot-start").value,
-      end_time: c.querySelector(".slot-end").value,
-      priority_rank: parseInt(c.querySelector(".slot-priority").value, 10),
-    });
-  });
-
-  if (availabilities.length === 0) {
-    if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">Minimal harus ada <b>1 Slot Waktu Ketersediaan</b>! Klik tombol '+ Tambah Slot' pada Bagian 7.</div>`;
+  if (earliestVal > latestVal) {
+    if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">Tanggal awal (${earliestVal}) tidak boleh melewati tanggal akhir (${latestVal})!</div>`;
     return;
+  }
+
+  // Kumpulkan data ketersediaan waktu dari form & validasi setiap baris slot
+  const slotCards = document.querySelectorAll(".slot-row-card");
+  if (slotCards.length === 0) {
+    if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">Minimal harus ada <b>1 Slot Waktu Ketersediaan</b>! Klik tombol <b>+ Tambah Slot</b> pada Bagian 7.</div>`;
+    return;
+  }
+
+  const availabilities = [];
+  for (let i = 0; i < slotCards.length; i++) {
+    const c = slotCards[i];
+    const day = (c.querySelector(".slot-day")?.value || "").trim();
+    const start = (c.querySelector(".slot-start")?.value || "").trim();
+    const end = (c.querySelector(".slot-end")?.value || "").trim();
+    const prio = parseInt(c.querySelector(".slot-priority")?.value, 10) || 1;
+
+    if (!day) {
+      if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">Silakan pilih hari untuk <b>Slot #${i + 1}</b>!</div>`;
+      return;
+    }
+    if (!start || !end) {
+      if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">Silakan lengkapi jam mulai dan selesai untuk <b>Slot #${i + 1}</b>!</div>`;
+      return;
+    }
+    if (start >= end) {
+      if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">Jam selesai (${end}) harus lebih besar daripada jam mulai (${start}) pada <b>Slot #${i + 1}</b>!</div>`;
+      return;
+    }
+    availabilities.push({
+      day_or_date: day,
+      start_time: start,
+      end_time: end,
+      priority_rank: prio
+    });
   }
 
   btn.disabled = true;

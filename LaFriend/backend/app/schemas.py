@@ -11,7 +11,7 @@
 import re
 from datetime import datetime
 from typing import List, Optional, Any, Union
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 
 
@@ -101,6 +101,37 @@ class AvailabilityCreate(BaseModel):
     end_time: str             # Contoh: "12:00"
     priority_rank: int = 1    # 1 = Utama, 2 = Cadangan, 3 = Fleksibel
 
+    @field_validator("day_or_date")
+    @classmethod
+    def validate_day_or_date(cls, value: str) -> str:
+        clean = (value or "").strip()
+        if not clean:
+            raise ValueError("Hari atau tanggal ketersediaan tidak boleh kosong")
+        return clean
+
+    @field_validator("start_time", "end_time")
+    @classmethod
+    def validate_time_format(cls, value: str) -> str:
+        clean = (value or "").strip()
+        if not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", clean):
+            raise ValueError(f"Format jam '{value}' tidak valid. Gunakan format JJ:MM (contoh: 09:00 atau 14:00)")
+        return clean
+
+    @field_validator("priority_rank")
+    @classmethod
+    def validate_priority_rank(cls, value: int) -> int:
+        if value not in (1, 2, 3):
+            return 1
+        return value
+
+    # Validasi relasi: jam selesai harus lebih besar daripada jam mulai
+    @model_validator(mode="after")
+    def validate_time_range(self):
+        if self.start_time and self.end_time:
+            if self.start_time >= self.end_time:
+                raise ValueError(f"Jam selesai ({self.end_time}) harus lebih besar daripada jam mulai ({self.start_time})")
+        return self
+
 
 # Format balasan data slot waktu ketersediaan yang tersimpan di database
 class AvailabilityResponse(BaseModel):
@@ -174,13 +205,20 @@ class StudyIntentCreate(BaseModel):
             raise ValueError(f"learning_mode '{value}' tidak valid. Pilihan: {', '.join(sorted(valid_modes))}")
         return clean
 
-    # Validasi: tanggal awal dan akhir harus diisi
+    # Validasi: tanggal awal dan akhir harus diisi dan berformat YYYY-MM-DD kalender valid
     @field_validator("earliest_date", "latest_date")
     @classmethod
     def validate_dates(cls, value: str) -> str:
-        if not value or not value.strip():
+        clean = (value or "").strip()
+        if not clean:
             raise ValueError("Rentang tanggal sesi belajar wajib ditentukan")
-        return value.strip()
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", clean):
+            raise ValueError(f"Format tanggal '{value}' tidak valid. Gunakan format YYYY-MM-DD")
+        try:
+            datetime.strptime(clean, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError(f"Tanggal '{value}' tidak valid dalam kalender")
+        return clean
 
     # Validasi: minimal harus ada 1 slot waktu ketersediaan
     @field_validator("availabilities")
@@ -189,6 +227,26 @@ class StudyIntentCreate(BaseModel):
         if not value or len(value) == 0:
             raise ValueError("Minimal harus menyertakan 1 slot waktu ketersediaan")
         return value
+
+    # Validasi relasi antar kolom (Cross-Field):
+    # 1. earliest_date <= latest_date
+    # 2. 2 <= min_group_size <= max_group_size <= 10
+    @model_validator(mode="after")
+    def validate_intent_cross_fields(self):
+        # 1. Validasi rentang tanggal
+        if self.earliest_date and self.latest_date:
+            d_start = datetime.strptime(self.earliest_date, "%Y-%m-%d")
+            d_end = datetime.strptime(self.latest_date, "%Y-%m-%d")
+            if d_start > d_end:
+                raise ValueError(f"Tanggal awal ({self.earliest_date}) tidak boleh melewati tanggal akhir ({self.latest_date})")
+
+        # 2. Validasi ukuran kelompok
+        if self.min_group_size < 2:
+            raise ValueError("Ukuran kelompok minimal adalah 2 orang")
+        if self.max_group_size < self.min_group_size:
+            raise ValueError(f"Ukuran kelompok minimal ({self.min_group_size}) tidak boleh melebihi ukuran maksimal ({self.max_group_size})")
+
+        return self
 
 
 # Format balasan data Study Intent yang dikembalikan ke Frontend
