@@ -110,20 +110,30 @@ const METRICS = [
 export function Results({ st, act, testMode }) {
   const [fb, setFb] = useState(null);
   const m = st.metrics;
+  const done = st.sessions.filter(s => s.finished).length;
+  const unrated = st.sessions.filter(s => s.finished && !s.feedback_given).length;
   return (
     <Page>
-      <h1 className="display sm">Hasil belajar</h1>
-      {!st.sessions.length && <div className="art lav"><Doodle name="chart" /></div>}
-      <h2 className="h2">Sesimu</h2>
-      {!st.sessions.length && <p className="muted">Belum ada sesi. Sesi muncul di sini setelah jadwal kelompok disetujui semua anggota.</p>}
-      {st.sessions.map(s => (
-        <SessionLine key={s.id} s={s}>
-          {s.feedback_given ? <span className="state ok">dinilai</span>
-            : s.finished ? <Button className="sm" onClick={() => setFb(s)}>Beri penilaian</Button>
-              : testMode ? <button type="button" className="chip" onClick={() => act(() => api("/api/test/end", { session_id: s.id }))}>Anggap sudah selesai</button>
-                : <span className="state wait">akan datang</span>}
-        </SessionLine>
-      ))}
+      {/* pola referensi: bagian atas berwarna dengan ilustrasi dan dua angka, daftar di panel gelap */}
+      <div className="art coral">
+        <Doodle name="chart" />
+        <div className="art-stats">
+          <p><strong>{done}</strong>sesi selesai</p>
+          <p><strong>{unrated}</strong>belum dinilai</p>
+        </div>
+      </div>
+      <div className="panel">
+        <h1 className="display sm">Sesimu</h1>
+        {!st.sessions.length && <p className="lead">Belum ada sesi. Sesi muncul di sini setelah jadwal kelompok disetujui semua anggota.</p>}
+        {st.sessions.map(s => (
+          <SessionLine key={s.id} s={s}>
+            {s.feedback_given ? <span className="state ok">dinilai</span>
+              : s.finished ? <Button className="sm" onClick={() => setFb(s)}>Beri penilaian</Button>
+                : testMode ? <button type="button" className="chip" onClick={() => act(() => api("/api/test/end", { session_id: s.id }))}>Anggap sudah selesai</button>
+                  : <span className="state wait">akan datang</span>}
+          </SessionLine>
+        ))}
+      </div>
 
       <h2 className="h2">Apakah LaFriend membantu?</h2>
       <ul className="metrics">

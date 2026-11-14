@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { api } from "./api.js";
-import { Button, Chips, FACTOR, Field, GOAL, Icon, Logo, MODE, Orb, Page, STYLE, WEEKDAYS, fmtDay, fmtSlot, spring } from "./ui.jsx";
+import { Button, Chips, Doodle, FACTOR, Field, GOAL, Icon, Logo, MODE, Orb, Page, STYLE, WEEKDAYS, fmtDay, fmtSlot, spring } from "./ui.jsx";
 
 export const Speech = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
 
@@ -24,26 +24,29 @@ function Pick({ st, onPick }) {
   const h = st.habits;
   const usual = [h.collaboration_style && STYLE[h.collaboration_style], h.learning_mode && MODE[h.learning_mode],
     h.group_size && `${h.group_size[0]}–${h.group_size[1]} orang`].filter(Boolean);
-  // Urutan tile: satu tinggi di kiri (cara utama), dua kecil di kanan
+  // Pola referensi: ilustrasi berwarna di atas, daftar pilihan di panel gelap di bawahnya
   const ways = [
-    ["chat", "Ngobrol dengan asisten", "Ceritakan dengan kalimatmu sendiri. Asisten menanyakan yang kurang.", "chat", "tall"],
+    ["chat", "Ngobrol dengan asisten", "Ceritakan dengan kalimatmu sendiri.", "chat", "lav"],
+    ["voice", "Bicara saja", Speech ? "Rekam, cek transkrip, kirim." : "Belum didukung browser ini.", "mic", "mint"],
     ["review", "Isi sendiri", "Form biasa, semua kamu pilih.", "form", "butter"],
-    ["voice", "Bicara saja", Speech ? "Rekam, cek transkrip, kirim." : "Belum didukung browser ini.", "mic", "dark"],
   ];
   return (
     <Page>
-      <h1 className="display sm">Mau belajar apa?</h1>
-      <p className="lead">Pilih cara yang paling enak. Semuanya berakhir di layar periksa sebelum disimpan.</p>
-      <div className="tiles">
-        {ways.map(([k, title, sub, icon, look]) => (
-          <button key={k} type="button" className={`tile ${look}`} onClick={() => onPick(k)} disabled={k === "voice" && !Speech}>
-            <span className="tile-ic"><Icon name={icon} size={22} /></span>
-            <span><strong>{title}</strong><small>{sub}</small></span>
-            {look === "tall" && <span className="go"><Icon name="arrow" size={18} /></span>}
-          </button>
-        ))}
+      <div className="art lav"><Doodle name="friends" /></div>
+      <div className="panel">
+        <h1 className="display sm">Mau belajar apa?</h1>
+        <p className="lead">Semua cara berakhir di layar periksa sebelum disimpan.</p>
+        <div className="ways">
+          {ways.map(([k, title, sub, icon, look]) => (
+            <button key={k} type="button" className="way" onClick={() => onPick(k)} disabled={k === "voice" && !Speech}>
+              <span className={`way-ic ${look}`}><Icon name={icon} size={22} /></span>
+              <span className="grow"><strong>{title}</strong><small>{sub}</small></span>
+              <Icon name="arrow" size={18} />
+            </button>
+          ))}
+        </div>
+        {usual.length > 0 && <p className="habit">Kebiasaanmu: <b>{usual.join(" · ")}</b>. Asisten akan menawarkannya.</p>}
       </div>
-      {usual.length > 0 && <p className="habit">Kebiasaanmu: <b>{usual.join(" · ")}</b>. Asisten akan menawarkannya.</p>}
     </Page>
   );
 }
@@ -66,6 +69,7 @@ function Chat({ st, act, onBack, onReview, onVoice }) {
 
   return (
     <Page>
+      <div className="chat-panel">
       <div className="chat-top">
         <button type="button" className="icon" onClick={onBack} aria-label="Kembali ke pilihan cara"><Icon name="back" size={20} /></button>
         <span className="chat-title"><Logo size={22} />Asisten LaFriend</span>
@@ -97,6 +101,7 @@ function Chat({ st, act, onBack, onReview, onVoice }) {
           : <button type="submit" className="icon send" disabled={!text.trim() || busy} aria-label="Kirim"><Icon name="send" size={20} /></button>}
       </form>
       {!c.done && c.messages.length > 0 && <button type="button" className="link center" onClick={onReview}>Lanjut isi di form saja</button>}
+      </div>
     </Page>
   );
 }
