@@ -84,6 +84,7 @@ function Shell({ st, act, tab, setTab, testMode, onTest, onOut }) {
     <div className="shell">
       <header className="top">
         <span className="brand"><Logo size={22} />LaFriend</span>
+        <p className="hello"><small>Halo,</small>{st.me.name}</p>
         {testMode && <span className="test-pill">Mode uji</span>}
         <button type="button" className="me-btn" onClick={() => setMe(true)} aria-label="Akun saya">{st.account.name[0]}</button>
       </header>
@@ -145,15 +146,11 @@ const IDEAS = [["Basis Data", "latihan soal SQL"], ["Algoritma dan Pemrograman",
 
 function Home({ st, act, go }) {
   const [to, title, sub, cta] = next(st);
-  const hour = new Date().getHours();
-  const hello = hour < 11 ? "Selamat pagi" : hour < 15 ? "Selamat siang" : hour < 19 ? "Selamat sore" : "Selamat malam";
   const upcoming = st.sessions.filter(s => !s.finished);
   const recs = st.intent?.status === "ACTIVE" ? st.recommendations : [];
   const start = (course, topic) => act(() => api("/api/assistant", { text: `${course}, ${topic}` })).then(ok => ok && go("belajar"));
   return (
     <Page>
-      <h1 className="display">Halo, {st.me.name}</h1>
-      <p className="lead">{hello}. Belajar bareng siapa hari ini?</p>
       <div className="tiles">
         <motion.button type="button" className="tile tall" onClick={() => go(to)} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
           <span className="next-label">Langkah berikutnya</span>
