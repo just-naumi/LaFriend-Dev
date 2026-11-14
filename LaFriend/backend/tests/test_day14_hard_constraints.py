@@ -606,31 +606,35 @@ def run_tests():
         f"Result: {common_prio}"
     )
 
-    # 7.6b Pasangan prioritas silang tidak boleh menghasilkan (1, 1) palsu
+    # 7.6b Pasangan prioritas silang tidak boleh menghasilkan (1, 1) palsu pada slot_key yang bertabrakan (deduplikasi riil)
     # Evaluasi minimax comparator:
     pair1 = (1, 3)
     pair2 = (3, 1)
     best_pair = min([pair1, pair2], key=lambda p: priority_pair_key(*p))
     report("Priority minimax: Memilih pasangan utuh tanpa membuat (1, 1) palsu", best_pair == (1, 3))
 
-    # Skenario jadwal: Mahasiswa A memiliki 2 slot (prio 1 & 3), Mahasiswa B memiliki 2 slot (prio 3 & 1)
-    # Slot 1: 10:00-12:00 -> A=1, B=3 -> (1, 3)
-    # Slot 2: 14:00-16:00 -> A=3, B=1 -> (3, 1)
-    # Tidak boleh ada slot yang tiba-tiba berubah jadi (1, 1)
+    # Skenario tabrakan irisan waktu riil 10:00–12:00:
+    # Kombinasi 1 (wa1 & wb1): 09:00-12:00 (prio 1) vs 10:00-13:00 (prio 3) -> irisan 10:00-12:00, prioritas (1, 3)
+    # Kombinasi 2 (wa2 & wb2): 10:00-13:00 (prio 3) vs 09:00-12:00 (prio 1) -> irisan 10:00-12:00, prioritas (3, 1)
+    # Kedua kombinasi bertabrakan di slot_key identik ("2026-11-20", "10:00", "12:00").
+    # Algoritma lama min(1, 3) & min(3, 1) akan membuat kombinasi palsu (1, 1).
+    # Algoritma minimax baru wajib mempertahankan salah satu pasangan asli: (1, 3) atau (3, 1), dan BUKAN (1, 1).
     w_cross_a = [
-        {"date": "2026-11-20", "start_time": "10:00", "end_time": "12:00", "priority": 1},
-        {"date": "2026-11-20", "start_time": "14:00", "end_time": "16:00", "priority": 3},
+        {"date": "2026-11-20", "start_time": "09:00", "end_time": "12:00", "priority": 1},
+        {"date": "2026-11-20", "start_time": "10:00", "end_time": "13:00", "priority": 3},
     ]
     w_cross_b = [
-        {"date": "2026-11-20", "start_time": "10:00", "end_time": "12:00", "priority": 3},
-        {"date": "2026-11-20", "start_time": "14:00", "end_time": "16:00", "priority": 1},
+        {"date": "2026-11-20", "start_time": "10:00", "end_time": "13:00", "priority": 3},
+        {"date": "2026-11-20", "start_time": "09:00", "end_time": "12:00", "priority": 1},
     ]
-    res_cross = find_common_schedule(w_cross_a, w_cross_b, min_duration=60)
-    all_pairs = [(s["priority_a"], s["priority_b"]) for s in res_cross]
+    results = find_common_schedule(w_cross_a, w_cross_b, min_duration=60)
+    target = next((item for item in results if item["start_time"] == "10:00" and item["end_time"] == "12:00"), None)
+    target_pair = (target["priority_a"], target["priority_b"]) if target else None
+
     report(
-        "Jadwal: Pasangan prioritas silang tidak menghasilkan (1, 1) palsu",
-        len(res_cross) == 2 and all_pairs == [(1, 3), (3, 1)] and (1, 1) not in all_pairs,
-        f"Result pairs: {all_pairs}"
+        "Jadwal: Tabrakan slot identik 10:00-12:00 mempertahankan pasangan asli dan menolak (1, 1) palsu",
+        target is not None and target_pair in {(1, 3), (3, 1)} and target_pair != (1, 1),
+        f"Target pair: {target_pair}"
     )
 
     # 7.7 Perlindungan floor minimal 60 menit (pemanggil tidak bisa menurunkan di bawah 60)
