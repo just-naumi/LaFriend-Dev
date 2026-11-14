@@ -394,14 +394,27 @@ def test_cosine_similarity():
 
 class MockEmbeddingService:
     """Mock service untuk pengujian unit Topic Similarity."""
-    def __init__(self, vector_map=None, should_fail=False, return_invalid=False):
+    def __init__(
+        self,
+        vector_map=None,
+        should_fail=False,
+        return_invalid=False,
+        return_value=None,
+        return_sequence=None
+    ):
         self.vector_map = vector_map or {}
         self.should_fail = should_fail
         self.return_invalid = return_invalid
+        self.return_value = return_value
+        self.return_sequence = list(return_sequence) if return_sequence is not None else None
 
     def get_embedding(self, text: str):
         if self.should_fail:
             raise RuntimeError("Embedding API timeout or service unavailable")
+        if self.return_sequence is not None and len(self.return_sequence) > 0:
+            return self.return_sequence.pop(0)
+        if self.return_value is not None:
+            return self.return_value
         if self.return_invalid:
             return [float("nan"), 0.5]  # Vector memuat NaN
         return self.vector_map.get(text, [0.5, 0.5, 0.5, 0.5])
@@ -432,13 +445,14 @@ def test_topic_similarity_end_to_end():
     det_cosine = calculate_topic_similarity_detailed("Binary Search Tree", "BST", embedding_service=svc_good)
     report("Topic Sim Detailed: Menandai metode COSINE", det_cosine["method"] == "COSINE")
 
-    # 10.3 Service melempar error -> Otomatis fallback ke Jaccard tanpa crash
+    # 10.3 Service melempar error -> Otomatis fallback ke Jaccard tanpa crash & pesan 'Service failure'
     svc_fail = MockEmbeddingService(should_fail=True)
     t_fallback = calculate_topic_similarity("QuickSort", "QuickSort Algorithm", embedding_service=svc_fail)
     report("Topic Sim: Service error otomatis fallback ke Jaccard", math.isclose(t_fallback, 0.50))
 
     det_fallback = calculate_topic_similarity_detailed("QuickSort", "QuickSort Algorithm", embedding_service=svc_fail)
     report("Topic Sim Detailed: Mencatat error penyebab fallback", det_fallback["method"] == "JACCARD_FALLBACK" and det_fallback["error"] is not None)
+    report("Topic Sim Detailed: Mencatat pesan 'Service failure'", "Service failure" in (det_fallback["error"] or ""))
     report("Topic Sim Detailed: Token A terurut deterministik", det_fallback["tokens_a"] == sorted(det_fallback["tokens_a"]))
     report("Topic Sim Detailed: Token B terurut deterministik", det_fallback["tokens_b"] == sorted(det_fallback["tokens_b"]))
 
@@ -456,6 +470,62 @@ def test_topic_similarity_end_to_end():
     svc_invalid = MockEmbeddingService(return_invalid=True)
     t_inv_fallback = calculate_topic_similarity("Linear Algebra", "Linear Algebra", embedding_service=svc_invalid)
     report("Topic Sim: Vector invalid otomatis fallback ke Jaccard", math.isclose(t_inv_fallback, 1.00))
+
+    # 10.6 Robustness: Service mengembalikan tipe non-sequence / non-vector (Audit P1 & P2)
+    # Kasus A: vec_a integer (123) dan vec_b list -> TIDAK crash len(123)
+    svc_int_a = MockEmbeddingService(return_sequence=[123, [0.1, 0.2]])
+    t_int_a = calculate_topic_similarity("Aljabar Linier", "Aljabar Linier", embedding_service=svc_int_a)
+    report("Topic Sim Robustness: vec_a integer (123) fallback ke Jaccard tanpa crash", math.isclose(t_int_a, 1.00))
+
+    svc_int_a_det = MockEmbeddingService(return_sequence=[123, [0.1, 0.2]])
+    det_int_a = calculate_topic_similarity_detailed("Aljabar Linier", "Aljabar Linier", embedding_service=svc_int_a_det)
+    report("Topic Sim Robustness Detailed: vec_a integer dicatat 'Invalid embedding vector'", "Invalid embedding vector" in (det_int_a["error"] or ""))
+
+    # Kasus B: vec_a list dan vec_b float (3.14) -> TIDAK crash
+    svc_float_b = MockEmbeddingService(return_sequence=[[0.1, 0.2], 3.14])
+    t_float_b = calculate_topic_similarity("Aljabar Linier", "Aljabar Linier", embedding_service=svc_float_b)
+    report("Topic Sim Robustness: vec_b float (3.14) fallback ke Jaccard tanpa crash", math.isclose(t_float_b, 1.00))
+
+    svc_float_b_det = MockEmbeddingService(return_sequence=[[0.1, 0.2], 3.14])
+    det_float_b = calculate_topic_similarity_detailed("Aljabar Linier", "Aljabar Linier", embedding_service=svc_float_b_det)
+    report("Topic Sim Robustness Detailed: vec_b float dicatat 'Invalid embedding vector'", "Invalid embedding vector" in (det_float_b["error"] or ""))
+
+    # Kasus C: Service mengembalikan dictionary
+    svc_dict = MockEmbeddingService(return_value={"dim": 1})
+    t_dict = calculate_topic_similarity("Aljabar Linier", "Aljabar Linier", embedding_service=svc_dict)
+    report("Topic Sim Robustness: Dictionary fallback ke Jaccard tanpa crash", math.isclose(t_dict, 1.00))
+
+    svc_dict_det = MockEmbeddingService(return_value={"dim": 1})
+    det_dict = calculate_topic_similarity_detailed("Aljabar Linier", "Aljabar Linier", embedding_service=svc_dict_det)
+    report("Topic Sim Robustness Detailed: Dictionary dicatat 'Invalid embedding vector'", "Invalid embedding vector" in (det_dict["error"] or ""))
+
+    # Kasus D: Service mengembalikan list kosong []
+    svc_empty = MockEmbeddingService(return_value=[])
+    t_empty = calculate_topic_similarity("Aljabar Linier", "Aljabar Linier", embedding_service=svc_empty)
+    report("Topic Sim Robustness: List kosong [] fallback ke Jaccard tanpa crash", math.isclose(t_empty, 1.00))
+
+    svc_empty_det = MockEmbeddingService(return_value=[])
+    det_empty = calculate_topic_similarity_detailed("Aljabar Linier", "Aljabar Linier", embedding_service=svc_empty_det)
+    report("Topic Sim Robustness Detailed: List kosong dicatat 'Invalid embedding vector'", "Invalid embedding vector" in (det_empty["error"] or ""))
+
+    # Kasus E: Service mengembalikan dimensi berbeda
+    svc_dim = MockEmbeddingService(return_sequence=[[0.1, 0.2], [0.1, 0.2, 0.3]])
+    t_dim = calculate_topic_similarity("Aljabar Linier", "Aljabar Linier", embedding_service=svc_dim)
+    report("Topic Sim Robustness: Dimensi berbeda fallback ke Jaccard tanpa crash", math.isclose(t_dim, 1.00))
+
+    svc_dim_det = MockEmbeddingService(return_sequence=[[0.1, 0.2], [0.1, 0.2, 0.3]])
+    det_dim = calculate_topic_similarity_detailed("Aljabar Linier", "Aljabar Linier", embedding_service=svc_dim_det)
+    report("Topic Sim Robustness Detailed: Dimensi berbeda dicatat 'Invalid embedding vector'", "Invalid embedding vector" in (det_dim["error"] or ""))
+
+    # Kasus F: Service mengembalikan string
+    svc_str = MockEmbeddingService(return_value="embedding_string")
+    t_str = calculate_topic_similarity("Aljabar Linier", "Aljabar Linier", embedding_service=svc_str)
+    report("Topic Sim Robustness: String fallback ke Jaccard tanpa crash", math.isclose(t_str, 1.00))
+
+    # Kasus G: Service mengembalikan None
+    svc_none = MockEmbeddingService(return_sequence=[[0.1, 0.2], None])
+    t_none = calculate_topic_similarity("Aljabar Linier", "Aljabar Linier", embedding_service=svc_none)
+    report("Topic Sim Robustness: Service return None fallback ke Jaccard tanpa crash", math.isclose(t_none, 1.00))
 
     # 10.6 Topik kosong -> Tetap raise ValueError (jangan disamakan dengan fallback)
     for bad_t in ["", "   ", None]:

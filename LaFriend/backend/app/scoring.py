@@ -537,14 +537,16 @@ def calculate_topic_similarity(
     - Validasi teks topik (wajib non-kosong, raise ValueError jika kosong).
     - Jika embedding_service tersedia dan menghasilkan vektor valid -> Cosine Similarity.
     - Error eksternal embedding_service (timeout, network, exception) dipisahkan secara ketat
-      dari error validasi internal sehingga aman melakukan fallback ke Jaccard.
-    - Fallback Jaccard diperkuat dengan kamus alias/singkatan teknis eksplisit.
+      dari validasi internal dan aman melakukan fallback ke Jaccard.
+    - Validasi vektor dilakukan secara bertahap (vec_a sebelum vec_b) untuk mencegah
+      TypeError pada len(vec_a) jika service mengembalikan objek non-sequence.
+    - Fallback Jaccard diperkuat dengan klaster sinonim teknis.
     """
     # 1. Validasi teks topik (wajib non-kosong, error tidak boleh disamarkan sebagai fallback)
     norm_a = normalize_topic_text(topic_a)
     norm_b = normalize_topic_text(topic_b)
 
-    # 2. Coba evaluasi embedding jika service disediakan
+    # 2. Coba ambil embedding jika service disediakan
     vec_a = None
     vec_b = None
     if embedding_service is not None:
@@ -556,14 +558,16 @@ def calculate_topic_similarity(
             vec_a = None
             vec_b = None
 
-    # 3. Jika embedding didapatkan dari service, validasi dan hitung cosine
+    # 3. Jika kedua vektor diperoleh dari service, validasi secara bertahap dan aman
     if vec_a is not None and vec_b is not None:
         valid_a, _ = validate_embedding_vector(vec_a)
-        valid_b, _ = validate_embedding_vector(vec_b, expected_dim=len(vec_a))
-        if valid_a and valid_b:
-            return calculate_cosine_similarity(vec_a, vec_b)
+        if valid_a:
+            # vec_a dijamin berupa list/tuple berdimensi > 0, sehingga len(vec_a) aman dipanggil
+            valid_b, _ = validate_embedding_vector(vec_b, expected_dim=len(vec_a))
+            if valid_b:
+                return calculate_cosine_similarity(vec_a, vec_b)
 
-    # 4. Fallback leksikal Jaccard Token Similarity (dengan ekspansi alias teknis)
+    # 4. Fallback leksikal Jaccard Token Similarity (dengan ekspansi klaster teknis)
     return calculate_jaccard_similarity(norm_a, norm_b)
 
 
@@ -576,6 +580,7 @@ def calculate_topic_similarity_detailed(
     Versi transparan dari calculate_topic_similarity yang mengembalikan detail
     metode yang digunakan (COSINE vs JACCARD_FALLBACK) beserta skornya.
     Token diurutkan (sorted) secara deterministik untuk kepastian pengujian.
+    Memisahkan pemanggilan service eksternal dari validasi vektor internal.
     """
     norm_a = normalize_topic_text(topic_a)
     norm_b = normalize_topic_text(topic_b)
@@ -584,26 +589,38 @@ def calculate_topic_similarity_detailed(
     vec_b = None
     fallback_err = None
 
+    # 1. Panggil service eksternal (diisolasi ketat dalam blok try/except)
     if embedding_service is not None:
         try:
             vec_a = embedding_service.get_embedding(norm_a)
             vec_b = embedding_service.get_embedding(norm_b)
-            valid_a, err_a = validate_embedding_vector(vec_a)
-            valid_b, err_b = validate_embedding_vector(vec_b, expected_dim=len(vec_a) if vec_a else None)
-            if valid_a and valid_b:
-                score = calculate_cosine_similarity(vec_a, vec_b)
-                return {
-                    "score": score,
-                    "method": "COSINE",
-                    "error": None
-                }
-            else:
-                fallback_err = err_a or err_b
         except Exception as e:
             fallback_err = f"Service failure: {str(e)}"
     else:
         fallback_err = "No embedding service provided"
 
+    # 2. Jika pemanggilan service tidak memicu exception, lakukan validasi bertahap di luar blok try-except
+    if fallback_err is None:
+        if vec_a is None or vec_b is None:
+            fallback_err = "Invalid embedding vector: Service returned None"
+        else:
+            valid_a, err_a = validate_embedding_vector(vec_a)
+            if not valid_a:
+                fallback_err = f"Invalid embedding vector: {err_a}"
+            else:
+                # vec_a terjamin berupa list/tuple non-kosong, aman memanggil len(vec_a)
+                valid_b, err_b = validate_embedding_vector(vec_b, expected_dim=len(vec_a))
+                if not valid_b:
+                    fallback_err = f"Invalid embedding vector: {err_b}"
+                else:
+                    score = calculate_cosine_similarity(vec_a, vec_b)
+                    return {
+                        "score": score,
+                        "method": "COSINE",
+                        "error": None
+                    }
+
+    # 3. Fallback leksikal Jaccard Token Similarity
     score = calculate_jaccard_similarity(norm_a, norm_b)
     return {
         "score": score,
