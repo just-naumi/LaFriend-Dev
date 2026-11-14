@@ -331,6 +331,30 @@ INDONESIAN_TOPIC_STOPWORDS = {
     "dengan", "yang", "untuk", "seputar", "mengenai", "dalam"
 }
 
+# Kelompok sinonim & singkatan teknis terkurasi untuk normalisasi klaster
+# Setiap anggota dalam klaster yang sama akan menghasilkan ekspansi token yang ekuivalen
+TECHNICAL_TOPIC_CLUSTERS = [
+    # Struktur Data & Algoritma
+    {"bst", "binary search tree"},
+    {"avl", "avl tree"},
+    {"bfs", "breadth first search"},
+    {"dfs", "depth first search"},
+    {"dp", "dynamic programming"},
+    {"dsa", "data structures and algorithms"},
+    {"oop", "pbo", "object oriented programming", "pemrograman berorientasi objek"},
+    # Mata Kuliah / Bidang Telkom University
+    {"alpro", "algoritma dan pemrograman", "algoritma pemrograman"},
+    {"matdis", "matematika diskrit"},
+    {"sismul", "sistem multimedia"},
+    {"jarkom", "jaringan komputer"},
+    {"os", "so", "operating system", "sistem operasi"},
+    {"bd", "basdat", "basis data", "database"},
+    {"ai", "artificial intelligence", "kecerdasan buatan"},
+    {"ml", "machine learning", "pembelajaran mesin"},
+    {"kalkulus 1", "kalkulus i"},
+    {"kalkulus 2", "kalkulus ii"},
+]
+
 
 def normalize_topic_text(text: Any) -> str:
     """
@@ -353,22 +377,40 @@ def normalize_topic_text(text: Any) -> str:
     return clean.lower()
 
 
-def tokenize_topic(text: Any, remove_stopwords: bool = True) -> set:
+def tokenize_topic(text: Any, remove_stopwords: bool = True, expand_aliases: bool = True) -> set:
     """
     Memecah teks topik menjadi kumpulan token (set of tokens).
     - Memisahkan berdasarkan tanda baca pemisah umum (koma, titik dua, tanda kurung, garis miring).
     - Mempertahankan istilah teknis dan singkatan seperti BFS, DFS, AVL, C++, OOP.
+    - Jika expand_aliases=True, memperluas singkatan dan sinonim teknis secara dua arah
+      (misal BST <-> Binary Search Tree) sehingga token sets keduanya identik saat Jaccard fallback.
     - Menyaring stop words umum jika kumpulan token yang tersisa tidak kosong.
     """
     norm = normalize_topic_text(text)
-    # Tokenizer yang ramah karakter teknis: mencakup alfanumerik, '+', '#', '.', '_'
+
+    # 1. Ekstrak token dasar
     raw_tokens = re.findall(r"[a-zA-Z0-9+#_]+(?:\.[a-zA-Z0-9+#_]+)*", norm)
-    
     tokens = set()
     for t in raw_tokens:
         clean_t = t.strip("-._")
         if clean_t:
             tokens.add(clean_t)
+
+    # 2. Ekspansi singkatan & sinonim teknis berbasis klaster ekuivalensi
+    if expand_aliases:
+        for cluster in TECHNICAL_TOPIC_CLUSTERS:
+            # Periksa apakah salah satu anggota klaster ada di dalam teks
+            matched = False
+            for term in cluster:
+                pattern = r'\b' + re.escape(term) + r'\b'
+                if re.search(pattern, norm):
+                    matched = True
+                    break
+            # Jika cocok, masukkan seluruh token penyusun dari seluruh anggota klaster
+            if matched:
+                for term in cluster:
+                    for sub_t in re.findall(r"[a-zA-Z0-9+#_]+", term):
+                        tokens.add(sub_t.lower())
 
     if remove_stopwords:
         filtered = {t for t in tokens if t not in INDONESIAN_TOPIC_STOPWORDS}
@@ -388,9 +430,10 @@ def calculate_jaccard_similarity(topic_a: Any, topic_b: Any) -> float:
     - Range [0.0, 1.0].
     - Token identik -> 1.00.
     - Tidak ada irisan -> 0.00.
+    - Mengenali singkatan teknis melalui kamus alias eksplisit.
     """
-    tokens_a = tokenize_topic(topic_a)
-    tokens_b = tokenize_topic(topic_b)
+    tokens_a = tokenize_topic(topic_a, expand_aliases=True)
+    tokens_b = tokenize_topic(topic_b, expand_aliases=True)
 
     if not tokens_a and not tokens_b:
         return 0.0
@@ -405,11 +448,12 @@ def calculate_jaccard_similarity(topic_a: Any, topic_b: Any) -> float:
 
 def validate_embedding_vector(vector: Any, expected_dim: Optional[int] = None) -> Tuple[bool, Optional[str]]:
     """
-    Memvalidasi kelayakan vektor embedding secara ketat:
+    Memvalidasi kelayakan vektor embedding secara ketat dan stabil secara numerik:
     - Harus berupa list atau tuple angka (float/int, bukan bool).
     - Tidak boleh kosong (panjang > 0).
     - Jika expected_dim diberikan, panjang vektor harus tepat sama.
     - Seluruh elemen harus finite (bukan NaN, bukan Infinity).
+    - Menggunakan math.hypot(*coords) untuk mencegah overflow numerik pada angka sangat besar.
     - Norm Euclidean harus positif (> 1e-9, bukan vektor nol).
 
     Mengembalikan: (is_valid: bool, error_reason: Optional[str])
@@ -426,15 +470,23 @@ def validate_embedding_vector(vector: Any, expected_dim: Optional[int] = None) -
     if expected_dim is not None and len(vector) != expected_dim:
         return False, f"Dimensi vector tidak cocok: diharapkan {expected_dim}, diterima {len(vector)}"
 
-    norm_sq = 0.0
+    float_vals = []
     for idx, val in enumerate(vector):
         if not isinstance(val, (int, float)) or isinstance(val, bool):
             return False, f"Elemen ke-{idx} bukan angka numerik: {type(val).__name__}"
         if not math.isfinite(val):
             return False, f"Elemen ke-{idx} tidak finite (NaN atau Infinity)"
-        norm_sq += float(val) ** 2
+        float_vals.append(float(val))
 
-    norm = math.sqrt(norm_sq)
+    # Perhitungan norm yang aman dari intermediate overflow
+    try:
+        norm = math.hypot(*float_vals)
+    except OverflowError:
+        return False, "Perhitungan norm mengalami overflow numerik"
+
+    if not math.isfinite(norm):
+        return False, "Norm vektor tidak finite"
+
     if norm < 1e-9:
         return False, "Norm vektor bernilai nol (vektor kosong/nol)"
 
@@ -443,10 +495,12 @@ def validate_embedding_vector(vector: Any, expected_dim: Optional[int] = None) -
 
 def calculate_cosine_similarity(vec_a: Any, vec_b: Any) -> float:
     """
-    Menghitung Cosine Similarity antara dua vektor embedding:
-    Cosine(u, v) = (u . v) / (||u|| * ||v||)
+    Menghitung Cosine Similarity antara dua vektor embedding secara stabil:
+    Cosine(u, v) = (u_hat . v_hat)
 
     Dibatasi pada rentang [0.0, 1.0].
+    Menggunakan normalisasi unit vector (u_hat) terlebih dahulu untuk mencegah
+    overflow pada dot product saat elemen vektor bernilai sangat besar.
     Melempar ValueError jika vektor tidak valid.
     """
     valid_a, err_a = validate_embedding_vector(vec_a)
@@ -457,16 +511,20 @@ def calculate_cosine_similarity(vec_a: Any, vec_b: Any) -> float:
     if not valid_b:
         raise ValueError(f"Vector B tidak valid: {err_b}")
 
-    dot_product = sum(float(a) * float(b) for a, b in zip(vec_a, vec_b))
-    norm_a = math.sqrt(sum(float(a) ** 2 for a in vec_a))
-    norm_b = math.sqrt(sum(float(b) ** 2 for b in vec_b))
+    vals_a = [float(a) for a in vec_a]
+    vals_b = [float(b) for b in vec_b]
+
+    norm_a = math.hypot(*vals_a)
+    norm_b = math.hypot(*vals_b)
 
     if norm_a < 1e-9 or norm_b < 1e-9:
         raise ValueError("Norm vektor tidak boleh nol")
 
-    raw_cos = dot_product / (norm_a * norm_b)
+    # Dot product dari unit vectors mencegah overflow numerik
+    dot_product = sum((a / norm_a) * (b / norm_b) for a, b in zip(vals_a, vals_b))
+
     # Batasi pada rentang [0.0, 1.0]
-    return max(0.0, min(1.0, float(raw_cos)))
+    return max(0.0, min(1.0, float(dot_product)))
 
 
 def calculate_topic_similarity(
@@ -478,26 +536,34 @@ def calculate_topic_similarity(
     Menghitung skor Topic Similarity T(A, B) dalam rentang [0.0, 1.0]:
     - Validasi teks topik (wajib non-kosong, raise ValueError jika kosong).
     - Jika embedding_service tersedia dan menghasilkan vektor valid -> Cosine Similarity.
-    - Jika embedding_service None, melempar exception, atau menghasilkan vektor tidak valid -> Fallback ke Jaccard.
+    - Error eksternal embedding_service (timeout, network, exception) dipisahkan secara ketat
+      dari error validasi internal sehingga aman melakukan fallback ke Jaccard.
+    - Fallback Jaccard diperkuat dengan kamus alias/singkatan teknis eksplisit.
     """
-    # 1. Validasi teks topik (wajib non-kosong)
+    # 1. Validasi teks topik (wajib non-kosong, error tidak boleh disamarkan sebagai fallback)
     norm_a = normalize_topic_text(topic_a)
     norm_b = normalize_topic_text(topic_b)
 
     # 2. Coba evaluasi embedding jika service disediakan
+    vec_a = None
+    vec_b = None
     if embedding_service is not None:
         try:
             vec_a = embedding_service.get_embedding(norm_a)
             vec_b = embedding_service.get_embedding(norm_b)
-            valid_a, _ = validate_embedding_vector(vec_a)
-            valid_b, _ = validate_embedding_vector(vec_b, expected_dim=len(vec_a) if vec_a else None)
-            if valid_a and valid_b:
-                return calculate_cosine_similarity(vec_a, vec_b)
         except Exception:
-            # Fallback jika terjadi error pada external service
-            pass
+            # Kegagalan service eksternal (API down, network error) mengaktifkan fallback
+            vec_a = None
+            vec_b = None
 
-    # 3. Fallback leksikal Jaccard Token Similarity
+    # 3. Jika embedding didapatkan dari service, validasi dan hitung cosine
+    if vec_a is not None and vec_b is not None:
+        valid_a, _ = validate_embedding_vector(vec_a)
+        valid_b, _ = validate_embedding_vector(vec_b, expected_dim=len(vec_a))
+        if valid_a and valid_b:
+            return calculate_cosine_similarity(vec_a, vec_b)
+
+    # 4. Fallback leksikal Jaccard Token Similarity (dengan ekspansi alias teknis)
     return calculate_jaccard_similarity(norm_a, norm_b)
 
 
@@ -509,9 +575,14 @@ def calculate_topic_similarity_detailed(
     """
     Versi transparan dari calculate_topic_similarity yang mengembalikan detail
     metode yang digunakan (COSINE vs JACCARD_FALLBACK) beserta skornya.
+    Token diurutkan (sorted) secara deterministik untuk kepastian pengujian.
     """
     norm_a = normalize_topic_text(topic_a)
     norm_b = normalize_topic_text(topic_b)
+
+    vec_a = None
+    vec_b = None
+    fallback_err = None
 
     if embedding_service is not None:
         try:
@@ -529,7 +600,7 @@ def calculate_topic_similarity_detailed(
             else:
                 fallback_err = err_a or err_b
         except Exception as e:
-            fallback_err = str(e)
+            fallback_err = f"Service failure: {str(e)}"
     else:
         fallback_err = "No embedding service provided"
 
@@ -538,8 +609,8 @@ def calculate_topic_similarity_detailed(
         "score": score,
         "method": "JACCARD_FALLBACK",
         "error": fallback_err,
-        "tokens_a": list(tokenize_topic(norm_a)),
-        "tokens_b": list(tokenize_topic(norm_b)),
+        "tokens_a": sorted(tokenize_topic(norm_a)),
+        "tokens_b": sorted(tokenize_topic(norm_b)),
     }
 
 

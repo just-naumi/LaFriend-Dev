@@ -255,8 +255,11 @@ def test_topic_normalization_and_tokenization():
             report(f"Topic Norm: Tolak input invalid ({bad_t})", True)
 
     # 6.3 Tokenisasi istilah teknis
-    tokens_bst = tokenize_topic("Binary Search Tree, AVL Tree")
-    report("Tokenize: Istilah teknis BST & AVL terpisah bersih", tokens_bst == {"binary", "search", "tree", "avl"})
+    tokens_raw = tokenize_topic("Binary Search Tree, AVL Tree", expand_aliases=False)
+    report("Tokenize: Istilah teknis BST & AVL terpisah bersih (tanpa ekspansi)", tokens_raw == {"binary", "search", "tree", "avl"})
+
+    tokens_bst = tokenize_topic("Binary Search Tree, AVL Tree", expand_aliases=True)
+    report("Tokenize: Istilah teknis BST & AVL mencakup singkatan bst", tokens_bst == {"binary", "search", "tree", "avl", "bst"})
 
     tokens_graph = tokenize_topic("Algoritma Graph: BFS dan DFS")
     report("Tokenize: Istilah BFS, DFS, Graph tidak hilang", {"graph", "bfs", "dfs"}.issubset(tokens_graph))
@@ -270,7 +273,7 @@ def test_topic_normalization_and_tokenization():
 
 
 def test_jaccard_similarity():
-    """Menguji perhitungan kemiripan leksikal Jaccard."""
+    """Menguji perhitungan kemiripan leksikal Jaccard termasuk pemahaman singkatan teknis."""
     print("\n--- SUITE 7: Jaccard Lexical Similarity ---")
 
     # 7.1 Identik -> 1.00
@@ -282,20 +285,37 @@ def test_jaccard_similarity():
     report("Jaccard: Topik tanpa irisan bernilai 0.00", math.isclose(j_disjoint, 0.00))
 
     # 7.3 Irisan parsial terukur akurat
-    # "Binary Search Tree" -> {"binary", "search", "tree"} (3)
+    # "Binary Search Tree" -> {"binary", "search", "tree", "bst"} (4)
     # "AVL Tree" -> {"avl", "tree"} (2)
-    # Irisan: {"tree"} (1), Union: {"binary", "search", "tree", "avl"} (4) -> 1/4 = 0.25
+    # Irisan: {"tree"} (1), Union: {"binary", "search", "tree", "bst", "avl"} (5) -> 1/5 = 0.20
     j_partial = calculate_jaccard_similarity("Binary Search Tree", "AVL Tree")
-    report("Jaccard: Irisan parsial 1/4 terhitung 0.25", math.isclose(j_partial, 0.25))
+    report("Jaccard: Irisan parsial 1/5 terhitung 0.20", math.isclose(j_partial, 0.20))
 
     # 7.4 Simetri J(A, B) == J(B, A)
     j_ab = calculate_jaccard_similarity("Pengurutan QuickSort dan MergeSort", "QuickSort Algorithm")
     j_ba = calculate_jaccard_similarity("QuickSort Algorithm", "Pengurutan QuickSort dan MergeSort")
     report("Jaccard: Simetris sempurna J(A, B) == J(B, A)", math.isclose(j_ab, j_ba))
 
+    # 7.5 Pemahaman singkatan dan sinonim teknis (P1 Audit)
+    report("Jaccard: 'BST' vs 'Binary Search Tree' == 1.00", math.isclose(calculate_jaccard_similarity("BST", "Binary Search Tree"), 1.00))
+    report("Jaccard: 'BFS' vs 'Breadth First Search' == 1.00", math.isclose(calculate_jaccard_similarity("BFS", "Breadth First Search"), 1.00))
+    report("Jaccard: 'DFS' vs 'Depth First Search' == 1.00", math.isclose(calculate_jaccard_similarity("DFS", "Depth First Search"), 1.00))
+    report("Jaccard: 'OOP' vs 'Object Oriented Programming' == 1.00", math.isclose(calculate_jaccard_similarity("OOP", "Object Oriented Programming"), 1.00))
+    report("Jaccard: 'Alpro' vs 'Algoritma dan Pemrograman' == 1.00", math.isclose(calculate_jaccard_similarity("Alpro", "Algoritma dan Pemrograman"), 1.00))
+
+    # 7.6 Topik berbeda dengan kata umum sama tidak boleh menghasilkan skor 1.00
+    j_bfs_dfs = calculate_jaccard_similarity("BFS", "DFS")
+    report("Jaccard: 'BFS' vs 'DFS' tidak bernilai 1.00 (terukur 0.33)", 0.0 < j_bfs_dfs < 1.0 and math.isclose(j_bfs_dfs, 1/3))
+
+    j_sorting_graph = calculate_jaccard_similarity("Algoritma Pemrograman Sorting", "Algoritma Pemrograman Graph")
+    report("Jaccard: 'Sorting' vs 'Graph' tidak bernilai 1.00 (terukur 0.60)", 0.0 < j_sorting_graph < 1.0 and math.isclose(j_sorting_graph, 0.60))
+
+    j_turunan_integral = calculate_jaccard_similarity("Kalkulus Turunan", "Kalkulus Integral")
+    report("Jaccard: 'Turunan' vs 'Integral' tidak bernilai 1.00 (terukur 0.33)", 0.0 < j_turunan_integral < 1.0 and math.isclose(j_turunan_integral, 1/3))
+
 
 def test_embedding_vector_validation():
-    """Menguji validasi ketat kelayakan vektor embedding."""
+    """Menguji validasi ketat kelayakan vektor embedding dan stabilitas numerik."""
     print("\n--- SUITE 8: Embedding Vector Validation ---")
 
     # 8.1 Vektor valid
@@ -332,6 +352,11 @@ def test_embedding_vector_validation():
     is_bool, _ = validate_embedding_vector([0.5, True])
     report("Vector Validation: Tolak elemen boolean", not is_bool)
 
+    # 8.7 Stabilitas numerik terhadap angka sangat besar (P2 Audit math.hypot)
+    v_large = [1e200, 2e200, 3e200]
+    is_large_ok, _ = validate_embedding_vector(v_large)
+    report("Vector Validation: Angka sangat besar (1e200) tervalidasi stabil tanpa overflow", is_large_ok)
+
 
 def test_cosine_similarity():
     """Menguji perhitungan Cosine Similarity antar vektor embedding."""
@@ -359,6 +384,12 @@ def test_cosine_similarity():
         report("Cosine: Tolak vektor beda dimensi", False, "Harusnya raise ValueError")
     except ValueError:
         report("Cosine: Tolak vektor beda dimensi", True)
+
+    # 9.6 Stabilitas numerik Cosine terhadap angka sangat besar (P2 Audit)
+    v_huge_a = [1e200, 2e200]
+    v_huge_b = [1e200, 2e200]
+    c_huge = calculate_cosine_similarity(v_huge_a, v_huge_b)
+    report("Cosine: Vektor raksasa (1e200) terhitung 1.00 tanpa OverflowError", math.isclose(c_huge, 1.00))
 
 
 class MockEmbeddingService:
@@ -408,13 +439,25 @@ def test_topic_similarity_end_to_end():
 
     det_fallback = calculate_topic_similarity_detailed("QuickSort", "QuickSort Algorithm", embedding_service=svc_fail)
     report("Topic Sim Detailed: Mencatat error penyebab fallback", det_fallback["method"] == "JACCARD_FALLBACK" and det_fallback["error"] is not None)
+    report("Topic Sim Detailed: Token A terurut deterministik", det_fallback["tokens_a"] == sorted(det_fallback["tokens_a"]))
+    report("Topic Sim Detailed: Token B terurut deterministik", det_fallback["tokens_b"] == sorted(det_fallback["tokens_b"]))
 
-    # 10.4 Service mengembalikan vector invalid (NaN) -> Otomatis fallback ke Jaccard
+    # 10.4 Fallback Jaccard mengenali singkatan teknis (P1 Audit)
+    # Kasus A: Tanpa embedding service
+    report("Topic Sim Fallback: 'BST' vs 'Binary Search Tree' == 1.00", math.isclose(calculate_topic_similarity("BST", "Binary Search Tree", embedding_service=None), 1.00))
+    report("Topic Sim Fallback: 'BFS' vs 'Breadth First Search' == 1.00", math.isclose(calculate_topic_similarity("BFS", "Breadth First Search", embedding_service=None), 1.00))
+    report("Topic Sim Fallback: 'DFS' vs 'Depth First Search' == 1.00", math.isclose(calculate_topic_similarity("DFS", "Depth First Search", embedding_service=None), 1.00))
+
+    # Kasus B: Saat service error/gagal
+    t_bst_svc_fail = calculate_topic_similarity("BST", "Binary Search Tree", embedding_service=svc_fail)
+    report("Topic Sim Fallback: 'BST' vs 'Binary Search Tree' tetap 1.00 saat service gagal", math.isclose(t_bst_svc_fail, 1.00))
+
+    # 10.5 Service mengembalikan vector invalid (NaN) -> Otomatis fallback ke Jaccard
     svc_invalid = MockEmbeddingService(return_invalid=True)
     t_inv_fallback = calculate_topic_similarity("Linear Algebra", "Linear Algebra", embedding_service=svc_invalid)
     report("Topic Sim: Vector invalid otomatis fallback ke Jaccard", math.isclose(t_inv_fallback, 1.00))
 
-    # 10.5 Topik kosong -> Tetap raise ValueError (jangan disamakan dengan fallback)
+    # 10.6 Topik kosong -> Tetap raise ValueError (jangan disamakan dengan fallback)
     for bad_t in ["", "   ", None]:
         try:
             calculate_topic_similarity(bad_t, "Kalkulus", embedding_service=svc_good)
