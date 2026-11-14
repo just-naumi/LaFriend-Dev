@@ -34,14 +34,12 @@ DAY_NAME_TO_WEEKDAY = {
 
 
 def parse_time_minutes(time_str: str) -> int:
-    """Mengubah format jam 'HH:MM' menjadi total menit dari tengah malam."""
+    """Mengubah format jam 'HH:MM' (wajib 2 digit jam dan 2 digit menit) menjadi total menit dari tengah malam."""
     clean = (time_str or "").strip()
-    match = re.match(r"^(\d{1,2}):(\d{2})$", clean)
+    match = re.match(r"^([01]\d|2[0-3]):([0-5]\d)$", clean)
     if not match:
-        raise ValueError(f"Format waktu '{time_str}' tidak valid, gunakan format HH:MM")
+        raise ValueError(f"Format waktu '{time_str}' tidak valid, gunakan format 2-digit HH:MM (contoh: 09:00 atau 14:00)")
     h, m = int(match.group(1)), int(match.group(2))
-    if not (0 <= h <= 23 and 0 <= m <= 59):
-        raise ValueError(f"Waktu '{time_str}' di luar rentang kalender valid (jam 00-23, menit 00-59)")
     return h * 60 + m
 
 
@@ -50,6 +48,22 @@ def format_time_minutes(minutes: int) -> str:
     h = (minutes // 60) % 24
     m = minutes % 60
     return f"{h:02d}:{m:02d}"
+
+
+def priority_pair_key(priority_a: int, priority_b: int) -> Tuple[int, int, int, int]:
+    """
+    Kriteria pemilihan pasangan prioritas jadwal terbaik secara holistik (bukan independen):
+    1. Minimalkan nilai prioritas terburuk (minimax: max(prio_a, prio_b)).
+    2. Minimalkan total prioritas (prio_a + prio_b).
+    3. Pemecah seri prioritas A, lalu prioritas B.
+    Peringkat angka lebih kecil = prioritas lebih tinggi (1 = Utama, 2 = Cadangan, 3 = Fleksibel).
+    """
+    return (
+        max(priority_a, priority_b),
+        priority_a + priority_b,
+        priority_a,
+        priority_b,
+    )
 
 
 # ==============================================================================
@@ -198,9 +212,15 @@ def find_common_schedule(windows_a: List[Dict[str, Any]], windows_b: List[Dict[s
                         "priority_b": prio_b
                     }
                 else:
-                    # Pertahankan prioritas terbaik (peringkat angka lebih kecil = prioritas lebih tinggi)
-                    slots_by_key[slot_key]["priority_a"] = min(slots_by_key[slot_key]["priority_a"], prio_a)
-                    slots_by_key[slot_key]["priority_b"] = min(slots_by_key[slot_key]["priority_b"], prio_b)
+                    # Pertahankan pasangan prioritas asli terbaik secara utuh (holistik, bukan independen)
+                    old_pair = (
+                        slots_by_key[slot_key]["priority_a"],
+                        slots_by_key[slot_key]["priority_b"]
+                    )
+                    new_pair = (prio_a, prio_b)
+                    if priority_pair_key(*new_pair) < priority_pair_key(*old_pair):
+                        slots_by_key[slot_key]["priority_a"] = prio_a
+                        slots_by_key[slot_key]["priority_b"] = prio_b
 
     return list(slots_by_key.values())
 

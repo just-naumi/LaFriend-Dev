@@ -43,6 +43,7 @@ from app.matching import (
     resolve_availability_windows,
     calculate_overlap_minutes,
     find_common_schedule,
+    priority_pair_key,
     is_learning_mode_compatible,
     is_group_capacity_compatible,
     calculate_session_occupied_capacity,
@@ -537,15 +538,15 @@ def run_tests():
     # ---------------------------------------------------------
     print("\n--- SUITE 7: Edge Case Hardening (Temuan Audit) ---")
 
-    # 7.1 parse_time_minutes validasi jam 00-23 dan menit 00-59
+    # 7.1 parse_time_minutes validasi jam 00-23 dan menit 00-59 (format ketat HH:MM 2-digit)
     report("parse_time: Jam valid 09:30 dikonversi ke 570", parse_time_minutes("09:30") == 570)
     report("parse_time: Jam valid 23:59 dikonversi ke 1439", parse_time_minutes("23:59") == 1439)
-    for bad_t in ["24:00", "25:00", "12:60", "12:75", "99:99", "-01:00", "abc"]:
+    for bad_t in ["9:00", "24:00", "25:00", "12:60", "12:75", "99:99", "-01:00", "abc"]:
         try:
             parse_time_minutes(bad_t)
-            report(f"parse_time: Tolak jam/menit di luar batas ({bad_t})", False, "Should raise ValueError")
+            report(f"parse_time: Tolak jam/menit di luar batas/format ({bad_t})", False, "Should raise ValueError")
         except ValueError:
-            report(f"parse_time: Tolak jam/menit di luar batas ({bad_t})", True)
+            report(f"parse_time: Tolak jam/menit di luar batas/format ({bad_t})", True)
 
     # 7.2 is_group_capacity_compatible validasi seluruh rentang
     report("Kapasitas: Tolak rentang asal yang melanggar batas (2, 99, 2, 4)", is_group_capacity_compatible(2, 99, 2, 4) is False)
@@ -603,6 +604,33 @@ def run_tests():
         "Jadwal: Pertahankan prioritas terbaik (prio 1) saat deduplikasi slot",
         len(common_prio) == 1 and common_prio[0]["priority_a"] == 1 and common_prio[0]["priority_b"] == 1,
         f"Result: {common_prio}"
+    )
+
+    # 7.6b Pasangan prioritas silang tidak boleh menghasilkan (1, 1) palsu
+    # Evaluasi minimax comparator:
+    pair1 = (1, 3)
+    pair2 = (3, 1)
+    best_pair = min([pair1, pair2], key=lambda p: priority_pair_key(*p))
+    report("Priority minimax: Memilih pasangan utuh tanpa membuat (1, 1) palsu", best_pair == (1, 3))
+
+    # Skenario jadwal: Mahasiswa A memiliki 2 slot (prio 1 & 3), Mahasiswa B memiliki 2 slot (prio 3 & 1)
+    # Slot 1: 10:00-12:00 -> A=1, B=3 -> (1, 3)
+    # Slot 2: 14:00-16:00 -> A=3, B=1 -> (3, 1)
+    # Tidak boleh ada slot yang tiba-tiba berubah jadi (1, 1)
+    w_cross_a = [
+        {"date": "2026-11-20", "start_time": "10:00", "end_time": "12:00", "priority": 1},
+        {"date": "2026-11-20", "start_time": "14:00", "end_time": "16:00", "priority": 3},
+    ]
+    w_cross_b = [
+        {"date": "2026-11-20", "start_time": "10:00", "end_time": "12:00", "priority": 3},
+        {"date": "2026-11-20", "start_time": "14:00", "end_time": "16:00", "priority": 1},
+    ]
+    res_cross = find_common_schedule(w_cross_a, w_cross_b, min_duration=60)
+    all_pairs = [(s["priority_a"], s["priority_b"]) for s in res_cross]
+    report(
+        "Jadwal: Pasangan prioritas silang tidak menghasilkan (1, 1) palsu",
+        len(res_cross) == 2 and all_pairs == [(1, 3), (3, 1)] and (1, 1) not in all_pairs,
+        f"Result pairs: {all_pairs}"
     )
 
     # 7.7 Perlindungan floor minimal 60 menit (pemanggil tidak bisa menurunkan di bawah 60)
