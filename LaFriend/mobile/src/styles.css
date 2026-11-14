@@ -110,16 +110,20 @@ textarea { resize: vertical; min-height: 96px; }
 .hello { min-width: 0; margin: 0; font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .me-btn { width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--butter); color: var(--butter-ink); font-weight: 700; }
 /* bar menempel di bawah, mic bulat naik sedikit di atas bar (lekukan) */
-.tabs { position: fixed; z-index: 20; left: 50%; bottom: 0; transform: translateX(-50%); width: min(520px, 100%); height: calc(var(--tabs) + env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(4, 1fr); padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); border-radius: 26px 26px 0 0; background: var(--surface); box-shadow: 0 -10px 30px -18px rgba(22, 21, 27, .35), inset 0 1px 0 var(--line); }
-.tabs button { position: relative; border: 0; background: none; border-radius: 20px; display: grid; place-content: center; justify-items: center; gap: 1px; font-size: 12px; font-weight: 600; color: var(--faint); isolation: isolate; }
-.tabs button[aria-current] { color: var(--lav-ink); }
-.tab-bg { position: absolute; inset: 0; border-radius: inherit; background: var(--lav-2); z-index: -1; animation: tab-in .22s ease-out; }
+.tabs { position: fixed; z-index: 20; left: 50%; bottom: 0; transform: translateX(-50%); width: min(520px, 100%); height: calc(var(--tabs) + env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(4, 1fr); padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); border-radius: 26px 26px 0 0; background: var(--dark); box-shadow: 0 -10px 30px -18px rgba(22, 21, 27, .35); }
+.tabs button { position: relative; border: 0; background: none; border-radius: 20px; display: grid; place-content: center; justify-items: center; gap: 1px; font-size: 12px; font-weight: 600; color: var(--on-dark-2); isolation: isolate; }
+/* tab aktif memakai warna ilustrasi tab itu */
+.tabs button[aria-current] { color: var(--ink); }
+.tab-bg { position: absolute; inset: 0; border-radius: inherit; background: var(--lav); z-index: -1; animation: tab-in .22s ease-out; }
 @keyframes tab-in { from { transform: scale(.8); opacity: 0; } }
 .tab-icon { display: grid; place-items: center; }
 .tabs { grid-template-columns: repeat(5, 1fr); }
 .tab-mic { border: 0; background: none; display: grid; place-items: center; }
-.tab-mic span { display: grid; place-items: center; width: 62px; height: 62px; margin-top: -30px; border-radius: 50%; border: 5px solid var(--bg); box-sizing: content-box; background: var(--mint-ink); color: var(--mint); transition: transform .15s ease; }
-.tab-mic:disabled span { background: var(--soft); color: var(--faint); }
+.tab-mic span { display: grid; place-items: center; width: 62px; height: 62px; margin-top: -30px; border-radius: 50%; border: 5px solid var(--bg); box-sizing: content-box; background: var(--mint); color: var(--mint-ink); transition: transform .15s ease; }
+.tab-mic:disabled span { background: var(--dark-2); color: var(--on-dark-2); }
+[data-tab=beranda] .tab-bg { background: var(--butter); }
+[data-tab=kelompok] .tab-bg { background: var(--mint); }
+[data-tab=hasil] .tab-bg { background: var(--coral); }
 .ic { display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .badge { position: absolute; top: 4px; right: calc(50% - 22px); min-width: 18px; height: 18px; border-radius: 9px; background: var(--pink-ink); color: #fff; font-size: 11px; display: grid; place-items: center; }
 

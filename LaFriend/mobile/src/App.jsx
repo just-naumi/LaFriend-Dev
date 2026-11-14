@@ -100,7 +100,7 @@ function Shell({ st, act, tab, setTab, testMode, onTest, onOut }) {
                 <span><Icon name="mic" size={28} /></span>
               </button>
             )}
-            <button type="button" aria-current={tab === k ? "page" : undefined} onClick={() => { setVoice(0); setTab(k); }}>
+            <button type="button" data-tab={k} aria-current={tab === k ? "page" : undefined} onClick={() => { setVoice(0); setTab(k); }}>
               {/* bukan motion layoutId: itu menahan animasi keluar Shell sehingga tombol Keluar macet setelah pindah tab */}
               {tab === k && <span className="tab-bg" />}
               <span className="tab-icon"><Icon name={icon} /></span>
