@@ -483,7 +483,12 @@ async function initDashboardPage() {
     const html = `
       <div class="chat-bubble-wrap bot" id="botTypingIndicator">
         <div class="bot-typing-dots">
-          <span></span><span></span><span></span>
+          <div class="d-flex align-items-center gap-1">
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+          </div>
+          <span class="bot-typing-label">Sedang membaca kebutuhan belajarmu...</span>
         </div>
       </div>
     `;

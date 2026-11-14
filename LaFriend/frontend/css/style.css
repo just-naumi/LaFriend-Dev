@@ -1423,6 +1423,7 @@ body {
   margin-top: 4px;
   padding: 0 4px;
 }
+}
 
 .chat-bubble-wrap.user .chat-time {
   text-align: right;
@@ -1497,25 +1498,34 @@ body {
 .bot-typing-dots {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 8px 12px;
+  gap: 5px;
+  padding: 10px 14px;
   background: #FFFFFF;
   border: 1px solid #E2E8F0;
-  border-radius: 14px;
+  border-radius: 16px;
   width: fit-content;
   border-bottom-left-radius: 4px;
+  box-shadow: 0 2px 8px -2px rgba(15, 23, 42, 0.05);
 }
 
-.bot-typing-dots span {
+.bot-typing-dots .dot {
   width: 6px;
   height: 6px;
-  background: #A78BFA;
+  background: #8B5CF6;
   border-radius: 50%;
   animation: typing-bounce 1.4s infinite ease-in-out both;
 }
 
-.bot-typing-dots span:nth-child(1) { animation-delay: -0.32s; }
-.bot-typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+.bot-typing-dots .dot:nth-child(1) { animation-delay: -0.32s; }
+.bot-typing-dots .dot:nth-child(2) { animation-delay: -0.16s; }
+.bot-typing-dots .dot:nth-child(3) { animation-delay: 0s; }
+
+.bot-typing-label {
+  font-size: 0.78rem;
+  color: #64748B;
+  font-weight: 500;
+  margin-left: 6px;
+}
 
 @keyframes typing-bounce {
   0%, 80%, 100% { transform: scale(0); }

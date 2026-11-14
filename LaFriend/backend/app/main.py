@@ -9,6 +9,7 @@
 # 5. Menyajikan file antarmuka (Frontend HTML, CSS, JS) langsung ke browser.
 # ==============================================================================
 
+import threading
 from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
@@ -20,6 +21,16 @@ from fastapi.responses import FileResponse
 from app.database import engine, Base, SessionLocal
 from app.models import Student, Course
 from app.routes import api_router, hash_password
+from app.extraction import get_gliner_model
+
+def warmup_ai_model():
+    """Memuat bobot GLiNER ke RAM saat startup agar respons chat pertama tidak delay/cold-start."""
+    try:
+        print(">> [Warmup] Memuat model NLP AI GLiNER ke memori RAM...")
+        get_gliner_model()
+        print(">> [Warmup] Model NLP AI GLiNER siap digunakan (warm state).")
+    except Exception as e:
+        print(f">> [Warmup] Catatan pemuatan model AI: {e}")
 
 
 # ==============================================================================
@@ -129,6 +140,9 @@ async def lifespan(app: FastAPI):
         seed_data_awal(db)
     finally:
         db.close()
+
+    # 3. Warm-up model NLP AI GLiNER di background agar inferensi chat langsung instan (tanpa cold-start lag)
+    threading.Thread(target=warmup_ai_model, daemon=True).start()
 
     yield  # Server berjalan melayani permintaan pengguna
 
