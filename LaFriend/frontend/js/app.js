@@ -259,122 +259,13 @@ async function initDashboardPage() {
   await loadDashboardIntents();
   await loadDashboardCourses();
 
-  // Set sapaan nama pengguna di bubble bot chatbot
-  const chatBotGreetingName = document.getElementById("chatBotGreetingName");
-  if (chatBotGreetingName && user.full_name) {
-    chatBotGreetingName.innerText = user.full_name.split(" ")[0];
-  }
-
   // Elemen Header & Input Search
-  const dashboardHeader = document.getElementById("dashboardHeader");
   const aiNeedInput = document.getElementById("aiNeedInput");
   const btnHeaderVoice = document.getElementById("btnHeaderVoice");
   const btnDashboardAiSubmit = document.getElementById("btnDashboardAiSubmit");
 
-  // Elemen Chatbot View Minimalis
-  const chatbotView = document.getElementById("chatbotView");
-  const btnCollapseChat = document.getElementById("btnCollapseChat");
-  const btnResetChat = document.getElementById("btnResetChat");
-  const chatMessagesList = document.getElementById("chatMessagesList");
-  const voiceLiveIndicator = document.getElementById("voiceLiveIndicator");
-  const voiceStatusText = document.getElementById("voiceStatusText");
-  const chatInputText = document.getElementById("chatInputText");
-  const btnChatVoice = document.getElementById("btnChatVoice");
-  const btnChatSend = document.getElementById("btnChatSend");
-
   // ==============================================================
-  // TRANSISI MINIMALIS: SEARCH TURUN KE BAWAH NGEBENTUK CHATBOT
-  // ==============================================================
-  function openChatbot(initialText = "", startListening = false) {
-    // Sembunyikan total header ungu atas agar tidak ada search bar ganda
-    if (dashboardHeader) {
-      dashboardHeader.classList.add("d-none");
-    }
-    if (chatbotView) {
-      chatbotView.classList.remove("d-none");
-      chatbotView.classList.remove("slide-down-anim");
-      // trigger reflow
-      void chatbotView.offsetWidth;
-      chatbotView.classList.add("slide-down-anim");
-    }
-
-    if (initialText && chatInputText) {
-      chatInputText.value = initialText;
-    }
-    if (chatInputText) {
-      chatInputText.focus();
-    }
-    if (startListening) {
-      startVoiceRecognition();
-    }
-    scrollChatToBottom();
-  }
-
-  function closeChatbot() {
-    if (chatbotView) {
-      chatbotView.classList.add("d-none");
-    }
-    // Tampilkan kembali header ungu beranda saat chat ditutup
-    if (dashboardHeader) {
-      dashboardHeader.classList.remove("d-none");
-    }
-    stopVoiceRecognition();
-  }
-
-  function scrollChatToBottom() {
-    if (chatMessagesList) {
-      setTimeout(() => {
-        chatMessagesList.scrollTop = chatMessagesList.scrollHeight;
-      }, 50);
-    }
-  }
-
-  // Saat pengguna klik/fokus pada search bar di header, langsung turun ngebentuk chatbot
-  if (aiNeedInput) {
-    aiNeedInput.addEventListener("focus", () => {
-      openChatbot(aiNeedInput.value.trim(), false);
-    });
-
-    aiNeedInput.addEventListener("click", () => {
-      openChatbot(aiNeedInput.value.trim(), false);
-    });
-
-    aiNeedInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        const text = aiNeedInput.value.trim();
-        openChatbot(text, false);
-        if (text) {
-          handleSendChatMessage(text);
-        }
-      }
-    });
-  }
-
-  if (btnDashboardAiSubmit) {
-    btnDashboardAiSubmit.addEventListener("click", () => {
-      const text = aiNeedInput ? aiNeedInput.value.trim() : "";
-      openChatbot(text, false);
-      if (text) {
-        handleSendChatMessage(text);
-      }
-    });
-  }
-
-  // Tombol Voice di Header
-  if (btnHeaderVoice) {
-    btnHeaderVoice.addEventListener("click", () => {
-      const text = aiNeedInput ? aiNeedInput.value.trim() : "";
-      openChatbot(text, true);
-    });
-  }
-
-  if (btnCollapseChat) {
-    btnCollapseChat.addEventListener("click", closeChatbot);
-  }
-
-  // ==============================================================
-  // SPEECH RECOGNITION (VOICE INPUT BAHASA INDONESIA)
+  // SPEECH RECOGNITION (VOICE INPUT BAHASA INDONESIA PADA SEARCH BAR)
   // ==============================================================
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   let recognition = null;
@@ -404,9 +295,9 @@ async function initDashboardPage() {
       recognition.onstart = () => {
         isListening = true;
         if (btnHeaderVoice) btnHeaderVoice.classList.add("listening");
-        if (btnChatVoice) btnChatVoice.classList.add("listening");
-        if (voiceLiveIndicator) voiceLiveIndicator.classList.remove("d-none");
-        if (voiceStatusText) voiceStatusText.innerText = "Mendengarkan... Silakan berbicara";
+        if (aiNeedInput) {
+          aiNeedInput.placeholder = "Mendengarkan suara... Silakan berbicara...";
+        }
       };
 
       recognition.onresult = (e) => {
@@ -420,9 +311,8 @@ async function initDashboardPage() {
           }
         }
         const transcript = (final || interim).trim();
-        if (transcript) {
-          if (chatInputText) chatInputText.value = transcript;
-          if (aiNeedInput) aiNeedInput.value = transcript;
+        if (transcript && aiNeedInput) {
+          aiNeedInput.value = transcript;
         }
       };
 
@@ -448,196 +338,48 @@ async function initDashboardPage() {
   function stopVoiceRecognition() {
     isListening = false;
     if (btnHeaderVoice) btnHeaderVoice.classList.remove("listening");
-    if (btnChatVoice) btnChatVoice.classList.remove("listening");
-    if (voiceLiveIndicator) voiceLiveIndicator.classList.add("d-none");
+    if (aiNeedInput) {
+      aiNeedInput.placeholder = "Ceritakan kebutuhan belajarmu ke AI...";
+    }
     if (recognition) {
       try { recognition.stop(); } catch (e) {}
       recognition = null;
     }
   }
 
-  if (btnChatVoice) {
-    btnChatVoice.addEventListener("click", toggleVoiceRecognition);
+  if (btnHeaderVoice) {
+    btnHeaderVoice.addEventListener("click", toggleVoiceRecognition);
   }
 
   // ==============================================================
-  // LOGIKA CHATBOT MINIMALIS (PURE TEXT)
+  // PROSES PENCARIAN & SUBMIT PROMPT KE TIMELINE + FORM INTENT
   // ==============================================================
-  function appendUserBubble(text) {
-    if (!chatMessagesList) return;
-    const timeNow = new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
-    const html = `
-      <div class="chat-bubble-wrap user">
-        <div class="chat-bubble user">${escapeHtml(text)}</div>
-        <div class="chat-time">${timeNow}</div>
-      </div>
-    `;
-    chatMessagesList.insertAdjacentHTML("beforeend", html);
-  }
-
-  function showTypingIndicator() {
-    if (!chatMessagesList) return;
-    const existing = document.getElementById("botTypingIndicator");
-    if (existing) existing.remove();
-
-    const html = `
-      <div class="chat-bubble-wrap bot" id="botTypingIndicator">
-        <div class="bot-typing-dots">
-          <div class="d-flex align-items-center gap-1">
-            <span class="dot"></span>
-            <span class="dot"></span>
-            <span class="dot"></span>
-          </div>
-          <span class="bot-typing-label">Sedang membaca kebutuhan belajarmu...</span>
-        </div>
-      </div>
-    `;
-    chatMessagesList.insertAdjacentHTML("beforeend", html);
-  }
-
-  function removeTypingIndicator() {
-    const el = document.getElementById("botTypingIndicator");
-    if (el) el.remove();
-  }
-
-  // Helper global untuk navigasi ke form intent dengan membawa data AI
-  window.proceedToIntentForm = function(dataStr, originalPrompt) {
-    sessionStorage.setItem("lafriend_ai_extraction_result", decodeURIComponent(dataStr));
-    sessionStorage.setItem("lafriend_ai_prompt", decodeURIComponent(originalPrompt));
-    window.location.href = "create-intent.html";
-  };
-
-  function appendBotReplyWithExtraction(res, rawText) {
-    if (!chatMessagesList) return;
-    const timeNow = new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
-
-    const hasCourse = Boolean(res.course_id || res.course_name);
-    const hasTopic = Boolean(res.topics && res.topics.trim());
-    const hasSched = Boolean(res.availabilities && res.availabilities.length > 0);
-    const hasMode = Boolean(res.learning_mode || res.physical_location || res.online_platform);
-
-    let replyText = "";
-    if (hasCourse) {
-      const cName = res.course_name || res.course_id;
-      let details = [];
-      if (hasTopic) details.push(`topik <strong>${escapeHtml(res.topics)}</strong>`);
-      if (hasMode) {
-        let m = res.learning_mode === "ONLINE" ? "secara Online" : res.learning_mode === "OFFLINE" ? "secara Offline" : "Fleksibel";
-        if (res.physical_location) m += ` di ${escapeHtml(res.physical_location)}`;
-        if (res.online_platform) m += ` via ${escapeHtml(res.online_platform)}`;
-        details.push(m);
-      }
-      if (hasSched) {
-        const sDesc = res.availabilities.map(s => {
-          const time = (s.start_time && s.end_time) ? `${s.start_time}–${s.end_time}` : (s.start_time || 'waktu fleksibel');
-          return `${s.day_or_date} (${time})`;
-        }).join(", ");
-        details.push(`jadwal <strong>${escapeHtml(sDesc)}</strong>`);
-      }
-
-      const detailStr = details.length > 0 ? ` untuk ${details.join(", ")}` : "";
-      replyText = `Oke, aku catat: kamu mau belajar <strong>${escapeHtml(cName)}</strong>${detailStr}.`;
-    } else {
-      replyText = `Aku sudah membaca pesanmu. Coba sebutkan mata kuliah yang ingin kamu pelajari (misal: Kalkulus, Struktur Data, atau Basis Data).`;
-    }
-
-    const dataEncoded = encodeURIComponent(JSON.stringify(res));
-    const promptEncoded = encodeURIComponent(rawText);
-
-    let actionButtonHtml = "";
-    if (hasCourse || hasTopic || hasSched) {
-      actionButtonHtml = `
-        <div style="margin-top: 10px;">
-          <button type="button" class="btn-open-intent-form" onclick="proceedToIntentForm('${dataEncoded}', '${promptEncoded}')">
-            Buka Formulir Study Intent &raquo;
-          </button>
-        </div>
-      `;
-    }
-
-    const html = `
-      <div class="chat-bubble-wrap bot">
-        <div class="chat-bubble bot">
-          ${replyText}
-          ${actionButtonHtml}
-        </div>
-        <div class="chat-time">${timeNow}</div>
-      </div>
-    `;
-    chatMessagesList.insertAdjacentHTML("beforeend", html);
-  }
-
-  function appendBotBubble(message) {
-    if (!chatMessagesList) return;
-    const timeNow = new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
-    const html = `
-      <div class="chat-bubble-wrap bot">
-        <div class="chat-bubble bot">${message}</div>
-        <div class="chat-time">${timeNow}</div>
-      </div>
-    `;
-    chatMessagesList.insertAdjacentHTML("beforeend", html);
-  }
-
-  async function handleSendChatMessage(customText = null) {
-    const text = (customText ?? (chatInputText ? chatInputText.value : "")).trim();
-    if (!text) return;
-
-    if (chatInputText) chatInputText.value = "";
-    if (aiNeedInput) aiNeedInput.value = "";
+  async function submitAiPrompt() {
     stopVoiceRecognition();
-
-    appendUserBubble(text);
-    scrollChatToBottom();
-
-    showTypingIndicator();
-    scrollChatToBottom();
-
-    try {
-      const res = await app.request("/study-intents/extract-ai", {
-        method: "POST",
-        body: JSON.stringify({ raw_text: text })
-      });
-
-      removeTypingIndicator();
-      appendBotReplyWithExtraction(res, text);
-    } catch (err) {
-      console.error("Gagal ekstraksi AI chat:", err);
-      removeTypingIndicator();
-      appendBotBubble("Maaf, terjadi kendala saat menghubungkan model AI. Kamu tetap bisa membuka <a href='create-intent.html' class='fw-bold text-primary'>formulir Study Intent</a> langsung.");
+    const promptText = aiNeedInput ? aiNeedInput.value.trim() : "";
+    if (!promptText) {
+      window.location.href = "create-intent.html";
+      return;
     }
-    scrollChatToBottom();
+    await runAiTimelineLoader(promptText);
   }
 
-  if (btnChatSend) {
-    btnChatSend.addEventListener("click", () => handleSendChatMessage());
+  if (btnDashboardAiSubmit) {
+    btnDashboardAiSubmit.addEventListener("click", submitAiPrompt);
   }
 
-  if (chatInputText) {
-    chatInputText.addEventListener("keydown", (e) => {
+  if (aiNeedInput) {
+    aiNeedInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        handleSendChatMessage();
+        submitAiPrompt();
       }
     });
-  }
 
-  // Reset Chat
-  if (btnResetChat) {
-    btnResetChat.addEventListener("click", () => {
-      if (confirm("Mulai ulang percakapan dengan asisten?")) {
-        if (chatMessagesList) {
-          const uName = user.full_name ? user.full_name.split(" ")[0] : "Andi";
-          chatMessagesList.innerHTML = `
-            <div class="chat-bubble-wrap bot">
-              <div class="chat-bubble bot">
-                Halo ${escapeHtml(uName)}! Mau belajar apa dan kapan kamu ada waktu kosong? Ketik pesanmu atau tekan mic di samping untuk bicara langsung.
-              </div>
-              <div class="chat-time">Baru saja</div>
-            </div>
-          `;
-        }
-      }
+    // Tetap dukung filter intent lokal jika pengguna mengetik kata kunci singkat
+    aiNeedInput.addEventListener("input", (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      filterDashboardItems(q);
     });
   }
 
