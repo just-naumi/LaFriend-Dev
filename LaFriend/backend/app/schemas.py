@@ -303,3 +303,291 @@ class ChatExtractionResponse(BaseModel):
     message: str = "Informasi berhasil diproses dengan aman"
 
 
+# ==============================================================================
+# 5. SKEMA UNTUK MATCHING ENGINE & STUDY SESSION (DAY 13)
+# ==============================================================================
+
+# --- A. SKEMA JADWAL SESI (SessionSlot) ---
+class SessionSlotCreate(BaseModel):
+    session_date: str          # Format: YYYY-MM-DD
+    start_time: str            # Format: HH:MM
+    end_time: str              # Format: HH:MM
+    status: str = "PROPOSED"   # PROPOSED, APPROVED, REJECTED, SUPERSEDED
+
+    @field_validator("session_date")
+    @classmethod
+    def validate_slot_date(cls, value: str) -> str:
+        clean = (value or "").strip()
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", clean):
+            raise ValueError(f"Format tanggal '{value}' tidak valid. Gunakan YYYY-MM-DD")
+        try:
+            datetime.strptime(clean, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError(f"Tanggal '{value}' tidak valid dalam kalender")
+        return clean
+
+    @field_validator("start_time", "end_time")
+    @classmethod
+    def validate_slot_time(cls, value: str) -> str:
+        clean = (value or "").strip()
+        if not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", clean):
+            raise ValueError(f"Format jam '{value}' tidak valid. Gunakan format JJ:MM")
+        return clean
+
+    @field_validator("status")
+    @classmethod
+    def validate_slot_status(cls, value: str) -> str:
+        clean = (value or "").strip().upper()
+        valid_statuses = {"PROPOSED", "APPROVED", "REJECTED", "SUPERSEDED"}
+        if clean not in valid_statuses:
+            raise ValueError(f"Status slot '{value}' tidak valid. Pilihan: {', '.join(sorted(valid_statuses))}")
+        return clean
+
+    @model_validator(mode="after")
+    def validate_slot_time_range(self):
+        if self.start_time and self.end_time:
+            if self.start_time >= self.end_time:
+                raise ValueError(f"Jam selesai ({self.end_time}) harus lebih besar daripada jam mulai ({self.start_time})")
+        return self
+
+
+class SessionSlotResponse(BaseModel):
+    slot_id: str
+    session_id: str
+    session_date: str
+    start_time: str
+    end_time: str
+    status: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- B. SKEMA ANGGOTA SESI (SessionMember) ---
+class SessionMemberCreate(BaseModel):
+    student_id: str
+    role: str = "MEMBER"       # HOST, MEMBER
+    status: str = "INVITED"    # INVITED, ACCEPTED, CONFIRMED, DECLINED, WITHDRAWN, REMOVED
+
+    @field_validator("role")
+    @classmethod
+    def validate_member_role(cls, value: str) -> str:
+        clean = (value or "").strip().upper()
+        if clean not in {"HOST", "MEMBER"}:
+            raise ValueError("Role anggota harus 'HOST' atau 'MEMBER'")
+        return clean
+
+    @field_validator("status")
+    @classmethod
+    def validate_member_status(cls, value: str) -> str:
+        clean = (value or "").strip().upper()
+        valid_statuses = {"INVITED", "ACCEPTED", "CONFIRMED", "DECLINED", "WITHDRAWN", "REMOVED"}
+        if clean not in valid_statuses:
+            raise ValueError(f"Status anggota '{value}' tidak valid. Pilihan: {', '.join(sorted(valid_statuses))}")
+        return clean
+
+
+class SessionMemberResponse(BaseModel):
+    member_id: str
+    session_id: str
+    student_id: str
+    role: str
+    status: str
+    joined_at: datetime
+    student: Optional[StudentResponse] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- C. SKEMA SESI BELAJAR (StudySession) ---
+class StudySessionCreate(BaseModel):
+    course_id: str
+    title: str
+    description: Optional[str] = None
+    learning_goal: str = "UNDERSTAND"
+    collaboration_style: str = "DISCUSSION"
+    learning_mode: str = "OFFLINE"
+    location: Optional[str] = None
+    min_group_size: int = 2
+    max_group_size: int = 4
+    status: str = "DRAFT"
+    slots: List[SessionSlotCreate] = []
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        clean = (value or "").strip()
+        if not clean:
+            raise ValueError("Judul sesi belajar tidak boleh kosong")
+        return clean
+
+    @field_validator("learning_goal")
+    @classmethod
+    def validate_session_goal(cls, value: str) -> str:
+        clean = (value or "").strip().upper()
+        valid_goals = {"UNDERSTAND", "PRACTICE", "EXAM_PREP", "ASSIGNMENT", "DISCUSSION", "KNOWLEDGE_SHARING"}
+        if clean not in valid_goals:
+            raise ValueError(f"learning_goal '{value}' tidak valid. Pilihan: {', '.join(sorted(valid_goals))}")
+        return clean
+
+    @field_validator("collaboration_style")
+    @classmethod
+    def validate_session_style(cls, value: str) -> str:
+        clean = (value or "").strip().upper()
+        valid_styles = {"DISCUSSION", "PRACTICE", "TEACHING", "FOCUS_STUDY"}
+        if clean not in valid_styles:
+            raise ValueError(f"collaboration_style '{value}' tidak valid. Pilihan: {', '.join(sorted(valid_styles))}")
+        return clean
+
+    @field_validator("learning_mode")
+    @classmethod
+    def validate_session_mode(cls, value: str) -> str:
+        clean = (value or "").strip().upper()
+        valid_modes = {"OFFLINE", "ONLINE", "HYBRID"}
+        if clean not in valid_modes:
+            raise ValueError(f"learning_mode '{value}' tidak valid. Pilihan: {', '.join(sorted(valid_modes))}")
+        return clean
+
+    @field_validator("status")
+    @classmethod
+    def validate_session_status(cls, value: str) -> str:
+        clean = (value or "").strip().upper()
+        valid_statuses = {"DRAFT", "OPEN", "CONFIRMATION_PENDING", "CONFIRMED", "COMPLETED", "CANCELLED", "EXPIRED"}
+        if clean not in valid_statuses:
+            raise ValueError(f"status sesi '{value}' tidak valid. Pilihan: {', '.join(sorted(valid_statuses))}")
+        return clean
+
+    @model_validator(mode="after")
+    def validate_session_group_size(self):
+        if self.min_group_size < 2:
+            raise ValueError("Ukuran kelompok minimal adalah 2 orang")
+        if self.max_group_size < self.min_group_size:
+            raise ValueError(f"Ukuran kelompok minimal ({self.min_group_size}) tidak boleh melebihi maksimal ({self.max_group_size})")
+        return self
+
+
+class StudySessionResponse(BaseModel):
+    session_id: str
+    host_id: str
+    course_id: str
+    title: str
+    description: Optional[str] = None
+    learning_goal: str
+    collaboration_style: str
+    learning_mode: str
+    location: Optional[str] = None
+    min_group_size: int
+    max_group_size: int
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    course: Optional[CourseResponse] = None
+    slots: List[SessionSlotResponse] = []
+    members: List[SessionMemberResponse] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- D. SKEMA UNDANGAN & PERMINTAAN (Invitation) ---
+class InvitationCreate(BaseModel):
+    invitation_type: str       # JOIN_SESSION, PARTNER_INVITE
+    recipient_id: str
+    session_id: Optional[str] = None
+    target_intent_id: Optional[str] = None
+    message: Optional[str] = None
+
+    @field_validator("invitation_type")
+    @classmethod
+    def validate_invite_type(cls, value: str) -> str:
+        clean = (value or "").strip().upper()
+        if clean not in {"JOIN_SESSION", "PARTNER_INVITE"}:
+            raise ValueError("invitation_type harus 'JOIN_SESSION' atau 'PARTNER_INVITE'")
+        return clean
+
+    @model_validator(mode="after")
+    def validate_invite_target(self):
+        if self.invitation_type == "JOIN_SESSION" and not self.session_id:
+            raise ValueError("Undangan tipe 'JOIN_SESSION' wajib menyertakan session_id")
+        if self.invitation_type == "PARTNER_INVITE" and not self.target_intent_id:
+            raise ValueError("Undangan tipe 'PARTNER_INVITE' wajib menyertakan target_intent_id")
+        return self
+
+
+class InvitationResponse(BaseModel):
+    invitation_id: str
+    invitation_type: str
+    sender_id: str
+    recipient_id: str
+    session_id: Optional[str] = None
+    target_intent_id: Optional[str] = None
+    status: str
+    message: Optional[str] = None
+    created_at: datetime
+    responded_at: Optional[datetime] = None
+    sender: Optional[StudentResponse] = None
+    recipient: Optional[StudentResponse] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- E. SKEMA HASIL PENCOCOKAN (MatchResult) ---
+class MatchBreakdown(BaseModel):
+    topic_similarity: float
+    goal_compatibility: float
+    style_compatibility: float
+    date_preference: float
+    mode_compatibility: float
+
+
+class MatchResultCreate(BaseModel):
+    intent_id: str
+    candidate_type: str       # SESSION, PARTNER
+    candidate_session_id: Optional[str] = None
+    target_intent_id: Optional[str] = None
+    compatibility_score: float
+    breakdown: MatchBreakdown
+    explanation: Optional[str] = None
+
+    @field_validator("candidate_type")
+    @classmethod
+    def validate_candidate_type(cls, value: str) -> str:
+        clean = (value or "").strip().upper()
+        if clean not in {"SESSION", "PARTNER"}:
+            raise ValueError("candidate_type harus 'SESSION' atau 'PARTNER'")
+        return clean
+
+    @field_validator("compatibility_score")
+    @classmethod
+    def validate_score(cls, value: float) -> float:
+        if not (0.0 <= value <= 100.0):
+            raise ValueError(f"compatibility_score ({value}) harus berada di rentang 0.0 sampai 100.0")
+        return value
+
+    @model_validator(mode="after")
+    def validate_single_target(self):
+        if self.candidate_type == "SESSION":
+            if not self.candidate_session_id:
+                raise ValueError("Untuk candidate_type 'SESSION', candidate_session_id wajib diisi")
+            if self.target_intent_id:
+                raise ValueError("Untuk candidate_type 'SESSION', target_intent_id tidak boleh diisi")
+        elif self.candidate_type == "PARTNER":
+            if not self.target_intent_id:
+                raise ValueError("Untuk candidate_type 'PARTNER', target_intent_id wajib diisi")
+            if self.candidate_session_id:
+                raise ValueError("Untuk candidate_type 'PARTNER', candidate_session_id tidak boleh diisi")
+        return self
+
+
+class MatchResultResponse(BaseModel):
+    match_id: str
+    intent_id: str
+    candidate_type: str
+    candidate_session_id: Optional[str] = None
+    target_intent_id: Optional[str] = None
+    compatibility_score: float
+    breakdown_json: str
+    explanation: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
