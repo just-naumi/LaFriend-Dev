@@ -110,7 +110,9 @@ textarea { resize: vertical; min-height: 96px; }
 .hello { min-width: 0; margin: 0; font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .me-btn { width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--butter); color: var(--butter-ink); font-weight: 700; }
 /* bar menempel di bawah, mic bulat naik sedikit di atas bar (lekukan) */
-.tabs { position: fixed; z-index: 20; left: 50%; bottom: 0; transform: translateX(-50%); width: min(520px, 100%); height: calc(var(--tabs) + env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(4, 1fr); padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); border-radius: 26px 26px 0 0; background: var(--dark); box-shadow: 0 -10px 30px -18px rgba(22, 21, 27, .35); }
+.tabs { position: fixed; z-index: 20; left: 50%; bottom: 0; transform: translateX(-50%); width: min(520px, 100%); height: calc(var(--tabs) + env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(4, 1fr); padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); border-radius: 26px 26px 0 0; }
+/* latar bar dilubangi di sekitar mic (pusat mic 21px dari atas bar, jari-jari 31px + celah 6px), jadi halaman terlihat di celah */
+.tabs::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: var(--dark); -webkit-mask: radial-gradient(circle at 50% 21px, transparent 37px, #000 37.5px); mask: radial-gradient(circle at 50% 21px, transparent 37px, #000 37.5px); }
 .tabs button { position: relative; border: 0; background: none; border-radius: 20px; display: grid; place-content: center; justify-items: center; gap: 1px; font-size: 12px; font-weight: 600; color: var(--on-dark-2); isolation: isolate; }
 /* tab aktif memakai warna ilustrasi tab itu */
 .tabs button[aria-current] { color: var(--ink); }
