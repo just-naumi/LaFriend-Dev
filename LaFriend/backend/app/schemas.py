@@ -245,6 +245,8 @@ class StudyIntentCreate(BaseModel):
             raise ValueError("Ukuran kelompok minimal adalah 2 orang")
         if self.max_group_size < self.min_group_size:
             raise ValueError(f"Ukuran kelompok minimal ({self.min_group_size}) tidak boleh melebihi ukuran maksimal ({self.max_group_size})")
+        if self.max_group_size > 10:
+            raise ValueError(f"Ukuran kelompok maksimal ({self.max_group_size}) tidak boleh melebihi 10 orang")
 
         return self
 
@@ -462,6 +464,8 @@ class StudySessionCreate(BaseModel):
             raise ValueError("Ukuran kelompok minimal adalah 2 orang")
         if self.max_group_size < self.min_group_size:
             raise ValueError(f"Ukuran kelompok minimal ({self.min_group_size}) tidak boleh melebihi maksimal ({self.max_group_size})")
+        if self.max_group_size > 10:
+            raise ValueError(f"Ukuran kelompok maksimal ({self.max_group_size}) tidak boleh melebihi 10 orang")
         return self
 
 

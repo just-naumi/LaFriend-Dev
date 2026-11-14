@@ -143,6 +143,10 @@ def calculate_overlap_minutes(start_a: str, end_a: str, start_b: str, end_b: str
     except ValueError:
         return 0, None, None
 
+    # Penanganan jadwal tidak valid atau melewati tengah malam (end <= start)
+    if sa_min >= ea_min or sb_min >= eb_min:
+        return 0, None, None
+
     overlap_start = max(sa_min, sb_min)
     overlap_end = min(ea_min, eb_min)
     overlap_duration = max(0, overlap_end - overlap_start)
@@ -161,8 +165,10 @@ def find_common_schedule(windows_a: List[Dict[str, Any]], windows_b: List[Dict[s
     Aturan Day 14:
     - Jadwal dibandingkan strictly per tanggal kalender yang sama.
     - Irisan minimal harus >= 60 menit.
+    - Slot identik pada tanggal dan jam yang sama di-deduplikasi otomatis.
     """
     common_slots: List[Dict[str, Any]] = []
+    seen_slots = set()
 
     for wa in windows_a:
         for wb in windows_b:
@@ -176,14 +182,17 @@ def find_common_schedule(windows_a: List[Dict[str, Any]], windows_b: List[Dict[s
             )
 
             if duration >= min_duration and overlap_start and overlap_end:
-                common_slots.append({
-                    "date": wa["date"],
-                    "start_time": overlap_start,
-                    "end_time": overlap_end,
-                    "duration_minutes": duration,
-                    "priority_a": wa.get("priority", 1),
-                    "priority_b": wb.get("priority", 1)
-                })
+                slot_key = (wa["date"], overlap_start, overlap_end)
+                if slot_key not in seen_slots:
+                    seen_slots.add(slot_key)
+                    common_slots.append({
+                        "date": wa["date"],
+                        "start_time": overlap_start,
+                        "end_time": overlap_end,
+                        "duration_minutes": duration,
+                        "priority_a": wa.get("priority", 1),
+                        "priority_b": wb.get("priority", 1)
+                    })
 
     return common_slots
 
@@ -222,11 +231,13 @@ def is_learning_mode_compatible(mode1: str, mode2: str) -> Tuple[bool, Optional[
 # ==============================================================================
 def is_group_capacity_compatible(min1: int, max1: int, min2: int, max2: int) -> bool:
     """
-    Memeriksa apakah rentang kapasitas kelompok kedua intent beririsan.
+    Memeriksa apakah rentang kapasitas kelompok kedua intent beririsan dan dalam batas wajar [2..10].
     Rumus: max(min1, min2) <= min(max1, max2)
     """
     effective_min = max(int(min1), int(min2))
     effective_max = min(int(max1), int(max2))
+    if effective_min < 2 or effective_max > 10:
+        return False
     return effective_min <= effective_max
 
 
