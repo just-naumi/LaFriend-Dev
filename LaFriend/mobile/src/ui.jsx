@@ -130,13 +130,28 @@ export function Sheet({ open, onClose, title, children }) {
   );
 }
 
-export function Orb({ active, size = 180 }) {
+// Wajah garis di bola suara. Tiap suasana punya bentuk mata, alis, dan mulut sendiri,
+// dengan perintah path yang sama supaya motion bisa berubah bentuk dengan halus.
+const FACES = {
+  calm: { bg: "#bfead6", eyeL: "M66 94Q76 102 86 94", eyeR: "M114 94Q124 102 134 94", browL: "M64 78Q75 74 86 78", browR: "M114 78Q125 74 136 78", brow: 0, mouth: "M80 126Q100 140 120 126" },
+  listen: { bg: "#a9d6f5", eyeL: "M76 88Q76 94 76 100", eyeR: "M124 88Q124 94 124 100", browL: "M64 74Q75 66 86 72", browR: "M114 72Q125 66 136 74", brow: 1, mouth: "M90 128Q100 138 110 128" },
+  happy: { bg: "#9fe3bf", eyeL: "M66 96Q76 84 86 96", eyeR: "M114 96Q124 84 134 96", browL: "M64 76Q75 70 86 76", browR: "M114 76Q125 70 136 76", brow: 0, mouth: "M72 120Q100 156 128 120" },
+  angry: { bg: "#f4a59b", eyeL: "M70 96Q77 100 84 96", eyeR: "M116 96Q123 100 130 96", browL: "M64 74Q75 78 88 86", browR: "M112 86Q125 78 136 74", brow: 1, mouth: "M80 138Q100 122 120 138" },
+};
+export function Orb({ mood = "calm", size = 180 }) {
   const reduce = useReducedMotion();
+  const f = FACES[mood];
+  const t = reduce ? { duration: 0 } : { duration: 0.35, ease: "easeInOut" };
+  const live = mood === "listen" && !reduce;
   return (
-    <motion.div className={`orb${active ? " live" : ""}`} style={{ width: size, height: size }} aria-hidden="true"
-      animate={active && !reduce ? { scale: [1, 1.08, 0.97, 1.05, 1], rotate: [0, 8, -6, 4, 0] } : { scale: 1 }}
-      transition={active ? { duration: 2.4, repeat: Infinity, ease: "easeInOut" } : spring}>
-      <i className="orb-core" /><i className="orb-shine" />
+    <motion.div className={`orb ${mood}`} style={{ width: size, height: size }} aria-hidden="true"
+      animate={{ backgroundColor: f.bg, ...(live ? { scale: [1, 1.05, 0.98, 1.03, 1] } : mood === "angry" && !reduce ? { x: [0, -6, 6, -4, 4, 0] } : { scale: 1, x: 0 }) }}
+      transition={live ? { duration: 2.2, repeat: Infinity, ease: "easeInOut", backgroundColor: t } : { ...t, x: { duration: 0.4 } }}>
+      <svg className="face" viewBox="0 0 200 200">
+        <path d="M92 40q6-14 18-8t2 16" />
+        {["eyeL", "eyeR", "mouth"].map(k => <motion.path key={k} initial={false} animate={{ d: f[k] }} transition={t} />)}
+        {["browL", "browR"].map(k => <motion.path key={k} initial={false} animate={{ d: f[k], opacity: f.brow }} transition={t} />)}
+      </svg>
     </motion.div>
   );
 }

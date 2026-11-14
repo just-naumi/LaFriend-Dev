@@ -216,10 +216,10 @@ textarea { resize: vertical; min-height: 96px; }
 /* Suara: lingkaran pastel seperti ilustrasi referensi Self-care */
 .voice { display: grid; justify-items: center; gap: 14px; padding: 16px 0 24px; text-align: center; }
 .orb-btn { border: 0; background: none; padding: 0; border-radius: 50%; }
-.orb { position: relative; border-radius: 50%; background: var(--mint); }
-.orb.live { background: var(--pink); box-shadow: 0 0 0 14px rgba(245, 201, 228, .45), 0 0 0 30px rgba(245, 201, 228, .2); }
-.orb-core { position: absolute; inset: 30%; border-radius: 50%; border: 3px solid var(--ink); border-top-color: transparent; transform: rotate(-30deg); }
-.orb-shine { display: none; }
+.orb { position: relative; border-radius: 50%; display: grid; place-items: center; transition: box-shadow .35s ease; }
+.orb.listen { box-shadow: 0 0 0 14px rgba(169, 214, 245, .45), 0 0 0 30px rgba(169, 214, 245, .2); }
+.orb.angry { box-shadow: 0 0 0 12px rgba(244, 165, 155, .35); }
+.face { width: 100%; fill: none; stroke: var(--ink); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
 .voice-state { color: var(--muted); max-width: 30ch; margin: 0; }
 .interim { color: var(--lav-ink); font-style: italic; margin: 0; }
 

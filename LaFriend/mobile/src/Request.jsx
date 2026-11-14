@@ -138,7 +138,7 @@ function Voice({ act, onBack, onSent }) {
       <button type="button" className="back" onClick={onBack}>← Cara lain</button>
       <div className="voice">
         <button type="button" className="orb-btn" onClick={toggle} aria-pressed={listening} aria-label={listening ? "Berhenti merekam" : "Mulai merekam"}>
-          <Orb active={listening} />
+          <Orb mood={err ? "angry" : listening ? "listen" : final ? "happy" : "calm"} />
         </button>
         <p className="voice-state" aria-live="polite">{listening ? "Mendengarkan… ketuk bola untuk berhenti" : final ? "Cek transkripnya, ubah kalau ada yang salah" : "Ketuk bola, lalu ceritakan mau belajar apa dan kapan kosong"}</p>
         {interim && <p className="interim">{interim}</p>}
