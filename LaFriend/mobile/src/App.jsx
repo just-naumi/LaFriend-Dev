@@ -85,7 +85,6 @@ function Shell({ st, act, tab, setTab, testMode, onTest, onOut }) {
       <header className="top">
         <span className="brand"><Logo size={22} />LaFriend</span>
         <p className="hello"><small>Halo,</small>{st.me.name}</p>
-        {testMode && <span className="test-pill">Mode uji</span>}
         <button type="button" className="me-btn" onClick={() => setMe(true)} aria-label="Akun saya">{st.account.name[0]}</button>
       </header>
       <main className="view" id="view">

@@ -113,7 +113,6 @@ textarea { resize: vertical; min-height: 96px; }
 .brand .logo { width: 30px !important; height: 30px !important; border-radius: 50%; background: var(--ink); color: var(--on-dark); font-size: 22px !important; }
 .hello { display: grid; min-width: 0; margin: 0; font-weight: 700; font-size: 15px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hello small { font-size: 12px; font-weight: 500; color: var(--muted); }
-.test-pill { white-space: nowrap; font-size: 12px; font-weight: 600; color: var(--mint-ink); background: var(--mint); padding: 4px 10px; border-radius: 999px; }
 .me-btn { margin-left: auto; width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--butter); color: var(--butter-ink); font-weight: 700; }
 .tabs { position: fixed; z-index: 20; left: 50%; bottom: max(12px, env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(520px, calc(100% - 24px)); height: var(--tabs); display: grid; grid-template-columns: repeat(4, 1fr); padding: 8px; border-radius: 28px; background: rgba(255, 255, 255, .92); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: 0 16px 36px -18px rgba(22, 21, 27, .35), inset 0 0 0 1px var(--line); }
 .tabs button { position: relative; border: 0; background: none; border-radius: 20px; display: grid; place-content: center; justify-items: center; gap: 1px; font-size: 12px; font-weight: 600; color: var(--faint); isolation: isolate; }
