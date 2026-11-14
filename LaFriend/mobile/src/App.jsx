@@ -68,6 +68,7 @@ export default function App() {
 function Shell({ st, act, tab, setTab, testMode, onTest, onOut }) {
   const [me, setMe] = useState(false);
   const [voice, setVoice] = useState(0); // >0: tab Belajar dibuka langsung di layar suara lewat tombol mic
+  const micOn = voice > 0 && tab === "belajar";
   const f = st.formation;
   const badge = {
     kelompok: f && ((f.status === "DRAFT" && f.my_invite_pending) || (f.status === "CONFIRMATION_PENDING" && f.my_approval == null)) ? 1 : 0,
@@ -90,19 +91,20 @@ function Shell({ st, act, tab, setTab, testMode, onTest, onOut }) {
       <main className="view" id="view">
         <AnimatePresence mode="wait"><div key={tab}>{screens[tab]}</div></AnimatePresence>
       </main>
-      <nav className="tabs" aria-label="Menu utama">
+      {/* mic yang menyala, bukan tab Belajar, saat layar suara dibuka lewat mic */}
+      <nav className={`tabs${micOn ? " mic-on" : ""}`} aria-label="Menu utama">
         {TABS.map(([k, name, icon], i) => (
           <Fragment key={k}>
             {/* mic di tengah navbar supaya pengguna tahu permintaan bisa lewat suara */}
             {i === 2 && (
-              <button type="button" className="tab-mic" aria-label="Bicara: buat permintaan belajar dengan suara"
+              <button type="button" className="tab-mic" aria-current={micOn ? "page" : undefined} aria-label="Bicara: buat permintaan belajar dengan suara"
                 disabled={!Speech || !!st.intent} onClick={() => { setVoice(v => v + 1); setTab("belajar"); }}>
                 <span><Icon name="mic" size={28} /></span>
               </button>
             )}
-            <button type="button" data-tab={k} aria-current={tab === k ? "page" : undefined} onClick={() => { setVoice(0); setTab(k); }}>
+            <button type="button" data-tab={k} aria-current={tab === k && !(micOn && k === "belajar") ? "page" : undefined} onClick={() => { setVoice(0); setTab(k); }}>
               {/* bukan motion layoutId: itu menahan animasi keluar Shell sehingga tombol Keluar macet setelah pindah tab */}
-              {tab === k && <span className="tab-bg" />}
+              {tab === k && !(micOn && k === "belajar") && <span className="tab-bg" />}
               <span className="tab-icon"><Icon name={icon} /></span>
               <span>{name}</span>
               {badge[k] > 0 && <b className="badge" aria-label={`${badge[k]} menunggu`}>{badge[k]}</b>}
