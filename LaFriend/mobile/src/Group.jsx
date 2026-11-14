@@ -19,6 +19,22 @@ export function Group({ st, act, go, testMode }) {
           {!upcoming.length && <p className="lead">{st.intent ? "Belum ada kelompok. Bentuk dari daftar teman yang cocok." : "Buat permintaan belajar dulu, lalu bentuk kelompok dari teman yang cocok."}</p>}
           <Button kind={upcoming.length ? "ghost" : "primary"} onClick={() => go("belajar")}>{st.intent ? "Lihat teman yang cocok" : "Buat permintaan"}</Button>
         </div>
+        {/* layar kosong tetap berisi: alur pembentukan kelompok, langkah yang sudah lewat ditandai */}
+        {!upcoming.length && <>
+          <h2 className="h2">Cara kelompok terbentuk</h2>
+          <ol className="steps">
+            {[
+              ["Buat permintaan belajar", "Mata kuliah, materi, dan jam kosongmu.", !!st.intent],
+              ["Pilih teman yang cocok", "Skor kecocokan dan alasannya ditampilkan.", false],
+              ["Semua setuju jadwal", "Sesi terbentuk setelah tiap anggota menyetujui.", false],
+            ].map(([t, d, done], i) => (
+              <motion.li key={t} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 + i * 0.12 }}>
+                <span className={`step-n c${i + 1}`}>{done ? "✓" : i + 1}</span>
+                <span className="grow"><strong>{t}</strong><small>{done ? "Sudah kamu lakukan." : d}</small></span>
+              </motion.li>
+            ))}
+          </ol>
+        </>}
       </Page>
     );
   }
