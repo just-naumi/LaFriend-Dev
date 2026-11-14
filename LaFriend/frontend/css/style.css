@@ -1208,24 +1208,6 @@ body {
    CHATBOT & VOICE ASSISTANT STYLING (INTERAKTIF & HUMAN-CENTRIC)
    ============================================================== */
 
-/* Transisi Header Menjadi Compact Saat Chat Aktif */
-.purple-header {
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.purple-header.compact {
-  padding: 14px 18px 14px 18px;
-}
-
-.purple-header.compact .user-profile-header,
-.purple-header.compact .header-tagline-wrap {
-  display: none !important;
-}
-
-.purple-header.compact .header-ai-prompt-box {
-  margin-top: 0;
-}
-
 /* Tombol Mic di Header */
 .btn-voice-header {
   width: 32px;
@@ -1285,17 +1267,17 @@ body {
   height: 100%;
   flex: 1;
   overflow: hidden;
-  background: #FFFFFF;
+  background: #F8FAFC;
 }
 
 .chatbot-view-wrap.slide-down-anim {
-  animation: chatbot-slide-down 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: chatbot-slide-down 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @keyframes chatbot-slide-down {
   0% {
     opacity: 0;
-    transform: translateY(-26px);
+    transform: translateY(-20px);
   }
   100% {
     opacity: 1;
@@ -1303,76 +1285,98 @@ body {
   }
 }
 
+/* Chatbot Topbar Elegan & Bersih */
 .chatbot-topbar {
-  padding: 10px 14px;
-  border-bottom: 1px solid #F1F5F9;
+  padding: 12px 16px;
+  background: #FFFFFF;
+  border-bottom: 1px solid #E2E8F0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #FFFFFF;
-  z-index: 5;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.03);
+  z-index: 10;
 }
 
-.chatbot-header-info {
+.btn-chat-nav {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #F1F5F9;
+  border: 1px solid #E2E8F0;
+  color: #334155;
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
-.asst-avatar-mini {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
+.btn-chat-nav:hover {
+  background: #EDE9FE;
+  color: #7C3AED;
+  border-color: #DDD6FE;
+}
+
+.chatbot-header-center {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.asst-avatar-badge {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
   background: linear-gradient(135deg, #8B5CF6, #7C3AED);
   color: #FFFFFF;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.85rem;
+  font-size: 1.05rem;
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.22);
+  flex-shrink: 0;
 }
 
-.chatbot-name {
-  font-size: 0.86rem;
+.asst-meta {
+  display: flex;
+  flex-direction: column;
+}
+
+.asst-title {
+  font-size: 0.92rem;
   font-weight: 800;
   color: #0F172A;
-  line-height: 1.1;
+  line-height: 1.2;
 }
 
-.chatbot-status {
-  font-size: 0.65rem;
-  color: #10B981;
-  font-weight: 600;
-}
-
-.btn-chat-header-action {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: #F8FAFC;
-  border: 1px solid #E2E8F0;
-  color: #64748B;
+.asst-status-row {
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  gap: 5px;
+  font-size: 0.7rem;
+  color: #059669;
+  font-weight: 600;
+  margin-top: 1px;
 }
 
-.btn-chat-header-action:hover {
-  background: #F1F5F9;
-  color: #0F172A;
+.status-indicator-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10B981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
 }
 
 /* Chat Messages Container */
 .chat-messages-container {
   flex: 1;
   overflow-y: auto;
-  padding: 14px 14px;
+  padding: 16px 14px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  background: #F8F9FE;
+  background: #F8FAFC;
   scroll-behavior: smooth;
 }
 
@@ -1391,10 +1395,10 @@ body {
 }
 
 .chat-bubble {
-  padding: 10px 14px;
-  font-size: 0.84rem;
-  line-height: 1.45;
-  border-radius: 18px;
+  padding: 12px 16px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  border-radius: 20px;
   word-break: break-word;
 }
 
@@ -1416,7 +1420,7 @@ body {
 .chat-time {
   font-size: 0.65rem;
   color: #94A3B8;
-  margin-top: 3px;
+  margin-top: 4px;
   padding: 0 4px;
 }
 

@@ -286,6 +286,10 @@ async function initDashboardPage() {
   // TRANSISI MINIMALIS: SEARCH TURUN KE BAWAH NGEBENTUK CHATBOT
   // ==============================================================
   function openChatbot(initialText = "", startListening = false) {
+    // Sembunyikan total header ungu atas agar tidak ada search bar ganda
+    if (dashboardHeader) {
+      dashboardHeader.classList.add("d-none");
+    }
     if (chatbotView) {
       chatbotView.classList.remove("d-none");
       chatbotView.classList.remove("slide-down-anim");
@@ -293,7 +297,6 @@ async function initDashboardPage() {
       void chatbotView.offsetWidth;
       chatbotView.classList.add("slide-down-anim");
     }
-    if (dashboardHeader) dashboardHeader.classList.add("compact");
 
     if (initialText && chatInputText) {
       chatInputText.value = initialText;
@@ -308,8 +311,13 @@ async function initDashboardPage() {
   }
 
   function closeChatbot() {
-    if (chatbotView) chatbotView.classList.add("d-none");
-    if (dashboardHeader) dashboardHeader.classList.remove("compact");
+    if (chatbotView) {
+      chatbotView.classList.add("d-none");
+    }
+    // Tampilkan kembali header ungu beranda saat chat ditutup
+    if (dashboardHeader) {
+      dashboardHeader.classList.remove("d-none");
+    }
     stopVoiceRecognition();
   }
 
