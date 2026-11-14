@@ -213,8 +213,9 @@ def new_state() -> dict:
     return {"fields": {}, "ask": None, "suggest": None, "confirm": [], "declined": [], "days_only": [], "time_only": None}
 
 
-def chat_turn(state: dict, text: str, courses: list[str], usual: dict, today: date) -> dict:
-    """Satu giliran chat. Mengembalikan state baru dan balasan; tidak pernah menyimpan permintaan."""
+def chat_turn(state: dict, text: str, courses: list[str], usual: dict, today: date, extra: dict | None = None) -> dict:
+    """Satu giliran chat. Mengembalikan state baru dan balasan; tidak pernah menyimpan permintaan.
+    extra: field yang sudah pasti dari model AI (GLiNER); menang atas hasil parser kata kunci."""
     s = {**state, "fields": dict(state["fields"]), "confirm": list(state["confirm"]), "declined": list(state["declined"])}
     f, t, said = s["fields"], _norm(text), []
 
@@ -228,6 +229,9 @@ def chat_turn(state: dict, text: str, courses: list[str], usual: dict, today: da
         s["declined"].append(s["ask"])
     else:
         r = parse(text, courses, today)
+        if extra:
+            r["fields"].update(extra)
+            r["unclear"] = {k: v for k, v in r["unclear"].items() if k not in extra}
         new, notes = r["fields"], list(r["notes"])
         if s["ask"] == "topics" and "topics" not in new and not r["unclear"]:
             new["topics"] = text.strip()[:120]

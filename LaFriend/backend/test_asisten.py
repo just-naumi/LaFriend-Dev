@@ -138,10 +138,22 @@ def test_chat_done_and_form_valid():
     StudyIntentCreate(**form)  # harus lolos validasi skema yang sama dengan form manual
 
 
+def test_model_fields_win_and_fill_gaps():
+    # Hasil model (GLiNER) menang atas parser; yang tidak disebut model tetap diisi parser
+    model = {"course_id": "Basis Data", "learning_goal": "PRACTICE", "min_group_size": 2, "max_group_size": 3}
+    s = A.chat_turn(A.new_state(), "strukdat materi graph buat uts", COURSES, {}, TODAY, model)
+    f = s["fields"]
+    assert f["course_id"] == "Basis Data" and f["learning_goal"] == "PRACTICE", f
+    assert f["topics"] == "graph" and (f["min_group_size"], f["max_group_size"]) == (2, 3), f
+    # Tanpa model, perilaku sama seperti sebelumnya
+    assert A.chat_turn(A.new_state(), "strukdat materi graph", COURSES, {}, TODAY, {})["fields"]["course_id"] == "Struktur Data"
+
+
 if __name__ == "__main__":
     tests = [test_parse_full_sentence, test_parse_does_not_invent, test_parse_times, test_chat_asks_missing_in_order,
              test_chat_joins_day_and_time_across_messages, test_chat_course_change_needs_confirmation,
-             test_habits_from_history, test_chat_uses_and_confirms_habits, test_chat_done_and_form_valid]
+             test_habits_from_history, test_chat_uses_and_confirms_habits, test_chat_done_and_form_valid,
+             test_model_fields_win_and_fill_gaps]
     for t in tests:
         t()
         print(f"[OK] {t.__name__}")

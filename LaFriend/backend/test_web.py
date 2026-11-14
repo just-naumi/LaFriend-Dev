@@ -89,8 +89,26 @@ def test_seed_login_and_intent_requires_verified():
     assert c.get("/api/state", headers={"Authorization": f"Bearer {token}"}).status_code == 401
 
 
+def test_gliner_fields_mapping():
+    # Model GLiNER tidak ada di mesin uji, jadi hasil process_chat_for_study_intent ditiru
+    fake = {"course_name": "Basis Data", "topics": "normalisasi", "learning_goal": "EXAM_PREP", "collaboration_style": None,
+            "learning_mode": "ONLINE", "min_group_size": 3, "max_group_size": 21,
+            "availabilities": [{"day_or_date": "Rabu", "start_time": "19:00", "end_time": "21:00", "priority_rank": 1, "status": "COMPLETE"}],
+            "extraction_status": {"course": "EXTRACTED", "topic": "EXTRACTED", "learning_goal": "EXTRACTED", "collaboration_style": "MISSING",
+                                  "learning_mode": "EXTRACTED", "group_size": "NEEDS_REVIEW", "availability": "EXTRACTED"}}
+    real = web.X.process_chat_for_study_intent, web.GLINER
+    web.X.process_chat_for_study_intent, web.GLINER = (lambda text, db: fake), True
+    try:
+        out = web.gliner_fields("apa saja")
+    finally:
+        web.X.process_chat_for_study_intent, web.GLINER = real
+    assert out == {"course_id": "Basis Data", "topics": "normalisasi", "learning_goal": "EXAM_PREP", "learning_mode": "ONLINE",
+                   "availabilities": [{"day_or_date": "Rabu", "start_time": "19:00", "end_time": "21:00", "priority_rank": 1}]}, out
+    assert web.gliner_fields("apa saja") == {}  # tanpa model: tidak ada yang diisi dari ekstraksi
+
+
 if __name__ == "__main__":
-    tests = [test_full_flow_alone, test_seed_login_and_intent_requires_verified]
+    tests = [test_full_flow_alone, test_seed_login_and_intent_requires_verified, test_gliner_fields_mapping]
     for t in tests:
         t()
         print(f"[OK] {t.__name__}")

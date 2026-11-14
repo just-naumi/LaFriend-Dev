@@ -36,6 +36,7 @@ from app.schemas import SessionFeedbackIn
 from app.schemas import StudyIntentCreate
 from app import group_formation as G
 from app import intent_assistant as AI
+from app import extraction as X
 from app import matching as M
 from app.outcome import OutcomeService as S, _now
 
@@ -117,6 +118,29 @@ Base.metadata.create_all(bind=_catalog_engine)
 with sessionmaker(bind=_catalog_engine)() as _catalog:
     seed_data_awal(_catalog)
     COURSES = [c.course_name for c in _catalog.query(Course).all()]
+
+# Jalur untuk model GLiNER fine-tuning: aktif sendiri bila bobot ada di app/weights dan paket gliner terpasang.
+# Tanpa model, ekstraksi aturan di extraction.py tidak dipakai karena asisten sudah punya parser sendiri.
+GLINER = X.get_gliner_model() is not None
+GLINER_KEYS = {"course": "course_id", "topic": "topics", "learning_goal": "learning_goal",
+               "collaboration_style": "collaboration_style", "learning_mode": "learning_mode"}
+
+
+def gliner_fields(text: str) -> dict:
+    """Field yang diekstrak GLiNER dengan status EXTRACTED, dalam format field asisten. Kosong bila model tidak ada."""
+    if not GLINER:
+        return {}
+    with sessionmaker(bind=_catalog_engine)() as db:
+        r = X.process_chat_for_study_intent(text, db)
+    ok = {k for k, v in r["extraction_status"].items() if v == "EXTRACTED"}
+    values = {"course": r["course_name"], "topic": r["topics"], "learning_goal": r["learning_goal"],
+              "collaboration_style": r["collaboration_style"], "learning_mode": r["learning_mode"]}
+    out = {GLINER_KEYS[k]: values[k] for k in GLINER_KEYS if k in ok and values[k]}
+    if "group_size" in ok and r["min_group_size"]:
+        out["min_group_size"], out["max_group_size"] = r["min_group_size"], r["max_group_size"]
+    if "availability" in ok and r["availabilities"]:
+        out["availabilities"] = [{k: a[k] for k in ("day_or_date", "start_time", "end_time", "priority_rank")} for a in r["availabilities"]]
+    return out
 
 
 def add_intent(student_id: str, data: StudyIntentCreate) -> NS:
@@ -399,7 +423,7 @@ def save_prefs(data: Prefs, authorization: Optional[str] = Header(None)):
 def assistant(text: str = Body(..., embed=True, min_length=1, max_length=500), authorization: Optional[str] = Header(None)):
     me = student(authorization)
     chat = CHATS.setdefault(me, {"state": {**AI.new_state(), "done": False}, "messages": []})
-    chat["state"] = AI.chat_turn(chat["state"], text, COURSES, usual(me), date.today())
+    chat["state"] = AI.chat_turn(chat["state"], text, COURSES, usual(me), date.today(), gliner_fields(text))
     chat["messages"] += [{"from": "me", "text": text}, {"from": "bot", "text": chat["state"]["reply"]}]
     return view(me)
 
