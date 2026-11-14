@@ -97,7 +97,7 @@ function Shell({ st, act, tab, setTab, testMode, onTest, onOut }) {
             {i === 2 && (
               <button type="button" className="tab-mic" aria-label="Bicara: buat permintaan belajar dengan suara"
                 disabled={!Speech || !!st.intent} onClick={() => { setVoice(v => v + 1); setTab("belajar"); }}>
-                <span><Icon name="mic" size={24} /></span>
+                <span><Icon name="mic" size={28} /></span>
               </button>
             )}
             <button type="button" aria-current={tab === k ? "page" : undefined} onClick={() => { setVoice(0); setTab(k); }}>

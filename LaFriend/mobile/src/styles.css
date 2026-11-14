@@ -103,20 +103,22 @@ textarea { resize: vertical; min-height: 96px; }
 .progress span { margin-left: auto; color: var(--faint); font-size: 13px; }
 
 /* Kerangka aplikasi */
-.shell { min-height: 100dvh; padding-bottom: calc(var(--tabs) + 24px + env(safe-area-inset-bottom)); }
+.shell { min-height: 100dvh; padding-bottom: calc(var(--tabs) + 28px + env(safe-area-inset-bottom)); }
 .top { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 10px; padding: max(10px, env(safe-area-inset-top)) 16px 8px; background: var(--bg); }
 .brand { margin-left: auto; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); }
 .brand .logo { width: 30px !important; height: 30px !important; border-radius: 50%; background: var(--ink); color: var(--on-dark); font-size: 22px !important; }
 .hello { min-width: 0; margin: 0; font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .me-btn { width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--butter); color: var(--butter-ink); font-weight: 700; }
-.tabs { position: fixed; z-index: 20; left: 50%; bottom: max(12px, env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(520px, calc(100% - 24px)); height: var(--tabs); display: grid; grid-template-columns: repeat(4, 1fr); padding: 8px; border-radius: 28px; background: var(--surface); box-shadow: 0 16px 36px -18px rgba(22, 21, 27, .35), inset 0 0 0 1px var(--line); }
+/* bar menempel di bawah, mic bulat naik sedikit di atas bar (lekukan) */
+.tabs { position: fixed; z-index: 20; left: 50%; bottom: 0; transform: translateX(-50%); width: min(520px, 100%); height: calc(var(--tabs) + env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(4, 1fr); padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); border-radius: 26px 26px 0 0; background: var(--surface); box-shadow: 0 -10px 30px -18px rgba(22, 21, 27, .35), inset 0 1px 0 var(--line); }
 .tabs button { position: relative; border: 0; background: none; border-radius: 20px; display: grid; place-content: center; justify-items: center; gap: 1px; font-size: 12px; font-weight: 600; color: var(--faint); isolation: isolate; }
 .tabs button[aria-current] { color: var(--lav-ink); }
 .tab-bg { position: absolute; inset: 0; border-radius: inherit; background: var(--lav-2); z-index: -1; animation: tab-in .22s ease-out; }
 @keyframes tab-in { from { transform: scale(.8); opacity: 0; } }
 .tab-icon { display: grid; place-items: center; }
 .tabs { grid-template-columns: repeat(5, 1fr); }
-.tab-mic span { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 50%; background: var(--mint-ink); color: var(--mint); transition: transform .15s ease; }
+.tab-mic { border: 0; background: none; display: grid; place-items: center; }
+.tab-mic span { display: grid; place-items: center; width: 62px; height: 62px; margin-top: -30px; border-radius: 50%; border: 5px solid var(--bg); box-sizing: content-box; background: var(--mint-ink); color: var(--mint); transition: transform .15s ease; }
 .tab-mic:disabled span { background: var(--soft); color: var(--faint); }
 .ic { display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .badge { position: absolute; top: 4px; right: calc(50% - 22px); min-width: 18px; height: 18px; border-radius: 9px; background: var(--pink-ink); color: #fff; font-size: 11px; display: grid; place-items: center; }
