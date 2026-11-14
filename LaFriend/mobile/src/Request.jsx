@@ -3,17 +3,17 @@ import { AnimatePresence, motion } from "motion/react";
 import { api } from "./api.js";
 import { Button, Chips, FACTOR, Field, GOAL, Icon, Logo, MODE, Orb, Page, STYLE, WEEKDAYS, fmtDay, fmtSlot, spring } from "./ui.jsx";
 
-const Speech = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
+export const Speech = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
 
-export default function Request({ st, act, go }) {
-  const [view, setView] = useState(st.chat.messages.length ? "chat" : "pick");
+export default function Request({ st, act, go, startVoice }) {
+  const [view, setView] = useState(startVoice ? "voice" : st.chat.messages.length ? "chat" : "pick");
   const [manual, setManual] = useState(false);
   if (st.intent) return <Running st={st} act={act} go={go} />;
   const review = isManual => { setManual(isManual); setView("review"); };
   return (
     <AnimatePresence mode="wait">
       {view === "pick" && <Pick key="pick" st={st} onPick={v => (v === "review" ? review(true) : setView(v))} />}
-      {view === "chat" && <Chat key="chat" st={st} act={act} onBack={() => setView("pick")} onReview={() => review(false)} onVoice={() => setView("voice")} />}
+      {view === "chat" && <Chat key="chat" st={st} act={act} onBack={() => setView("pick")} onReview={() => review(false)} />}
       {view === "voice" && <Voice key="voice" act={act} onBack={() => setView("pick")} onSent={() => setView("chat")} />}
       {view === "review" && <Review key="review" st={st} act={act} start={manual ? {} : st.chat.fields} onBack={() => setView(manual ? "pick" : "chat")} />}
     </AnimatePresence>
@@ -48,7 +48,7 @@ function Pick({ st, onPick }) {
   );
 }
 
-function Chat({ st, act, onBack, onReview, onVoice }) {
+function Chat({ st, act, onBack, onReview }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const end = useRef(null);
@@ -89,18 +89,10 @@ function Chat({ st, act, onBack, onReview, onVoice }) {
         <div className="quick">{quick.map(q => <button key={q} type="button" className="chip" onClick={() => send(q)}>{q}</button>)}</div>
       )}
       <span ref={end} className="chat-end" />
-      <div className="dock">
-        {/* tombol suara di tengah supaya pengguna tahu bisa bicara, bukan cuma mengetik */}
-        {Speech && !c.done && (
-          <button type="button" className="voice-cta" onClick={onVoice}>
-            <span className="voice-cta-ic"><Icon name="mic" size={20} /></span>Bicara saja
-          </button>
-        )}
-        <form className="composer" onSubmit={e => { e.preventDefault(); send(); }}>
-          <input aria-label="Tulis pesan" value={text} onChange={e => setText(e.target.value)} placeholder="Tulis di sini…" maxLength={500} />
-          <button type="submit" className="icon send" disabled={!text.trim() || busy} aria-label="Kirim"><Icon name="send" size={20} /></button>
-        </form>
-      </div>
+      <form className="composer" onSubmit={e => { e.preventDefault(); send(); }}>
+        <input aria-label="Tulis pesan" value={text} onChange={e => setText(e.target.value)} placeholder="Tulis di sini…" maxLength={500} />
+        <button type="submit" className="icon send" disabled={!text.trim() || busy} aria-label="Kirim"><Icon name="send" size={20} /></button>
+      </form>
       {!c.done && c.messages.length > 0 && <button type="button" className="link center" onClick={onReview}>Lanjut isi di form saja</button>}
     </Page>
   );

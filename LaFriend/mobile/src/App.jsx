@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { api, hasToken, setToken } from "./api.js";
 import { Auth, Onboarding, Splash } from "./Auth.jsx";
 import { Group, Results } from "./Group.jsx";
-import Request from "./Request.jsx";
+import Request, { Speech } from "./Request.jsx";
 import { Button, Confetti, Icon, Logo, Page, Sheet, fmtSlot, spring } from "./ui.jsx";
 
 const read = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
@@ -68,6 +68,7 @@ export default function App() {
 
 function Shell({ st, act, tab, setTab, testMode, onTest, onOut }) {
   const [me, setMe] = useState(false);
+  const [voice, setVoice] = useState(0); // >0: tab Belajar dibuka langsung di layar suara lewat tombol mic
   const f = st.formation;
   const badge = {
     kelompok: f && ((f.status === "DRAFT" && f.my_invite_pending) || (f.status === "CONFIRMATION_PENDING" && f.my_approval == null)) ? 1 : 0,
@@ -75,7 +76,7 @@ function Shell({ st, act, tab, setTab, testMode, onTest, onOut }) {
   };
   const screens = {
     beranda: <Home st={st} act={act} go={setTab} />,
-    belajar: <Request st={st} act={act} go={setTab} />,
+    belajar: <Request key={voice} startVoice={voice > 0} st={st} act={act} go={setTab} />,
     kelompok: <Group st={st} act={act} go={setTab} testMode={testMode} />,
     hasil: <Results st={st} act={act} testMode={testMode} />,
   };
@@ -90,14 +91,23 @@ function Shell({ st, act, tab, setTab, testMode, onTest, onOut }) {
         <AnimatePresence mode="wait"><div key={tab}>{screens[tab]}</div></AnimatePresence>
       </main>
       <nav className="tabs" aria-label="Menu utama">
-        {TABS.map(([k, name, icon]) => (
-          <button key={k} type="button" aria-current={tab === k ? "page" : undefined} onClick={() => setTab(k)}>
-            {/* bukan motion layoutId: itu menahan animasi keluar Shell sehingga tombol Keluar macet setelah pindah tab */}
-            {tab === k && <span className="tab-bg" />}
-            <span className="tab-icon"><Icon name={icon} /></span>
-            <span>{name}</span>
-            {badge[k] > 0 && <b className="badge" aria-label={`${badge[k]} menunggu`}>{badge[k]}</b>}
-          </button>
+        {TABS.map(([k, name, icon], i) => (
+          <Fragment key={k}>
+            {/* mic di tengah navbar supaya pengguna tahu permintaan bisa lewat suara */}
+            {i === 2 && (
+              <button type="button" className="tab-mic" aria-label="Bicara: buat permintaan belajar dengan suara"
+                disabled={!Speech || !!st.intent} onClick={() => { setVoice(v => v + 1); setTab("belajar"); }}>
+                <span><Icon name="mic" size={24} /></span>
+              </button>
+            )}
+            <button type="button" aria-current={tab === k ? "page" : undefined} onClick={() => { setVoice(0); setTab(k); }}>
+              {/* bukan motion layoutId: itu menahan animasi keluar Shell sehingga tombol Keluar macet setelah pindah tab */}
+              {tab === k && <span className="tab-bg" />}
+              <span className="tab-icon"><Icon name={icon} /></span>
+              <span>{name}</span>
+              {badge[k] > 0 && <b className="badge" aria-label={`${badge[k]} menunggu`}>{badge[k]}</b>}
+            </button>
+          </Fragment>
         ))}
       </nav>
       <Sheet open={me} onClose={() => setMe(false)} title="Akun saya">
