@@ -37,6 +37,18 @@ COLLABORATION_STYLE_ALIASES = {
     # Catatan: "DISCUSSION" pada style tetap bermakna "DISCUSSION" (diskusi interaktif aktif)
 }
 
+CANONICAL_LEARNING_MODES = {
+    "ONLINE",
+    "OFFLINE",
+    "HYBRID",
+}
+
+LEARNING_MODE_ALIASES = {
+    "DARING": "ONLINE",
+    "LURING": "OFFLINE",
+    "CAMPURAN": "HYBRID",
+}
+
 
 def normalize_learning_goal(value: Any) -> str:
     """
@@ -103,6 +115,38 @@ def normalize_collaboration_style(value: Any) -> str:
 
     raise ValueError(
         f"Collaboration style '{value}' tidak valid. Pilihan kanonis: {sorted(CANONICAL_COLLABORATION_STYLES)}"
+    )
+
+
+def normalize_learning_mode(value: Any) -> str:
+    """
+    Menormalisasi nilai Learning Mode menjadi standar kanonis Day 15:
+    - ONLINE (termasuk alias DARING)
+    - OFFLINE (termasuk alias LURING)
+    - HYBRID (termasuk alias CAMPURAN)
+
+    Sifat:
+    - Case-insensitive & whitespace-stripped.
+    - Idempotent: normalize_learning_mode(normalize_learning_mode(x)) == normalize_learning_mode(x).
+    - Menolak None, string kosong, atau nilai yang tidak dikenali dengan ValueError.
+    """
+    if not isinstance(value, str):
+        raise ValueError(f"Learning mode harus berupa string, diterima: {type(value).__name__}")
+    
+    clean = value.strip().upper()
+    if not clean:
+        raise ValueError("Learning mode tidak boleh kosong")
+
+    # Cek alias terlebih dahulu
+    if clean in LEARNING_MODE_ALIASES:
+        return LEARNING_MODE_ALIASES[clean]
+
+    # Cek apakah sudah merupakan nilai kanonis
+    if clean in CANONICAL_LEARNING_MODES:
+        return clean
+
+    raise ValueError(
+        f"Learning mode '{value}' tidak valid. Pilihan kanonis: {sorted(CANONICAL_LEARNING_MODES)}"
     )
 
 
@@ -211,6 +255,40 @@ def calculate_style_compatibility(style_a: Any, style_b: Any) -> float:
     norm_a = normalize_collaboration_style(style_a)
     norm_b = normalize_collaboration_style(style_b)
     return STYLE_COMPATIBILITY[norm_a][norm_b]
+
+
+# Matriks Simetris Kompatibilitas Mode Belajar (Learning Mode)
+# Sifat: M(A, B) == M(B, A), Diagonal == 1.00, Range 0.0 - 1.0
+MODE_COMPATIBILITY: Dict[str, Dict[str, float]] = {
+    "ONLINE": {
+        "ONLINE": 1.00,
+        "OFFLINE": 0.00,
+        "HYBRID": 0.85,
+    },
+    "OFFLINE": {
+        "ONLINE": 0.00,
+        "OFFLINE": 1.00,
+        "HYBRID": 0.85,
+    },
+    "HYBRID": {
+        "ONLINE": 0.85,
+        "OFFLINE": 0.85,
+        "HYBRID": 1.00,
+    },
+}
+
+
+def calculate_mode_compatibility(mode_a: Any, mode_b: Any) -> float:
+    """
+    Menghitung skor kompatibilitas Mode Belajar M(A, B) dalam rentang [0.0, 1.0].
+    Sifat:
+    - Simetris: M(A, B) == M(B, A).
+    - Normalisasi kedua input menjadi bentuk kanonis terlebih dahulu.
+    - Melempar ValueError jika salah satu mode tidak valid.
+    """
+    norm_a = normalize_learning_mode(mode_a)
+    norm_b = normalize_learning_mode(mode_b)
+    return MODE_COMPATIBILITY[norm_a][norm_b]
 
 
 # ==============================================================================
@@ -474,9 +552,13 @@ def validate_embedding_vector(vector: Any, expected_dim: Optional[int] = None) -
     for idx, val in enumerate(vector):
         if not isinstance(val, (int, float)) or isinstance(val, bool):
             return False, f"Elemen ke-{idx} bukan angka numerik: {type(val).__name__}"
-        if not math.isfinite(val):
+        try:
+            f_val = float(val)
+        except OverflowError:
+            return False, f"Elemen ke-{idx} mengalami overflow numerik (angka integer terlalu besar untuk float)"
+        if not math.isfinite(f_val):
             return False, f"Elemen ke-{idx} tidak finite (NaN atau Infinity)"
-        float_vals.append(float(val))
+        float_vals.append(f_val)
 
     # Perhitungan norm yang aman dari intermediate overflow
     try:

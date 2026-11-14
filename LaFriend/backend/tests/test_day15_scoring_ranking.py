@@ -31,6 +31,12 @@ from app.scoring import (
     calculate_cosine_similarity,
     calculate_topic_similarity,
     calculate_topic_similarity_detailed,
+    # Tahap 15.3
+    CANONICAL_LEARNING_MODES,
+    LEARNING_MODE_ALIASES,
+    MODE_COMPATIBILITY,
+    normalize_learning_mode,
+    calculate_mode_compatibility,
 )
 
 passed_count = 0
@@ -357,6 +363,10 @@ def test_embedding_vector_validation():
     is_large_ok, _ = validate_embedding_vector(v_large)
     report("Vector Validation: Angka sangat besar (1e200) tervalidasi stabil tanpa overflow", is_large_ok)
 
+    # 8.8 Ketahanan terhadap integer raksasa (10**400) - Backlog Penguatan Numerik
+    is_huge_int_ok, reason_huge = validate_embedding_vector([10**400, 1])
+    report("Vector Validation: Integer raksasa (10**400) ditolak aman tanpa crash OverflowError", not is_huge_int_ok and "overflow numerik" in reason_huge)
+
 
 def test_cosine_similarity():
     """Menguji perhitungan Cosine Similarity antar vektor embedding."""
@@ -536,9 +546,95 @@ def test_topic_similarity_end_to_end():
             report(f"Topic Sim: Tolak topik kosong/None ({bad_t})", True)
 
 
+def test_learning_mode_canonicalizer():
+    """Menguji normalisasi Learning Mode kanonis, alias, dan penolakan input invalid (Tahap 15.3)."""
+    print("\n--- SUITE 11: Learning Mode Canonicalizer & Idempotence ---")
+
+    # 11.1 Nilai kanonis dipertahankan & idempoten
+    for mode in CANONICAL_LEARNING_MODES:
+        norm = normalize_learning_mode(mode)
+        report(f"Mode: Kanonis '{mode}' dipertahankan", norm == mode)
+        report(f"Mode: Idempoten untuk '{mode}'", normalize_learning_mode(norm) == norm)
+
+    # 11.2 Alias resmi Day 15
+    report("Mode: Alias 'DARING' -> 'ONLINE'", normalize_learning_mode("DARING") == "ONLINE")
+    report("Mode: Alias 'LURING' -> 'OFFLINE'", normalize_learning_mode("LURING") == "OFFLINE")
+    report("Mode: Alias 'CAMPURAN' -> 'HYBRID'", normalize_learning_mode("CAMPURAN") == "HYBRID")
+
+    # 11.3 Case insensitivity & Whitespace stripping
+    report("Mode: Case insensitivity 'daring' -> 'ONLINE'", normalize_learning_mode("daring") == "ONLINE")
+    report("Mode: Case insensitivity 'offline' -> 'OFFLINE'", normalize_learning_mode("offline") == "OFFLINE")
+    report("Mode: Whitespace stripped '  campuran  ' -> 'HYBRID'", normalize_learning_mode("  campuran  ") == "HYBRID")
+
+    # 11.4 Tolak nilai invalid, kosong, None, atau tipe non-string
+    for invalid_val in ["UNKNOWN_MODE", "REMOTE", "VIRTUAL", "", "   ", None, 123, []]:
+        try:
+            normalize_learning_mode(invalid_val)
+            report(f"Mode: Tolak nilai invalid ({invalid_val})", False, "Harusnya melempar ValueError")
+        except ValueError:
+            report(f"Mode: Tolak nilai invalid ({invalid_val})", True)
+
+
+def test_learning_mode_compatibility():
+    """Menguji matriks dan fungsi kompatibilitas Mode Belajar M(A, B) (Tahap 15.3)."""
+    print("\n--- SUITE 12: Learning Mode Compatibility Matrix & Function ---")
+
+    # 12.1 Struktur matriks dan nilai simetris
+    for m in CANONICAL_LEARNING_MODES:
+        report(f"Mode Matrix: '{m}' memiliki baris lengkap", set(MODE_COMPATIBILITY[m].keys()) == CANONICAL_LEARNING_MODES)
+        report(f"Mode Matrix: Diagonal M('{m}', '{m}') == 1.00", math.isclose(MODE_COMPATIBILITY[m][m], 1.00))
+
+    # 12.2 Simetri sempurna M(A, B) == M(B, A)
+    is_symmetric = True
+    for m1 in CANONICAL_LEARNING_MODES:
+        for m2 in CANONICAL_LEARNING_MODES:
+            if not math.isclose(MODE_COMPATIBILITY[m1][m2], MODE_COMPATIBILITY[m2][m1]):
+                is_symmetric = False
+                break
+    report("Mode Matrix: Simetris sempurna M(A, B) == M(B, A)", is_symmetric)
+
+    # 12.3 Seluruh nilai dalam rentang [0.0, 1.0]
+    in_range = all(
+        0.0 <= MODE_COMPATIBILITY[m1][m2] <= 1.0
+        for m1 in CANONICAL_LEARNING_MODES
+        for m2 in CANONICAL_LEARNING_MODES
+    )
+    report("Mode Matrix: Seluruh nilai berada dalam rentang [0.0, 1.0]", in_range)
+
+    # 12.4 Nilai eksplisit tabel yang disepakati (9/9 pasangan)
+    expected_matrix = {
+        ("ONLINE", "ONLINE"): 1.00,
+        ("OFFLINE", "OFFLINE"): 1.00,
+        ("HYBRID", "HYBRID"): 1.00,
+        ("HYBRID", "ONLINE"): 0.85,
+        ("ONLINE", "HYBRID"): 0.85,
+        ("HYBRID", "OFFLINE"): 0.85,
+        ("OFFLINE", "HYBRID"): 0.85,
+        ("ONLINE", "OFFLINE"): 0.00,
+        ("OFFLINE", "ONLINE"): 0.00,
+    }
+    for (m_a, m_b), exp_score in expected_matrix.items():
+        score = calculate_mode_compatibility(m_a, m_b)
+        report(f"Mode explicit value: {m_a} x {m_b} == {exp_score}", math.isclose(score, exp_score))
+
+    # 12.5 Kompatibilitas dengan alias bahasa Indonesia
+    report("Mode Function: DARING x CAMPURAN == 0.85", math.isclose(calculate_mode_compatibility("DARING", "CAMPURAN"), 0.85))
+    report("Mode Function: LURING x CAMPURAN == 0.85", math.isclose(calculate_mode_compatibility("LURING", "CAMPURAN"), 0.85))
+    report("Mode Function: DARING x LURING == 0.00", math.isclose(calculate_mode_compatibility("DARING", "LURING"), 0.00))
+    report("Mode Function: DARING x DARING == 1.00", math.isclose(calculate_mode_compatibility("DARING", "DARING"), 1.00))
+    report("Mode Function: CAMPURAN x CAMPURAN == 1.00", math.isclose(calculate_mode_compatibility("CAMPURAN", "CAMPURAN"), 1.00))
+
+    # 12.6 Tolak mode tidak valid pada fungsi
+    try:
+        calculate_mode_compatibility("ONLINE", "REMOTE")
+        report("Mode Function: Tolak mode invalid pada fungsi", False, "Harusnya raise ValueError")
+    except ValueError:
+        report("Mode Function: Tolak mode invalid pada fungsi", True)
+
+
 def run_tests():
     print("=" * 70)
-    print("RUNNING DAY 15: SOFT CONSTRAINT SCORING TEST SUITE (TAHAP 15.1 & 15.2)")
+    print("RUNNING DAY 15: SOFT CONSTRAINT SCORING TEST SUITE (TAHAP 15.1, 15.2, & 15.3)")
     print("=" * 70)
 
     test_canonicalizers()
@@ -554,6 +650,8 @@ def run_tests():
     test_embedding_vector_validation()
     test_cosine_similarity()
     test_topic_similarity_end_to_end()
+    test_learning_mode_canonicalizer()
+    test_learning_mode_compatibility()
 
     print("\n" + "=" * 70)
     print(f"TEST RESULT SUMMARY: {passed_count}/{total_count} TESTS PASSED (100% SUCCESS)")
