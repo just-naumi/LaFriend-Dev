@@ -89,11 +89,18 @@ function Chat({ st, act, onBack, onReview, onVoice }) {
         <div className="quick">{quick.map(q => <button key={q} type="button" className="chip" onClick={() => send(q)}>{q}</button>)}</div>
       )}
       <span ref={end} className="chat-end" />
-      <form className="composer" onSubmit={e => { e.preventDefault(); send(); }}>
-        <input aria-label="Tulis pesan" value={text} onChange={e => setText(e.target.value)} placeholder="Tulis di sini…" maxLength={500} />
-        {Speech && <button type="button" className="icon" onClick={onVoice} aria-label="Bicara"><Icon name="mic" size={20} /></button>}
-        <button type="submit" className="icon send" disabled={!text.trim() || busy} aria-label="Kirim"><Icon name="send" size={20} /></button>
-      </form>
+      <div className="dock">
+        {/* tombol suara di tengah supaya pengguna tahu bisa bicara, bukan cuma mengetik */}
+        {Speech && !c.done && (
+          <button type="button" className="voice-cta" onClick={onVoice}>
+            <span className="voice-cta-ic"><Icon name="mic" size={20} /></span>Bicara saja
+          </button>
+        )}
+        <form className="composer" onSubmit={e => { e.preventDefault(); send(); }}>
+          <input aria-label="Tulis pesan" value={text} onChange={e => setText(e.target.value)} placeholder="Tulis di sini…" maxLength={500} />
+          <button type="submit" className="icon send" disabled={!text.trim() || busy} aria-label="Kirim"><Icon name="send" size={20} /></button>
+        </form>
+      </div>
       {!c.done && c.messages.length > 0 && <button type="button" className="link center" onClick={onReview}>Lanjut isi di form saja</button>}
     </Page>
   );
