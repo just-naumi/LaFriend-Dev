@@ -166,7 +166,9 @@ textarea { resize: vertical; min-height: 96px; }
 .typing { color: var(--muted); }
 .quick { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 .composer { position: sticky; bottom: calc(var(--tabs) + 22px + env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 8px; border-radius: 999px; background: var(--surface); box-shadow: 0 14px 30px -18px rgba(22, 21, 27, .4), inset 0 0 0 1px var(--line); }
+.composer:focus-within { box-shadow: 0 14px 30px -18px rgba(22, 21, 27, .4), inset 0 0 0 2px var(--lav-ink); }
 .composer input { background: none; box-shadow: none; min-height: 44px; padding: 0 10px; }
+.composer input:focus-visible { outline: none; } /* cincin fokus dipindah ke pil composer */
 .composer .icon { box-shadow: none; background: var(--soft); }
 .send { background: var(--ink) !important; color: var(--on-dark); }
 .send:disabled { background: var(--soft) !important; color: var(--faint); }
@@ -249,6 +251,12 @@ textarea { resize: vertical; min-height: 96px; }
   .page { padding: 16px 32px 40px; }
   .top { padding-left: 32px; padding-right: 32px; }
 }
+/* Tanda tekan: mengecil sedikit lewat transform, tidak menggeser tata letak */
+.tile, .chip, .summary button, .person, .icon { transition: transform .12s ease-out, background-color .12s ease-out; }
+.tile:active:not(:disabled), .chip:active, .summary button:active, .person:active, .icon:active:not(:disabled) { transform: scale(.97); }
+.summary button:active, .person:active { background-color: var(--soft); }
+
 @media (prefers-reduced-motion: reduce) {
   .aurora i, .loading, .dots i { animation: none; }
+  .tile, .chip, .summary button, .person, .icon { transition: none; }
 }

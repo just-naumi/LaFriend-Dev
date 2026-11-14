@@ -78,11 +78,13 @@ function Chat({ st, act, onBack, onReview, onVoice }) {
         {c.messages.map((m, i) => <Bubble key={i} {...m} />)}
         {busy && <div className="bubble bot typing" aria-label="Asisten mengetik"><span className="dots"><i /><i /><i /></span></div>}
       </div>
-      {c.done && (
-        <motion.div className="done-bar" initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }}>
-          <Button onClick={onReview}>Periksa lalu simpan</Button>
-        </motion.div>
-      )}
+      <AnimatePresence>
+        {c.done && (
+          <motion.div key="done" className="done-bar" initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 10, opacity: 0 }}>
+            <Button onClick={onReview}>Periksa lalu simpan</Button>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {quick.length > 0 && !busy && (
         <div className="quick">{quick.map(q => <button key={q} type="button" className="chip" onClick={() => send(q)}>{q}</button>)}</div>
       )}
