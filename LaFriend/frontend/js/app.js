@@ -259,40 +259,458 @@ async function initDashboardPage() {
   await loadDashboardIntents();
   await loadDashboardCourses();
 
-  // KOTAK INPUT AI: Menceritakan kebutuhan belajar ke AI
+  // Set sapaan nama pengguna di bubble bot chatbot
+  const chatBotGreetingName = document.getElementById("chatBotGreetingName");
+  if (chatBotGreetingName && user.full_name) {
+    chatBotGreetingName.innerText = user.full_name.split(" ")[0];
+  }
+
+  // Elemen Header & Input Search
+  const dashboardHeader = document.getElementById("dashboardHeader");
   const aiNeedInput = document.getElementById("aiNeedInput");
+  const btnHeaderVoice = document.getElementById("btnHeaderVoice");
   const btnDashboardAiSubmit = document.getElementById("btnDashboardAiSubmit");
 
-  async function submitAiPrompt() {
-    const promptText = aiNeedInput ? aiNeedInput.value.trim() : "";
-    if (!promptText) {
-      window.location.href = "create-intent.html";
-      return;
+  // Elemen View Kontainer
+  const welcomeHubView = document.getElementById("welcomeHubView");
+  const chatbotView = document.getElementById("chatbotView");
+
+  // Elemen Tombol di Welcome Hub
+  const btnStartChatbot = document.getElementById("btnStartChatbot");
+  const btnStartVoice = document.getElementById("btnStartVoice");
+
+  // Elemen di Chatbot
+  const btnCollapseChat = document.getElementById("btnCollapseChat");
+  const btnResetChat = document.getElementById("btnResetChat");
+  const chatMessagesList = document.getElementById("chatMessagesList");
+  const voiceLiveIndicator = document.getElementById("voiceLiveIndicator");
+  const voiceStatusText = document.getElementById("voiceStatusText");
+  const chatInputText = document.getElementById("chatInputText");
+  const btnChatVoice = document.getElementById("btnChatVoice");
+  const btnChatSend = document.getElementById("btnChatSend");
+
+  // ==============================================================
+  // LOGIKA SWITCH VIEW (TRANSISI SEARCH TURUN KE BENTUK CHATBOT)
+  // ==============================================================
+  function openChatbot(initialText = "", startListening = false) {
+    if (welcomeHubView) welcomeHubView.classList.add("d-none");
+    if (chatbotView) chatbotView.classList.remove("d-none");
+    if (dashboardHeader) dashboardHeader.classList.add("compact");
+
+    if (initialText && chatInputText) {
+      chatInputText.value = initialText;
     }
-    // Jalankan animasi timeline loading turun ke bawah dengan informasi lengkap
-    await runAiTimelineLoader(promptText);
+    if (chatInputText) {
+      chatInputText.focus();
+    }
+    if (startListening) {
+      startVoiceRecognition();
+    }
+    scrollChatToBottom();
   }
 
-  if (btnDashboardAiSubmit) {
-    btnDashboardAiSubmit.addEventListener("click", submitAiPrompt);
+  function closeChatbot() {
+    if (chatbotView) chatbotView.classList.add("d-none");
+    if (welcomeHubView) welcomeHubView.classList.remove("d-none");
+    if (dashboardHeader) dashboardHeader.classList.remove("compact");
+    stopVoiceRecognition();
   }
 
+  function scrollChatToBottom() {
+    if (chatMessagesList) {
+      setTimeout(() => {
+        chatMessagesList.scrollTop = chatMessagesList.scrollHeight;
+      }, 60);
+    }
+  }
+
+  // Saat pengguna klik/fokus pada search bar di header, langsung buka chatbot ke bawah
   if (aiNeedInput) {
+    aiNeedInput.addEventListener("focus", () => {
+      openChatbot(aiNeedInput.value.trim(), false);
+    });
+
     aiNeedInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        submitAiPrompt();
+        const text = aiNeedInput.value.trim();
+        if (text) {
+          openChatbot(text, false);
+          handleSendChatMessage(text);
+        } else {
+          openChatbot("", false);
+        }
       }
-    });
-
-    // Tetap dukung filter intent lokal jika pengguna mengetik kata kunci singkat
-    aiNeedInput.addEventListener("input", (e) => {
-      const q = e.target.value.toLowerCase().trim();
-      filterDashboardItems(q);
     });
   }
 
-  // Animasi Step Timeline Loader AI (Pacing Terbaca Jelas & Teratur)
+  if (btnDashboardAiSubmit) {
+    btnDashboardAiSubmit.addEventListener("click", () => {
+      const text = aiNeedInput ? aiNeedInput.value.trim() : "";
+      openChatbot(text, false);
+      if (text) {
+        handleSendChatMessage(text);
+      }
+    });
+  }
+
+  // Tombol Voice di Header
+  if (btnHeaderVoice) {
+    btnHeaderVoice.addEventListener("click", () => {
+      const text = aiNeedInput ? aiNeedInput.value.trim() : "";
+      openChatbot(text, true);
+    });
+  }
+
+  // Tombol di Welcome Hub
+  if (btnStartChatbot) {
+    btnStartChatbot.addEventListener("click", () => openChatbot("", false));
+  }
+
+  if (btnStartVoice) {
+    btnStartVoice.addEventListener("click", () => openChatbot("", true));
+  }
+
+  if (btnCollapseChat) {
+    btnCollapseChat.addEventListener("click", closeChatbot);
+  }
+
+  // ==============================================================
+  // SPEECH RECOGNITION (VOICE INPUT DALAM BAHASA INDONESIA)
+  // ==============================================================
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let recognition = null;
+  let isListening = false;
+
+  function toggleVoiceRecognition() {
+    if (isListening) {
+      stopVoiceRecognition();
+    } else {
+      startVoiceRecognition();
+    }
+  }
+
+  function startVoiceRecognition() {
+    if (!SpeechRecognition) {
+      alert("Browser kamu belum mendukung Web Speech Recognition. Silakan gunakan Google Chrome atau Microsoft Edge untuk fitur suara.");
+      return;
+    }
+    if (isListening) return;
+
+    try {
+      recognition = new SpeechRecognition();
+      recognition.lang = "id-ID";
+      recognition.interimResults = true;
+      recognition.continuous = false;
+
+      recognition.onstart = () => {
+        isListening = true;
+        if (btnHeaderVoice) btnHeaderVoice.classList.add("listening");
+        if (btnChatVoice) btnChatVoice.classList.add("listening");
+        if (voiceLiveIndicator) voiceLiveIndicator.classList.remove("d-none");
+        if (voiceStatusText) voiceStatusText.innerText = "Mendengarkan... Silakan katakan kebutuhan belajarmu";
+      };
+
+      recognition.onresult = (e) => {
+        let interim = "";
+        let final = "";
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          if (e.results[i].isFinal) {
+            final += e.results[i][0].transcript;
+          } else {
+            interim += e.results[i][0].transcript;
+          }
+        }
+        const transcript = (final || interim).trim();
+        if (transcript) {
+          if (chatInputText) chatInputText.value = transcript;
+          if (aiNeedInput) aiNeedInput.value = transcript;
+        }
+      };
+
+      recognition.onerror = (e) => {
+        console.warn("Speech error:", e.error);
+        stopVoiceRecognition();
+        if (e.error === "not-allowed") {
+          alert("Izin mikrofon belum aktif. Silakan izinkan akses mikrofon di pengaturan browsermu.");
+        }
+      };
+
+      recognition.onend = () => {
+        stopVoiceRecognition();
+      };
+
+      recognition.start();
+    } catch (err) {
+      console.error("SpeechRecognition error:", err);
+      stopVoiceRecognition();
+    }
+  }
+
+  function stopVoiceRecognition() {
+    isListening = false;
+    if (btnHeaderVoice) btnHeaderVoice.classList.remove("listening");
+    if (btnChatVoice) btnChatVoice.classList.remove("listening");
+    if (voiceLiveIndicator) voiceLiveIndicator.classList.add("d-none");
+    if (recognition) {
+      try { recognition.stop(); } catch (e) {}
+      recognition = null;
+    }
+  }
+
+  if (btnChatVoice) {
+    btnChatVoice.addEventListener("click", toggleVoiceRecognition);
+  }
+
+  // ==============================================================
+  // LOGIKA CHAT & EKSTRAKSI ASISTEN AI
+  // ==============================================================
+  function appendUserBubble(text) {
+    if (!chatMessagesList) return;
+    const timeNow = new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+    const html = `
+      <div class="chat-bubble-wrap user">
+        <div class="chat-bubble user">${escapeHtml(text)}</div>
+        <div class="chat-time">${timeNow}</div>
+      </div>
+    `;
+    chatMessagesList.insertAdjacentHTML("beforeend", html);
+  }
+
+  function showTypingIndicator() {
+    if (!chatMessagesList) return;
+    const existing = document.getElementById("botTypingIndicator");
+    if (existing) existing.remove();
+
+    const html = `
+      <div class="chat-bubble-wrap bot" id="botTypingIndicator">
+        <div class="bot-typing-dots">
+          <span></span><span></span><span></span>
+        </div>
+      </div>
+    `;
+    chatMessagesList.insertAdjacentHTML("beforeend", html);
+  }
+
+  function removeTypingIndicator() {
+    const el = document.getElementById("botTypingIndicator");
+    if (el) el.remove();
+  }
+
+  // Helper global untuk navigasi ke form intent dengan membawa data AI
+  window.proceedToIntentForm = function(dataStr, originalPrompt) {
+    sessionStorage.setItem("lafriend_ai_extraction_result", decodeURIComponent(dataStr));
+    sessionStorage.setItem("lafriend_ai_prompt", decodeURIComponent(originalPrompt));
+    window.location.href = "create-intent.html";
+  };
+
+  function appendBotReplyWithExtraction(res, rawText) {
+    if (!chatMessagesList) return;
+    const timeNow = new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+
+    const hasCourse = Boolean(res.course_id || res.course_name);
+    const hasTopic = Boolean(res.topics && res.topics.trim());
+    const hasSched = Boolean(res.availabilities && res.availabilities.length > 0);
+    const hasMode = Boolean(res.learning_mode || res.physical_location || res.online_platform);
+
+    let introText = "";
+    if (hasCourse) {
+      const cName = res.course_name || res.course_id;
+      introText = `Sip, aku mencatat kamu ingin belajar mata kuliah <strong>${escapeHtml(cName)}</strong>!`;
+    } else {
+      introText = `Aku sudah membaca pesanmu, namun belum menemukan nama mata kuliah spesifik di silabus S1 Teknik Komputer.`;
+    }
+
+    // Bangun daftar chip ringkasan
+    let summaryRows = [];
+    if (hasCourse) {
+      summaryRows.push(`
+        <div class="extracted-item-row">
+          <span class="extracted-item-label"><i class="bi bi-book me-1"></i> Mata Kuliah</span>
+          <span class="extracted-item-val">${escapeHtml(res.course_name || res.course_id)}</span>
+        </div>
+      `);
+    }
+    if (hasTopic) {
+      summaryRows.push(`
+        <div class="extracted-item-row">
+          <span class="extracted-item-label"><i class="bi bi-tag me-1"></i> Topik</span>
+          <span class="extracted-item-val">${escapeHtml(res.topics)}</span>
+        </div>
+      `);
+    }
+    if (res.learning_goal) {
+      const gMap = {
+        "EXAM_PREP": "Persiapan Ujian",
+        "ASSIGNMENT": "Tugas Kuliah",
+        "CONCEPT": "Konsep Dasar",
+        "UNDERSTAND": "Memahami Materi",
+        "PROJECT": "Proyek Belajar"
+      };
+      summaryRows.push(`
+        <div class="extracted-item-row">
+          <span class="extracted-item-label"><i class="bi bi-bullseye me-1"></i> Tujuan</span>
+          <span class="extracted-item-val">${gMap[res.learning_goal.toUpperCase()] || res.learning_goal}</span>
+        </div>
+      `);
+    }
+    if (hasMode) {
+      let mLabel = res.learning_mode === "ONLINE" ? "Online" : res.learning_mode === "OFFLINE" ? "Offline" : "Fleksibel";
+      if (res.physical_location) mLabel += ` (${res.physical_location})`;
+      if (res.online_platform) mLabel += ` (${res.online_platform})`;
+      summaryRows.push(`
+        <div class="extracted-item-row">
+          <span class="extracted-item-label"><i class="bi bi-geo-alt me-1"></i> Mode</span>
+          <span class="extracted-item-val">${escapeHtml(mLabel)}</span>
+        </div>
+      `);
+    }
+    if (hasSched) {
+      const sDesc = res.availabilities.map(s => {
+        const time = (s.start_time && s.end_time) ? `${s.start_time}–${s.end_time}` : (s.start_time || 'Waktu fleksibel');
+        return `${s.day_or_date} (${time})`;
+      }).join(", ");
+      summaryRows.push(`
+        <div class="extracted-item-row">
+          <span class="extracted-item-label"><i class="bi bi-calendar3 me-1"></i> Jadwal</span>
+          <span class="extracted-item-val">${escapeHtml(sDesc)}</span>
+        </div>
+      `);
+    }
+
+    const dataEncoded = encodeURIComponent(JSON.stringify(res));
+    const promptEncoded = encodeURIComponent(rawText);
+
+    let summaryCardHtml = "";
+    if (summaryRows.length > 0) {
+      summaryCardHtml = `
+        <div class="bot-extracted-summary">
+          <div style="font-size: 0.72rem; font-weight: 700; color: #6D28D9; margin-bottom: 4px;">
+            <i class="bi bi-stars me-1"></i> Ringkasan yang Terdeteksi:
+          </div>
+          ${summaryRows.join("")}
+        </div>
+      `;
+    }
+
+    const actionButtonHtml = `
+      <div class="bot-action-cta">
+        <button type="button" class="btn-open-intent-form" onclick="proceedToIntentForm('${dataEncoded}', '${promptEncoded}')">
+          <i class="bi bi-ui-checks-grid"></i> Buka Formulir Study Intent &raquo;
+        </button>
+      </div>
+    `;
+
+    const html = `
+      <div class="chat-bubble-wrap bot">
+        <div class="chat-bubble bot">
+          ${introText}
+          ${summaryCardHtml}
+          ${actionButtonHtml}
+        </div>
+        <div class="chat-time">${timeNow}</div>
+      </div>
+    `;
+    chatMessagesList.insertAdjacentHTML("beforeend", html);
+  }
+
+  function appendBotBubble(message) {
+    if (!chatMessagesList) return;
+    const timeNow = new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+    const html = `
+      <div class="chat-bubble-wrap bot">
+        <div class="chat-bubble bot">${message}</div>
+        <div class="chat-time">${timeNow}</div>
+      </div>
+    `;
+    chatMessagesList.insertAdjacentHTML("beforeend", html);
+  }
+
+  async function handleSendChatMessage(customText = null) {
+    const text = (customText ?? (chatInputText ? chatInputText.value : "")).trim();
+    if (!text) return;
+
+    if (chatInputText) chatInputText.value = "";
+    if (aiNeedInput) aiNeedInput.value = "";
+    stopVoiceRecognition();
+
+    appendUserBubble(text);
+    scrollChatToBottom();
+
+    showTypingIndicator();
+    scrollChatToBottom();
+
+    try {
+      const res = await app.request("/study-intents/extract-ai", {
+        method: "POST",
+        body: JSON.stringify({ raw_text: text })
+      });
+
+      removeTypingIndicator();
+      appendBotReplyWithExtraction(res, text);
+    } catch (err) {
+      console.error("Gagal ekstraksi AI chat:", err);
+      removeTypingIndicator();
+      appendBotBubble("Maaf, terjadi kendala saat menghubungkan model AI. Kamu tetap bisa membuka <a href='create-intent.html' class='fw-bold text-primary'>formulir Study Intent</a> langsung.");
+    }
+    scrollChatToBottom();
+  }
+
+  if (btnChatSend) {
+    btnChatSend.addEventListener("click", () => handleSendChatMessage());
+  }
+
+  if (chatInputText) {
+    chatInputText.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleSendChatMessage();
+      }
+    });
+  }
+
+  // Quick Suggestion Chips di Chatbot
+  document.querySelectorAll(".chat-suggestion-chip").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const text = btn.getAttribute("data-quick");
+      if (text) {
+        handleSendChatMessage(text);
+      }
+    });
+  });
+
+  // Topic Chips di Welcome Hub
+  document.querySelectorAll(".topic-chip-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const topic = btn.getAttribute("data-topic");
+      if (topic) {
+        openChatbot(topic, false);
+        handleSendChatMessage(topic);
+      }
+    });
+  });
+
+  // Reset Chat
+  if (btnResetChat) {
+    btnResetChat.addEventListener("click", () => {
+      if (confirm("Mulai ulang percakapan dengan asisten?")) {
+        if (chatMessagesList) {
+          const uName = user.full_name ? user.full_name.split(" ")[0] : "Andi";
+          chatMessagesList.innerHTML = `
+            <div class="chat-bubble-wrap bot">
+              <div class="chat-bubble bot">
+                Halo ${escapeHtml(uName)}! 👋 Mau belajar apa dan kapan kamu ada waktu kosong?<br><br>
+                Kamu bisa ketik pesan langsung, atau tekan tombol <strong>mikrofon 🎙️</strong> di sebelah bawah untuk bicara langsung!
+              </div>
+              <div class="chat-time">Baru saja</div>
+            </div>
+          `;
+        }
+      }
+    });
+  }
+
+  // Animasi Step Timeline Loader AI (Fallback Kompatibilitas)
   async function runAiTimelineLoader(promptText) {
     const overlay = document.getElementById("aiLoadingModal");
     if (!overlay) {
