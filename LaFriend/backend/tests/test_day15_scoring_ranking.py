@@ -4,6 +4,7 @@
 
 import sys
 import math
+import random
 from pathlib import Path
 
 # Setup path agar dapat mengimpor app
@@ -12,6 +13,7 @@ sys.path.insert(0, str(backend_dir))
 
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
+from app.schemas import MatchResultCreate
 
 from app.scoring import (
     CANONICAL_LEARNING_GOALS,
@@ -59,6 +61,12 @@ from app.scoring import (
     select_best_partner_schedule,
     calculate_session_score,
     calculate_partner_score,
+    # Tahap 15.6
+    rank_session_candidates,
+    rank_partner_candidates,
+    rank_candidates,
+    generate_match_explanation,
+    format_match_result_payload,
 )
 
 passed_count = 0
@@ -887,6 +895,25 @@ class DummyPydanticSession(BaseModel):
     learning_mode: str
 
 
+class DummyORMCandidate:
+    def __init__(self, **kwargs):
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+
+class DummyPydanticCandidate(BaseModel):
+    intent_id: str
+    candidate_type: str
+    total_score: float
+    candidate_session_id: Optional[str] = None
+    target_intent_id: Optional[str] = None
+    student_id: Optional[str] = None
+    rounding_reconciliation: float = 0.0
+    components: Dict[str, Any] = {}
+    selected_schedule: Dict[str, Any]
+    explanation: Optional[str] = None
+
+
 # ==============================================================================
 # SUITE 15: SESSION SCORING ENGINE (TAHAP 15.5)
 # ==============================================================================
@@ -1399,9 +1426,351 @@ def test_partner_scoring():
     report("Partner Breakdown: sum(contributions) tepat sama dengan total_score (90.18)", math.isclose(sum_contrib_p, res_budi["total_score"]))
 
 
+# ==============================================================================
+# SUITE 17: CANDIDATE RANKING & DEDUPLICATION (TAHAP 15.6)
+# ==============================================================================
+
+def test_candidate_ranking_and_deduplication():
+    print("\n--- SUITE 17: Candidate Ranking & Deduplication (Tahap 15.6) ---")
+
+    def make_sched(date="2026-11-16", start="10:00", end="12:00", dur=120, pa=1, pb=1):
+        return {
+            "date": date,
+            "start_time": start,
+            "end_time": end,
+            "duration_minutes": dur,
+            "priority_a": pa,
+            "priority_b": pb,
+            "date_score": 0.895,
+        }
+
+    def make_components(topic=1.0, goal=0.85, style=0.85, date=0.895, mode=0.85):
+        return {
+            "topic": {"score": topic, "weight": 0.30, "contribution": topic * 30.0},
+            "goal": {"score": goal, "weight": 0.25, "contribution": goal * 25.0},
+            "style": {"score": style, "weight": 0.15, "contribution": style * 15.0},
+            "date": {"score": date, "weight": 0.15, "contribution": date * 15.0},
+            "mode": {"score": mode, "weight": 0.15, "contribution": mode * 15.0},
+        }
+
+    # 17.1 Session Ranking: Pengurutan Total Score & Penomoran Rank
+    sess_cand_1 = {
+        "intent_id": "int_user",
+        "candidate_type": "SESSION",
+        "candidate_session_id": "ses_01",
+        "total_score": 85.00,
+        "selected_schedule": make_sched(),
+        "components": make_components(),
+    }
+    sess_cand_2 = {
+        "intent_id": "int_user",
+        "candidate_type": "SESSION",
+        "candidate_session_id": "ses_02",
+        "total_score": 95.00,
+        "selected_schedule": make_sched(),
+        "components": make_components(),
+    }
+    sess_cand_3 = {
+        "intent_id": "int_user",
+        "candidate_type": "SESSION",
+        "candidate_session_id": "ses_03",
+        "total_score": 75.00,
+        "selected_schedule": make_sched(),
+        "components": make_components(),
+    }
+
+    ranked_sess = rank_session_candidates([sess_cand_1, sess_cand_2, sess_cand_3])
+    report("Session Rank: Jumlah hasil 3", len(ranked_sess) == 3)
+    report("Session Rank: Rank 1 adalah ses_02 (skor 95)", ranked_sess[0]["candidate_session_id"] == "ses_02" and ranked_sess[0]["rank"] == 1)
+    report("Session Rank: Rank 2 adalah ses_01 (skor 85)", ranked_sess[1]["candidate_session_id"] == "ses_01" and ranked_sess[1]["rank"] == 2)
+    report("Session Rank: Rank 3 adalah ses_03 (skor 75)", ranked_sess[2]["candidate_session_id"] == "ses_03" and ranked_sess[2]["rank"] == 3)
+
+    # 17.2 Session Deduplication: candidate_session_id yang sama mempertahankan skor tertinggi
+    sess_dup_low = {
+        "intent_id": "int_user",
+        "candidate_type": "SESSION",
+        "candidate_session_id": "ses_dup",
+        "total_score": 70.00,
+        "selected_schedule": make_sched(),
+        "components": make_components(),
+    }
+    sess_dup_high = {
+        "intent_id": "int_user",
+        "candidate_type": "SESSION",
+        "candidate_session_id": "ses_dup",
+        "total_score": 92.50,
+        "selected_schedule": make_sched(),
+        "components": make_components(),
+    }
+    ranked_sess_dup = rank_session_candidates([sess_dup_low, sess_dup_high])
+    report("Session Deduplication: Hanya 1 entri untuk ses_dup", len(ranked_sess_dup) == 1)
+    report("Session Deduplication: Skor tertinggi (92.50) yang dipertahankan", ranked_sess_dup[0]["total_score"] == 92.50)
+
+    # 17.3 Session Tie-Breakers (Tier 1 s.d Tier 5)
+    # Tier 2: Durasi terpanjang menang (180 vs 120 menit)
+    s_t2_a = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t2_120", "total_score": 90.0, "selected_schedule": make_sched(dur=120), "components": make_components()}
+    s_t2_b = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t2_180", "total_score": 90.0, "selected_schedule": make_sched(dur=180, end="13:00"), "components": make_components()}
+    res_s_t2 = rank_session_candidates([s_t2_a, s_t2_b])
+    report("Session Tie-Breaker Tier 2: Durasi terpanjang menang (180 vs 120)", res_s_t2[0]["candidate_session_id"] == "s_t2_180")
+
+    # Tier 3: priority_a terkecil menang (1 vs 2)
+    s_t3_a = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t3_prio2", "total_score": 90.0, "selected_schedule": make_sched(dur=120, pa=2), "components": make_components()}
+    s_t3_b = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t3_prio1", "total_score": 90.0, "selected_schedule": make_sched(dur=120, pa=1), "components": make_components()}
+    res_s_t3 = rank_session_candidates([s_t3_a, s_t3_b])
+    report("Session Tie-Breaker Tier 3: priority_a terkecil menang (1 vs 2)", res_s_t3[0]["candidate_session_id"] == "s_t3_prio1")
+
+    # Tier 4: Tanggal paling awal menang (16 vs 20)
+    s_t4_a = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t4_d20", "total_score": 90.0, "selected_schedule": make_sched(date="2026-11-20"), "components": make_components()}
+    s_t4_b = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t4_d16", "total_score": 90.0, "selected_schedule": make_sched(date="2026-11-16"), "components": make_components()}
+    res_s_t4 = rank_session_candidates([s_t4_a, s_t4_b])
+    report("Session Tie-Breaker Tier 4: Tanggal lebih awal menang (16 vs 20)", res_s_t4[0]["candidate_session_id"] == "s_t4_d16")
+
+    # Tier 4b: Jam mulai lebih awal menang (09:00 vs 14:00)
+    s_t4b_a = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t4_1400", "total_score": 90.0, "selected_schedule": make_sched(start="14:00", end="16:00"), "components": make_components()}
+    s_t4b_b = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t4_0900", "total_score": 90.0, "selected_schedule": make_sched(start="09:00", end="11:00"), "components": make_components()}
+    res_s_t4b = rank_session_candidates([s_t4b_a, s_t4b_b])
+    report("Session Tie-Breaker Tier 4b: Jam mulai lebih awal menang (09:00 vs 14:00)", res_s_t4b[0]["candidate_session_id"] == "s_t4_0900")
+
+    # Tier 5: candidate_session_id alfabetis menang
+    s_t5_a = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "ses_zeta", "total_score": 90.0, "selected_schedule": make_sched(), "components": make_components()}
+    s_t5_b = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "ses_alpha", "total_score": 90.0, "selected_schedule": make_sched(), "components": make_components()}
+    res_s_t5 = rank_session_candidates([s_t5_a, s_t5_b])
+    report("Session Tie-Breaker Tier 5: ID alfabetis menang (ses_alpha vs ses_zeta)", res_s_t5[0]["candidate_session_id"] == "ses_alpha")
+
+    # 17.4 Partner Ranking & Student Deduplication: Multi-Intent Per Student
+    # Budi (3 intents: 75.0, 94.5, 85.3), Citra (91.2), Deni (88.7), Eka (82.6), Fajar (79.5)
+    p_budi_1 = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "std_budi", "target_intent_id": "int_budi_1", "total_score": 75.00, "selected_schedule": make_sched(), "components": make_components()}
+    p_budi_2 = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "std_budi", "target_intent_id": "int_budi_2", "total_score": 94.50, "selected_schedule": make_sched(), "components": make_components()}
+    p_budi_3 = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "std_budi", "target_intent_id": "int_budi_3", "total_score": 85.30, "selected_schedule": make_sched(), "components": make_components()}
+    p_citra = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "std_citra", "target_intent_id": "int_citra_1", "total_score": 91.20, "selected_schedule": make_sched(), "components": make_components()}
+    p_deni = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "std_deni", "target_intent_id": "int_deni_1", "total_score": 88.70, "selected_schedule": make_sched(), "components": make_components()}
+    p_eka = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "std_eka", "target_intent_id": "int_eka_1", "total_score": 82.60, "selected_schedule": make_sched(), "components": make_components()}
+    p_fajar = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "std_fajar", "target_intent_id": "int_fajar_1", "total_score": 79.50, "selected_schedule": make_sched(), "components": make_components()}
+
+    all_partners = [p_budi_1, p_budi_2, p_budi_3, p_citra, p_deni, p_eka, p_fajar]
+    ranked_partners = rank_partner_candidates(all_partners)
+
+    report("Partner Deduplication: Dari 7 intent, terduplikasi menjadi 5 mahasiswa unik", len(ranked_partners) == 5)
+    report("Partner Deduplication: Rank 1 adalah Budi dengan intent terbaik (int_budi_2, 94.50)", (
+        ranked_partners[0]["student_id"] == "std_budi" and
+        ranked_partners[0]["target_intent_id"] == "int_budi_2" and
+        ranked_partners[0]["total_score"] == 94.50 and
+        ranked_partners[0]["rank"] == 1
+    ))
+    report("Partner Deduplication: Rank 2 adalah Citra (91.20)", ranked_partners[1]["student_id"] == "std_citra" and ranked_partners[1]["rank"] == 2)
+    report("Partner Deduplication: Rank 3 adalah Deni (88.70)", ranked_partners[2]["student_id"] == "std_deni" and ranked_partners[2]["rank"] == 3)
+    report("Partner Deduplication: Rank 4 adalah Eka (82.60)", ranked_partners[3]["student_id"] == "std_eka" and ranked_partners[3]["rank"] == 4)
+    report("Partner Deduplication: Rank 5 adalah Fajar (79.50)", ranked_partners[4]["student_id"] == "std_fajar" and ranked_partners[4]["rank"] == 5)
+
+    # 17.5 Determinisme Urutan Input: Shuffle dan Reversal Menghasilkan Output Identik
+    reversed_partners = list(reversed(all_partners))
+    ranked_rev = rank_partner_candidates(reversed_partners)
+    report("Partner Invariance: Reversal urutan input menghasilkan ranking identik", [r["target_intent_id"] for r in ranked_rev] == [r["target_intent_id"] for r in ranked_partners])
+
+    # Acak berkali-kali untuk membuktikan kemandirian terhadap urutan query DB
+    shuffled_partners = list(all_partners)
+    deterministic_success = True
+    for _ in range(10):
+        random.shuffle(shuffled_partners)
+        res_shuf = rank_partner_candidates(shuffled_partners)
+        if [r["target_intent_id"] for r in res_shuf] != [r["target_intent_id"] for r in ranked_partners]:
+            deterministic_success = False
+            break
+    report("Partner Invariance: 10x Random Shuffle menghasilkan ranking identik secara deterministik", deterministic_success)
+
+    # 17.6 Partner Tie-Breakers (Tier 1 s.d Tier 5)
+    # Tier 2: Durasi
+    pt2_a = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s1", "target_intent_id": "i1", "total_score": 90.0, "selected_schedule": make_sched(dur=120), "components": make_components()}
+    pt2_b = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s2", "target_intent_id": "i2", "total_score": 90.0, "selected_schedule": make_sched(dur=150, end="12:30"), "components": make_components()}
+    rpt2 = rank_partner_candidates([pt2_a, pt2_b])
+    report("Partner Tie-Breaker Tier 2: Durasi terpanjang menang (150 vs 120)", rpt2[0]["student_id"] == "s2")
+
+    # Tier 3: priority_pair_key minimax: (1, 2) menang atas (2, 2) dan (1, 3)
+    pt3_12 = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s_12", "target_intent_id": "i_12", "total_score": 90.0, "selected_schedule": make_sched(pa=1, pb=2), "components": make_components()}
+    pt3_22 = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s_22", "target_intent_id": "i_22", "total_score": 90.0, "selected_schedule": make_sched(pa=2, pb=2), "components": make_components()}
+    pt3_13 = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s_13", "target_intent_id": "i_13", "total_score": 90.0, "selected_schedule": make_sched(pa=1, pb=3), "components": make_components()}
+    rpt3 = rank_partner_candidates([pt3_13, pt3_22, pt3_12])
+    report("Partner Tie-Breaker Tier 3: Minimax memilih (1, 2) > (2, 2) > (1, 3)", (
+        rpt3[0]["student_id"] == "s_12" and rpt3[1]["student_id"] == "s_22" and rpt3[2]["student_id"] == "s_13"
+    ))
+
+    # Tier 4: Tanggal dan jam lebih awal
+    pt4_a = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s1", "target_intent_id": "i1", "total_score": 90.0, "selected_schedule": make_sched(date="2026-11-20"), "components": make_components()}
+    pt4_b = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s2", "target_intent_id": "i2", "total_score": 90.0, "selected_schedule": make_sched(date="2026-11-16"), "components": make_components()}
+    rpt4 = rank_partner_candidates([pt4_a, pt4_b])
+    report("Partner Tie-Breaker Tier 4: Tanggal paling awal menang", rpt4[0]["student_id"] == "s2")
+
+    # Tier 5: target_intent_id alfabetis
+    pt5_a = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s1", "target_intent_id": "int_zzz", "total_score": 90.0, "selected_schedule": make_sched(), "components": make_components()}
+    pt5_b = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s2", "target_intent_id": "int_aaa", "total_score": 90.0, "selected_schedule": make_sched(), "components": make_components()}
+    rpt5 = rank_partner_candidates([pt5_a, pt5_b])
+    report("Partner Tie-Breaker Tier 5: target_intent_id alfabetis menang (int_aaa vs int_zzz)", rpt5[0]["target_intent_id"] == "int_aaa")
+
+    # 17.7 Threshold Filtering (min_score)
+    r_thresh_all = rank_partner_candidates(all_partners, min_score=0.0)
+    report("Threshold: min_score=0.0 mempertahankan semua (5 mahasiswa)", len(r_thresh_all) == 5)
+
+    r_thresh_85 = rank_partner_candidates(all_partners, min_score=85.0)
+    report("Threshold: min_score=85.0 memfilter kandidat < 85.0 (tersisa 3: Budi 94.5, Citra 91.2, Deni 88.7)", (
+        len(r_thresh_85) == 3 and all(c["total_score"] >= 85.0 for c in r_thresh_85)
+    ))
+
+    r_thresh_exact = rank_partner_candidates(all_partners, min_score=88.70)
+    report("Threshold: Nilai tepat sama dengan min_score (88.70) tetap lolos", any(math.isclose(c["total_score"], 88.70) for c in r_thresh_exact))
+
+    r_thresh_none = rank_partner_candidates(all_partners, min_score=99.9)
+    report("Threshold: min_score=99.9 mengembalikan list kosong", r_thresh_none == [])
+
+    # Penolakan min_score invalid
+    def assert_min_score_err(ms, label):
+        try:
+            rank_partner_candidates(all_partners, min_score=ms)
+            report(f"Threshold Validation: {label}", False, "Harusnya raise ValueError")
+        except ValueError:
+            report(f"Threshold Validation: {label}", True)
+
+    assert_min_score_err(-1.0, "Tolak min_score negatif (-1.0)")
+    assert_min_score_err(101.0, "Tolak min_score > 100 (101.0)")
+    assert_min_score_err(float("nan"), "Tolak min_score NaN")
+    assert_min_score_err(float("inf"), "Tolak min_score Infinity")
+    assert_min_score_err(True, "Tolak min_score boolean (True)")
+    assert_min_score_err("50", "Tolak min_score non-numeric string")
+
+    # 17.8 Limit Slicing (limit)
+    r_lim_none = rank_partner_candidates(all_partners, limit=None)
+    report("Limit: limit=None mengembalikan seluruh kandidat (5)", len(r_lim_none) == 5)
+
+    r_lim_1 = rank_partner_candidates(all_partners, limit=1)
+    report("Limit: limit=1 mengembalikan tepat 1 kandidat teratas", len(r_lim_1) == 1 and r_lim_1[0]["rank"] == 1)
+
+    r_lim_3 = rank_partner_candidates(all_partners, limit=3)
+    report("Limit: limit=3 mengembalikan tepat 3 kandidat teratas", len(r_lim_3) == 3 and [c["rank"] for c in r_lim_3] == [1, 2, 3])
+
+    r_lim_10 = rank_partner_candidates(all_partners, limit=10)
+    report("Limit: limit=10 saat hanya ada 5 kandidat mengembalikan 5 kandidat", len(r_lim_10) == 5)
+
+    # Penolakan limit invalid
+    def assert_limit_err(lim, label):
+        try:
+            rank_partner_candidates(all_partners, limit=lim)
+            report(f"Limit Validation: {label}", False, "Harusnya raise ValueError")
+        except ValueError:
+            report(f"Limit Validation: {label}", True)
+
+    assert_limit_err(0, "Tolak limit=0")
+    assert_limit_err(-5, "Tolak limit negatif (-5)")
+    assert_limit_err(True, "Tolak limit bertipe boolean (True)")
+    assert_limit_err(False, "Tolak limit bertipe boolean (False)")
+    assert_limit_err(3.5, "Tolak limit bertipe float (3.5)")
+    assert_limit_err("5", "Tolak limit bertipe string ('5')")
+
+    # 17.9 Validasi Input Objek Kandidat
+    def assert_cand_err(cands, is_partner, label):
+        try:
+            if is_partner:
+                rank_partner_candidates(cands)
+            else:
+                rank_session_candidates(cands)
+            report(f"Candidate Validation: {label}", False, "Harusnya raise ValueError")
+        except ValueError:
+            report(f"Candidate Validation: {label}", True)
+
+    assert_cand_err(None, True, "Tolak partner_scores None")
+    assert_cand_err(None, False, "Tolak session_scores None")
+    assert_cand_err("bukan_list", True, "Tolak partner_scores non-sequence")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "total_score": 90.0, "selected_schedule": make_sched()}], False, "Tolak session tanpa candidate_session_id")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "  ", "total_score": 90.0, "selected_schedule": make_sched()}], False, "Tolak session dengan candidate_session_id spasi")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "target_intent_id": "i", "total_score": 90.0, "selected_schedule": make_sched()}], True, "Tolak partner tanpa student_id")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "total_score": 90.0, "selected_schedule": make_sched()}], True, "Tolak partner tanpa target_intent_id")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": float("nan"), "selected_schedule": make_sched()}], True, "Tolak kandidat dengan total_score NaN")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": float("inf"), "selected_schedule": make_sched()}], True, "Tolak kandidat dengan total_score Infinity")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": True, "selected_schedule": make_sched()}], True, "Tolak kandidat dengan total_score boolean")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": 105.0, "selected_schedule": make_sched()}], True, "Tolak kandidat dengan total_score > 100")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": -1.0, "selected_schedule": make_sched()}], True, "Tolak kandidat dengan total_score < 0")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": 90.0}], True, "Tolak kandidat tanpa selected_schedule")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": 90.0, "selected_schedule": make_sched(dur=45)}], True, "Tolak kandidat dengan durasi jadwal < 60")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": 90.0, "selected_schedule": make_sched(date="2026-1-6")}], True, "Tolak jadwal tanpa zero padding tanggal")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "student_id": "s", "target_intent_id": "i", "total_score": 90.0, "selected_schedule": make_sched()}], True, "Tolak candidate_type tidak sesuai (SESSION pada rank_partner)")
+
+    # 17.10 Immutability & Integritas Data Input
+    orig_copy = [dict(c) for c in all_partners]
+    res_immut = rank_partner_candidates(all_partners)
+    report("Data Integrity: Objek input asli tidak disisipi field 'rank'", all("rank" not in c for c in all_partners))
+    report("Data Integrity: Panjang dan konten input asli tidak berubah", len(all_partners) == len(orig_copy))
+
+    # 17.11 Dukungan Objek ORM dan Pydantic
+    orm_cand_1 = DummyORMCandidate(
+        intent_id="u", candidate_type="SESSION", candidate_session_id="s_orm_1",
+        total_score=95.0, selected_schedule=make_sched(), components=make_components()
+    )
+    orm_cand_2 = DummyORMCandidate(
+        intent_id="u", candidate_type="SESSION", candidate_session_id="s_orm_2",
+        total_score=85.0, selected_schedule=make_sched(), components=make_components()
+    )
+    r_orm = rank_session_candidates([orm_cand_1, orm_cand_2])
+    report("Object Support: ORM candidate dapat diranking", len(r_orm) == 2 and r_orm[0]["candidate_session_id"] == "s_orm_1")
+
+    pyd_cand_1 = DummyPydanticCandidate(
+        intent_id="u", candidate_type="PARTNER", student_id="s_pyd_1", target_intent_id="i_pyd_1",
+        total_score=95.0, selected_schedule=make_sched(), components=make_components()
+    )
+    pyd_cand_2 = DummyPydanticCandidate(
+        intent_id="u", candidate_type="PARTNER", student_id="s_pyd_2", target_intent_id="i_pyd_2",
+        total_score=85.0, selected_schedule=make_sched(), components=make_components()
+    )
+    r_pyd = rank_partner_candidates([pyd_cand_1, pyd_cand_2])
+    report("Object Support: Pydantic candidate dapat diranking", len(r_pyd) == 2 and r_pyd[0]["student_id"] == "s_pyd_1")
+
+    # 17.12 Rule-Based Match Explanation Generator
+    exp_high = generate_match_explanation({
+        "components": make_components(topic=1.0, goal=1.0, style=1.0, date=0.94, mode=1.0),
+        "selected_schedule": make_sched(date="2026-11-16", start="10:00", end="12:00")
+    })
+    report("Explanation: Memuat komponen terkuat", "Topik belajar sangat relevan" in exp_high and "tujuan belajar selaras" in exp_high)
+    report("Explanation: Memuat format tanggal bahasa Indonesia", "16 November 2026" in exp_high)
+    report("Explanation: Memuat rentang jam jadwal", "10:00–12:00" in exp_high)
+
+    try:
+        generate_match_explanation(None)
+        report("Explanation: Tolak kandidat None", False, "Harusnya raise ValueError")
+    except ValueError:
+        report("Explanation: Tolak kandidat None", True)
+
+    # 17.13 Format MatchResult Payload & Pydantic Validation (MatchResultCreate)
+    # Session Payload
+    sess_item = ranked_sess[0]
+    payload_sess = format_match_result_payload(sess_item)
+    report("Payload: candidate_type SESSION", payload_sess["candidate_type"] == "SESSION")
+    report("Payload: candidate_session_id terisi", payload_sess["candidate_session_id"] == "ses_02")
+    report("Payload: target_intent_id bernilai None", payload_sess["target_intent_id"] is None)
+    report("Payload: Tidak memuat field ekstra student_id atau rank", "student_id" not in payload_sess and "rank" not in payload_sess)
+    validated_sess = MatchResultCreate.model_validate(payload_sess)
+    report("Payload Pydantic Validation: MatchResultCreate berhasil memvalidasi payload SESSION", validated_sess.candidate_type == "SESSION")
+
+    # Partner Payload
+    partner_item = ranked_partners[0]
+    payload_partner = format_match_result_payload(partner_item)
+    report("Payload: candidate_type PARTNER", payload_partner["candidate_type"] == "PARTNER")
+    report("Payload: target_intent_id terisi", payload_partner["target_intent_id"] == "int_budi_2")
+    report("Payload: candidate_session_id bernilai None", payload_partner["candidate_session_id"] is None)
+    report("Payload: Tidak memuat field ekstra student_id atau rank", "student_id" not in payload_partner and "rank" not in payload_partner)
+    validated_partner = MatchResultCreate.model_validate(payload_partner)
+    report("Payload Pydantic Validation: MatchResultCreate berhasil memvalidasi payload PARTNER", validated_partner.candidate_type == "PARTNER")
+
+    # 17.14 Generic Dispatcher (rank_candidates)
+    dispatch_sess = rank_candidates([sess_cand_1, sess_cand_2])
+    report("Dispatcher: Otomatis mengenali SESSION", dispatch_sess[0]["candidate_session_id"] == "ses_02")
+
+    dispatch_partner = rank_candidates([p_budi_1, p_citra])
+    report("Dispatcher: Otomatis mengenali PARTNER", dispatch_partner[0]["student_id"] == "std_citra")
+
+    dispatch_empty = rank_candidates([])
+    report("Dispatcher: Menangani list kosong secara aman", dispatch_empty == [])
+
+
 def run_tests():
     print("=" * 70)
-    print("RUNNING DAY 15: SOFT CONSTRAINT SCORING TEST SUITE (TAHAP 15.1 - 15.5)")
+    print("RUNNING DAY 15: SOFT CONSTRAINT SCORING TEST SUITE (TAHAP 15.1 - 15.6)")
     print("=" * 70)
 
     test_canonicalizers()
@@ -1423,6 +1792,7 @@ def run_tests():
     test_compatibility_breakdown()
     test_session_scoring()
     test_partner_scoring()
+    test_candidate_ranking_and_deduplication()
 
     print("\n" + "=" * 70)
     print(f"TEST RESULT SUMMARY: {passed_count}/{total_count} TESTS PASSED (100% SUCCESS)")

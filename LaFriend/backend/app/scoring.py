@@ -815,7 +815,7 @@ def calculate_compatibility_breakdown(
     """
     Menghasilkan rincian transparan dari perhitungan Compatibility Score:
     - total_score: float [0.0, 100.0] identik dengan hasil calculate_compatibility_score
-    - rounding_reconciliation: selisih total pembulatan yang dialokasikan (+/- 0.01 atau 0.00)
+    - rounding_reconciliation: selisih total pembulatan yang dialokasikan (biasanya +/- 0.01, +/- 0.02, atau 0.00)
     - components: kamus kontribusi untuk kelima komponen (topic, goal, style, date, mode)
       Setiap komponen memuat:
         * score: nilai mentah [0.0, 1.0] dibulatkan 4 desimal
@@ -1319,5 +1319,552 @@ def calculate_partner_score(
         "components": breakdown["components"],
         "selected_schedule": selected_sched,
     }
+
+
+# ==============================================================================
+# 6. TAHAP 15.6: CANDIDATE RANKING, DEDUPLICATION & EXPLANATION ENGINE
+# ==============================================================================
+
+INDONESIAN_MONTHS = [
+    "",
+    "Januari",
+    "Februari",
+    "Maret",
+    "April",
+    "Mei",
+    "Juni",
+    "Juli",
+    "Agustus",
+    "September",
+    "Oktober",
+    "November",
+    "Desember",
+]
+
+
+def _format_indonesian_date(date_str: str) -> str:
+    """
+    Mengonversi tanggal format YYYY-MM-DD menjadi format teks Indonesia (contoh: 16 November 2026).
+    Jika parsing gagal, mengembalikan string asli secara aman.
+    """
+    if not isinstance(date_str, str) or not date_str.strip():
+        return str(date_str)
+    parts = date_str.strip().split("-")
+    if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit() and parts[2].isdigit():
+        year = int(parts[0])
+        month = int(parts[1])
+        day = int(parts[2])
+        if 1 <= month <= 12 and 1 <= day <= 31:
+            return f"{day} {INDONESIAN_MONTHS[month]} {year}"
+    return date_str.strip()
+
+
+def generate_match_explanation(candidate: Mapping[str, Any]) -> str:
+    """
+    Menghasilkan ringkasan penjelasan rekomendasi dalam bahasa Indonesia secara rule-based
+    dan deterministik berdasarkan komponen skor aktual (skala 0.0–1.0) dan jadwal bersama terbaik.
+    """
+    if candidate is None or not isinstance(candidate, (Mapping, object)):
+        raise ValueError("Kandidat untuk generate_match_explanation tidak boleh None")
+
+    comps = _get_field(candidate, "components") or {}
+
+    # Ambil score komponen (skala 0.0 - 1.0)
+    topic_sc = float(_get_field(comps.get("topic", {}), "score", 0.0) or 0.0)
+    goal_sc = float(_get_field(comps.get("goal", {}), "score", 0.0) or 0.0)
+    style_sc = float(_get_field(comps.get("style", {}), "score", 0.0) or 0.0)
+    mode_sc = float(_get_field(comps.get("mode", {}), "score", 0.0) or 0.0)
+    date_sc = float(_get_field(comps.get("date", {}), "score", 0.0) or 0.0)
+
+    # Identifikasi frasa penilaian per komponen
+    phrases = {}
+    if topic_sc >= 0.85:
+        phrases["topic"] = "Topik belajar sangat relevan"
+    elif topic_sc >= 0.65:
+        phrases["topic"] = "Topik belajar cukup relevan"
+
+    if goal_sc >= 0.85:
+        phrases["goal"] = "tujuan belajar selaras"
+    elif goal_sc >= 0.65:
+        phrases["goal"] = "tujuan belajar kompatibel"
+
+    if style_sc >= 0.85:
+        phrases["style"] = "gaya kolaborasi cocok"
+    elif style_sc >= 0.65:
+        phrases["style"] = "gaya kolaborasi saling melengkapi"
+
+    if mode_sc >= 0.85:
+        phrases["mode"] = "mode pembelajaran cocok"
+    elif mode_sc >= 0.65:
+        phrases["mode"] = "mode pembelajaran kompatibel"
+
+    if date_sc >= 0.85:
+        phrases["date"] = "preferensi jadwal sangat cocok"
+    elif date_sc >= 0.65:
+        phrases["date"] = "preferensi jadwal sesuai"
+
+    # Komponen terurut berdasarkan nilai tertinggi secara deterministik
+    component_priority = [
+        ("topic", topic_sc),
+        ("goal", goal_sc),
+        ("style", style_sc),
+        ("mode", mode_sc),
+        ("date", date_sc),
+    ]
+    # Urutkan berdasarkan nilai tertinggi; jika seri, ikuti urutan deterministik di atas
+    sorted_factors = sorted(component_priority, key=lambda item: item[1], reverse=True)
+
+    # Ambil 2 hingga 3 faktor terkuat
+    strong_factors = []
+    for comp_name, score in sorted_factors:
+        if comp_name in phrases:
+            strong_factors.append(phrases[comp_name])
+            if len(strong_factors) == 3:
+                break
+
+    # Jika tidak ada faktor >= 0.65, berikan penjelasan umum
+    if not strong_factors:
+        explanation_body = "Kecocokan sedang pada beberapa aspek kolaborasi"
+    elif len(strong_factors) == 1:
+        explanation_body = strong_factors[0]
+    elif len(strong_factors) == 2:
+        explanation_body = f"{strong_factors[0]} dan {strong_factors[1]}"
+    else:
+        explanation_body = f"{strong_factors[0]}, {strong_factors[1]}, dan {strong_factors[2]}"
+
+    # Kapitalisasi huruf awal
+    explanation_body = explanation_body[0].upper() + explanation_body[1:]
+
+    # Tambahkan informasi jadwal bersama terbaik jika tersedia
+    sched = _get_field(candidate, "selected_schedule")
+    if sched:
+        d_val = _get_field(sched, "date")
+        s_val = _get_field(sched, "start_time")
+        e_val = _get_field(sched, "end_time")
+        if d_val and s_val and e_val:
+            formatted_date = _format_indonesian_date(str(d_val))
+            schedule_text = f" Jadwal bersama terbaik tersedia pada {formatted_date} pukul {s_val}–{e_val}."
+            return f"{explanation_body}.{schedule_text}"
+
+    return f"{explanation_body}."
+
+
+def _validate_ranking_params(min_score: float, limit: Optional[int]) -> None:
+    """
+    Validasi parameter ambang batas minimum dan limit ranking:
+    - min_score: float dalam rentang [0.0, 100.0], bukan bool, finite.
+    - limit: integer positif (> 0) atau None, bukan bool.
+    """
+    if isinstance(min_score, bool):
+        raise ValueError("min_score tidak boleh bertipe boolean")
+    if not isinstance(min_score, (int, float, Decimal)):
+        raise ValueError(f"min_score harus berupa angka, diterima: {type(min_score)}")
+    try:
+        ms = float(min_score)
+    except (ValueError, TypeError):
+        raise ValueError("min_score tidak dapat dikonversi ke float")
+    if math.isnan(ms) or math.isinf(ms):
+        raise ValueError("min_score harus bernilai berhingga (finite)")
+    if ms < 0.0 or ms > 100.0:
+        raise ValueError(f"min_score ({ms}) harus berada dalam rentang [0.0, 100.0]")
+
+    if limit is not None:
+        if isinstance(limit, bool) or not isinstance(limit, int):
+            raise ValueError(f"limit harus berupa integer atau None, diterima: {type(limit)}")
+        if limit <= 0:
+            raise ValueError(f"limit harus berupa integer positif (> 0), diterima: {limit}")
+
+
+def _extract_and_validate_candidate(
+    candidate: Any,
+    expected_type: str,
+) -> Dict[str, Any]:
+    """
+    Mengekstrak dan memvalidasi satu kandidat scoring:
+    - Menjamin field identitas tersedia dan valid.
+    - Menjamin total_score berupa numerik finite [0.0, 100.0] dan bukan boolean.
+    - Menjamin selected_schedule tersedia dengan date, start_time, duration_minutes, priority.
+    - Menghasilkan dictionary terisolasi (immutability terhadap objek input).
+    """
+    if candidate is None:
+        raise ValueError("Objek kandidat tidak boleh None")
+    if not isinstance(candidate, (Mapping, object)):
+        raise ValueError("Kandidat harus berupa Mapping atau objek")
+
+    # Validasi candidate_type jika disediakan
+    c_type_raw = _get_field(candidate, "candidate_type")
+    if c_type_raw:
+        c_type = str(c_type_raw).strip().upper()
+        if c_type != expected_type:
+            raise ValueError(
+                f"Kandidat memiliki candidate_type '{c_type}', diharapkan '{expected_type}'"
+            )
+
+    # Validasi total_score
+    score_raw = _get_field(candidate, "total_score")
+    if score_raw is None or isinstance(score_raw, bool):
+        raise ValueError("Kandidat harus memiliki 'total_score' numerik non-boolean")
+    try:
+        total_score = float(score_raw)
+    except (ValueError, TypeError):
+        raise ValueError("total_score kandidat harus berupa numerik")
+    if math.isnan(total_score) or math.isinf(total_score):
+        raise ValueError("total_score kandidat harus berupa angka berhingga (finite)")
+    if not (0.0 <= total_score <= 100.0):
+        raise ValueError(f"total_score ({total_score}) harus berada dalam rentang [0.0, 100.0]")
+
+    # Validasi selected_schedule
+    sched = _get_field(candidate, "selected_schedule")
+    if sched is None or not isinstance(sched, (Mapping, object)):
+        raise ValueError("Kandidat harus memiliki 'selected_schedule'")
+
+    dur = _get_field(sched, "duration_minutes")
+    if isinstance(dur, bool) or not isinstance(dur, int) or dur < 60:
+        raise ValueError(f"duration_minutes pada selected_schedule harus integer >= 60, diterima: {dur}")
+
+    d_val = _get_field(sched, "date")
+    if not d_val or not isinstance(d_val, str) or not d_val.strip():
+        raise ValueError("Field 'date' pada selected_schedule harus berupa string non-kosong")
+    d_str = d_val.strip()
+    if not DATE_PATTERN.fullmatch(d_str):
+        raise ValueError(f"Format date pada selected_schedule invalid: '{d_val}', harus YYYY-MM-DD")
+
+    s_val = _get_field(sched, "start_time")
+    if not s_val or not isinstance(s_val, str) or not s_val.strip():
+        raise ValueError("Field 'start_time' pada selected_schedule harus berupa string non-kosong")
+    s_str = s_val.strip()
+    if not TIME_PATTERN.fullmatch(s_str):
+        raise ValueError(f"Format start_time pada selected_schedule invalid: '{s_val}', harus HH:MM")
+
+    e_val = _get_field(sched, "end_time")
+    e_str = str(e_val).strip() if e_val else ""
+
+    prio_a = _get_field(sched, "priority_a")
+    if isinstance(prio_a, bool) or not isinstance(prio_a, int) or prio_a not in (1, 2, 3):
+        raise ValueError(f"priority_a pada selected_schedule harus 1, 2, atau 3, diterima: {prio_a}")
+
+    # Salin selected_schedule ke dictionary terisolasi
+    clean_sched = {
+        "date": d_str,
+        "start_time": s_str,
+        "end_time": e_str,
+        "duration_minutes": dur,
+        "priority_a": prio_a,
+    }
+    for opt_k in ("priority_score", "duration_score", "date_score"):
+        val_opt = _get_field(sched, opt_k)
+        if val_opt is not None:
+            clean_sched[opt_k] = val_opt
+
+    if expected_type == "SESSION":
+        sess_id = _get_field(candidate, "candidate_session_id") or _get_field(candidate, "session_id")
+        if not sess_id or not str(sess_id).strip():
+            raise ValueError("Kandidat SESSION harus memiliki 'candidate_session_id' non-kosong")
+        cand_id = str(sess_id).strip()
+
+        prio_b = _get_field(sched, "priority_b", 1)
+        clean_sched["priority_b"] = prio_b if prio_b in (1, 2, 3) else 1
+
+        clean_item = {
+            "intent_id": str(_get_field(candidate, "intent_id", "")).strip(),
+            "candidate_type": "SESSION",
+            "candidate_session_id": cand_id,
+            "total_score": round(total_score, 2),
+            "rounding_reconciliation": float(_get_field(candidate, "rounding_reconciliation", 0.0) or 0.0),
+            "components": _get_field(candidate, "components", {}),
+            "selected_schedule": clean_sched,
+        }
+        exp = _get_field(candidate, "explanation")
+        if exp:
+            clean_item["explanation"] = str(exp).strip()
+        return clean_item
+
+    else:  # PARTNER
+        std_id = _get_field(candidate, "student_id")
+        if not std_id or not str(std_id).strip():
+            raise ValueError("Kandidat PARTNER harus memiliki 'student_id' non-kosong")
+        student_id = str(std_id).strip()
+
+        tgt_id = _get_field(candidate, "target_intent_id") or _get_field(candidate, "intent_b_id")
+        if not tgt_id or not str(tgt_id).strip():
+            raise ValueError("Kandidat PARTNER harus memiliki 'target_intent_id' non-kosong")
+        target_intent_id = str(tgt_id).strip()
+
+        prio_b = _get_field(sched, "priority_b")
+        if isinstance(prio_b, bool) or not isinstance(prio_b, int) or prio_b not in (1, 2, 3):
+            raise ValueError(f"priority_b pada selected_schedule PARTNER harus 1, 2, atau 3, diterima: {prio_b}")
+        clean_sched["priority_b"] = prio_b
+
+        clean_item = {
+            "intent_id": str(_get_field(candidate, "intent_id", "")).strip(),
+            "candidate_type": "PARTNER",
+            "student_id": student_id,
+            "target_intent_id": target_intent_id,
+            "total_score": round(total_score, 2),
+            "rounding_reconciliation": float(_get_field(candidate, "rounding_reconciliation", 0.0) or 0.0),
+            "components": _get_field(candidate, "components", {}),
+            "selected_schedule": clean_sched,
+        }
+        exp = _get_field(candidate, "explanation")
+        if exp:
+            clean_item["explanation"] = str(exp).strip()
+        return clean_item
+
+
+def rank_session_candidates(
+    session_scores: Sequence[Any],
+    min_score: float = 0.0,
+    limit: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Menyusun peringkat kandidat Study Session berdasarkan lima tingkat hierarki penilaian:
+    1. total_score tertinggi (skor kompatibilitas)
+    2. duration_minutes terpanjang
+    3. priority_a terbaik (1 > 2 > 3)
+    4. date dan start_time paling awal (kronologis kalender)
+    5. candidate_session_id alfabetis deterministik
+
+    Deduplikasi: satu sesi hanya muncul satu kali dalam rekomendasi akhir.
+    Alur: Validasi -> Filter min_score -> Deterministic Sort -> Deduplicate -> Assign Rank & Explanation -> Limit.
+    """
+    _validate_ranking_params(min_score, limit)
+    if session_scores is None:
+        raise ValueError("session_scores tidak boleh None")
+    if not isinstance(session_scores, Sequence):
+        raise ValueError("session_scores harus berupa sequence/list")
+
+    # 1. Validasi & ekstraksi kandidat ke struktur bersih terisolasi
+    validated = [
+        _extract_and_validate_candidate(item, expected_type="SESSION")
+        for item in session_scores
+    ]
+
+    # 2. Filter min_score
+    filtered = [
+        item for item in validated
+        if item["total_score"] >= float(min_score)
+    ]
+
+    # 3. Deterministic Sorting (5 Tingkat)
+    def session_sort_key(c: Dict[str, Any]) -> Tuple[float, int, int, str, str, str]:
+        sched = c["selected_schedule"]
+        return (
+            -float(c["total_score"]),
+            -int(sched["duration_minutes"]),
+            int(sched["priority_a"]),
+            str(sched["date"]),
+            str(sched["start_time"]),
+            str(c["candidate_session_id"]),
+        )
+
+    filtered.sort(key=session_sort_key)
+
+    # 4. Deduplikasi berdasarkan candidate_session_id
+    seen_session_ids = set()
+    deduped = []
+    for item in filtered:
+        sid = item["candidate_session_id"]
+        if sid not in seen_session_ids:
+            seen_session_ids.add(sid)
+            deduped.append(item)
+
+    # 5. Penetapan rank & penjelasan (explanation)
+    for idx, item in enumerate(deduped):
+        item["rank"] = idx + 1
+        if "explanation" not in item:
+            item["explanation"] = generate_match_explanation(item)
+
+    # 6. Penerapan limit
+    if limit is not None:
+        deduped = deduped[:limit]
+
+    return deduped
+
+
+def rank_partner_candidates(
+    partner_scores: Sequence[Any],
+    min_score: float = 0.0,
+    limit: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Menyusun peringkat calon partner (Study Intent mahasiswa lain) berdasarkan lima tingkat hierarki:
+    1. total_score tertinggi (skor kompatibilitas)
+    2. duration_minutes terpanjang
+    3. priority_pair_key(priority_a, priority_b) terbaik (minimax holistik)
+    4. date dan start_time paling awal (kronologis kalender)
+    5. target_intent_id alfabetis deterministik
+
+    Deduplikasi: satu mahasiswa (student_id) hanya muncul satu kali dengan Study Intent terbaiknya.
+    Alur: Validasi -> Filter min_score -> Deterministic Sort -> Deduplicate Student -> Assign Rank & Explanation -> Limit.
+    """
+    _validate_ranking_params(min_score, limit)
+    if partner_scores is None:
+        raise ValueError("partner_scores tidak boleh None")
+    if not isinstance(partner_scores, Sequence):
+        raise ValueError("partner_scores harus berupa sequence/list")
+
+    # 1. Validasi & ekstraksi kandidat ke struktur bersih terisolasi
+    validated = [
+        _extract_and_validate_candidate(item, expected_type="PARTNER")
+        for item in partner_scores
+    ]
+
+    # 2. Filter min_score
+    filtered = [
+        item for item in validated
+        if item["total_score"] >= float(min_score)
+    ]
+
+    # 3. Deterministic Sorting (5 Tingkat)
+    def partner_sort_key(c: Dict[str, Any]) -> Tuple[float, int, Tuple[int, int, int, int], str, str, str]:
+        sched = c["selected_schedule"]
+        prio_a = int(sched["priority_a"])
+        prio_b = int(sched["priority_b"])
+        return (
+            -float(c["total_score"]),
+            -int(sched["duration_minutes"]),
+            priority_pair_key(prio_a, prio_b),
+            str(sched["date"]),
+            str(sched["start_time"]),
+            str(c["target_intent_id"]),
+        )
+
+    filtered.sort(key=partner_sort_key)
+
+    # 4. Deduplikasi berdasarkan student_id
+    seen_student_ids = set()
+    deduped = []
+    for item in filtered:
+        sid = item["student_id"]
+        if sid not in seen_student_ids:
+            seen_student_ids.add(sid)
+            deduped.append(item)
+
+    # 5. Penetapan rank & penjelasan (explanation)
+    for idx, item in enumerate(deduped):
+        item["rank"] = idx + 1
+        if "explanation" not in item:
+            item["explanation"] = generate_match_explanation(item)
+
+    # 6. Penerapan limit
+    if limit is not None:
+        deduped = deduped[:limit]
+
+    return deduped
+
+
+def rank_candidates(
+    candidates: Sequence[Any],
+    candidate_type: Optional[str] = None,
+    min_score: float = 0.0,
+    limit: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Dispatcher fungsi ranking kandidat generik.
+    Menerima list kandidat bertipe SESSION atau PARTNER, mendeteksi tipe kandidat
+    jika candidate_type tidak ditentukan, dan mendelegasikan ke fungsi ranking spesifik.
+    """
+    if candidates is None:
+        raise ValueError("candidates tidak boleh None")
+    if not isinstance(candidates, Sequence):
+        raise ValueError("candidates harus berupa sequence/list")
+    if not candidates:
+        return []
+
+    c_type = candidate_type
+    if not c_type:
+        first = candidates[0]
+        c_type = _get_field(first, "candidate_type")
+        if not c_type:
+            if _get_field(first, "candidate_session_id") or _get_field(first, "session_id"):
+                c_type = "SESSION"
+            elif _get_field(first, "student_id") or _get_field(first, "target_intent_id"):
+                c_type = "PARTNER"
+
+    if not c_type:
+        raise ValueError("candidate_type tidak dapat dideteksi secara otomatis dari candidates")
+
+    c_type_clean = str(c_type).strip().upper()
+    if c_type_clean == "SESSION":
+        return rank_session_candidates(candidates, min_score=min_score, limit=limit)
+    elif c_type_clean == "PARTNER":
+        return rank_partner_candidates(candidates, min_score=min_score, limit=limit)
+    else:
+        raise ValueError(f"candidate_type '{c_type}' tidak valid, harus 'SESSION' atau 'PARTNER'")
+
+
+def format_match_result_payload(candidate: Mapping[str, Any]) -> Dict[str, Any]:
+    """
+    Mengonversi hasil penilaian kandidat (baik Session maupun Partner) menjadi
+    dictionary payload yang valid untuk skema Pydantic MatchResultCreate.
+    Hanya menyertakan field resmi: intent_id, candidate_type, candidate_session_id,
+    target_intent_id, compatibility_score, breakdown, explanation.
+    """
+    if candidate is None:
+        raise ValueError("candidate tidak boleh None")
+    if not isinstance(candidate, (Mapping, object)):
+        raise ValueError("candidate harus berupa Mapping atau objek")
+
+    c_type_raw = _get_field(candidate, "candidate_type")
+    if not c_type_raw or not isinstance(c_type_raw, str):
+        raise ValueError("candidate harus memiliki 'candidate_type' berupa string")
+    c_type = c_type_raw.strip().upper()
+    if c_type not in ("SESSION", "PARTNER"):
+        raise ValueError(f"candidate_type '{c_type}' tidak valid, harus 'SESSION' atau 'PARTNER'")
+
+    intent_id = _get_field(candidate, "intent_id")
+    if not intent_id or not str(intent_id).strip():
+        raise ValueError("candidate harus memiliki 'intent_id' non-kosong")
+
+    total_score = _get_field(candidate, "total_score")
+    if total_score is None or isinstance(total_score, bool):
+        raise ValueError("candidate harus memiliki 'total_score' numerik non-boolean")
+    try:
+        score_val = float(total_score)
+    except (ValueError, TypeError):
+        raise ValueError("total_score harus berupa angka")
+    if math.isnan(score_val) or math.isinf(score_val):
+        raise ValueError("total_score harus berupa angka berhingga (finite)")
+    if not (0.0 <= score_val <= 100.0):
+        raise ValueError(f"total_score ({score_val}) harus berada dalam rentang [0.0, 100.0]")
+
+    if c_type == "SESSION":
+        sess_id = _get_field(candidate, "candidate_session_id") or _get_field(candidate, "session_id")
+        if not sess_id or not str(sess_id).strip():
+            raise ValueError("Kandidat SESSION harus memiliki 'candidate_session_id' non-kosong")
+        cand_sess_id = str(sess_id).strip()
+        target_intent_id = None
+    else:  # PARTNER
+        tgt_id = _get_field(candidate, "target_intent_id") or _get_field(candidate, "intent_b_id")
+        if not tgt_id or not str(tgt_id).strip():
+            raise ValueError("Kandidat PARTNER harus memiliki 'target_intent_id' non-kosong")
+        target_intent_id = str(tgt_id).strip()
+        cand_sess_id = None
+
+    comps = _get_field(candidate, "components") or {}
+    breakdown = {
+        "topic_similarity": float(_get_field(comps.get("topic", {}), "score", 0.0) or 0.0),
+        "goal_compatibility": float(_get_field(comps.get("goal", {}), "score", 0.0) or 0.0),
+        "style_compatibility": float(_get_field(comps.get("style", {}), "score", 0.0) or 0.0),
+        "date_preference": float(_get_field(comps.get("date", {}), "score", 0.0) or 0.0),
+        "mode_compatibility": float(_get_field(comps.get("mode", {}), "score", 0.0) or 0.0),
+    }
+
+    explanation = _get_field(candidate, "explanation")
+    if not explanation or not str(explanation).strip():
+        explanation = generate_match_explanation(candidate)
+    else:
+        explanation = str(explanation).strip()
+
+    return {
+        "intent_id": str(intent_id).strip(),
+        "candidate_type": c_type,
+        "candidate_session_id": cand_sess_id,
+        "target_intent_id": target_intent_id,
+        "compatibility_score": round(score_val, 2),
+        "breakdown": breakdown,
+        "explanation": explanation,
+    }
+
 
 
