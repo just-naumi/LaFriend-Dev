@@ -2,9 +2,10 @@
 # matching_evaluation.py - Modul Evaluasi & Validasi Kualitas Matching Engine (Day 19)
 # ==============================================================================
 # Modul ini bertanggung jawab untuk:
-# 1. Day 19.1 - Group Quality Evaluation (APS, MPS, GQ, sebaran skor pairwise,
-#    identifikasi weakest link/strongest link, variansi skor, dan catatan kualitas).
-# 2. Day 19.2 - Matching Stability & Order Invariance (pengujian determinisme permutasi).
+# 1. Day 19.1 & 19.1.1 - Group Quality Evaluation (APS, MPS, GQ, sebaran skor pairwise,
+#    identifikasi weakest link/strongest link, variansi skor, catatan kualitas,
+#    konsistensi pembulatan Decimal ROUND_HALF_UP, dan validasi kelengkapan 5 komponen breakdown).
+# 2. Day 19.2 - Matching Stability & Order Invariance (pengujian determinisme permutasi unik).
 # 3. Day 19.3 - Robustness Testing (evaluasi data sparse, non-ideal, dan hard constraints).
 # 4. Day 19.4 - Top-K Quality Benchmarking (analisis Quality Retention & Quality Loss).
 # 5. Day 19.5 - Performance & Reliability Metrics (pengukuran metrik komprehensif).
@@ -39,8 +40,11 @@ from app.schemas import (
 )
 
 
+REQUIRED_BREAKDOWN_COMPONENTS = ("topic", "goal", "style", "date", "mode")
+
+
 # ==============================================================================
-# 1. EVALUASI DISTRIBUSI SKOR PAIRWISE
+# 1. EVALUASI DISTRIBUSI SKOR PAIRWISE (D19.1-01 HARDENING)
 # ==============================================================================
 
 def calculate_pairwise_distribution(
@@ -50,7 +54,8 @@ def calculate_pairwise_distribution(
     Menghitung statistik distribusi skor kecocokan pairwise seluruh pasangan.
     Metrik meliputi:
       - count: jumlah pasangan (N_pair)
-      - mean: rata-rata skor pasangan (APS)
+      - mean: rata-rata skor pasangan (APS), dihitung menggunakan Decimal ROUND_HALF_UP 2 desimal
+              sehingga 100% konsisten dengan calculate_group_quality_score().
       - median: nilai tengah skor pasangan
       - min_score: skor pasangan terendah (MPS)
       - max_score: skor pasangan tertinggi
@@ -70,39 +75,60 @@ def calculate_pairwise_distribution(
             score_spread=0.0,
         )
 
-    float_scores = [round(float(s), 4) for s in scores]
-    n = len(float_scores)
+    q2 = Decimal("0.01")
+    dec_scores = [Decimal(str(round(float(s), 4))) for s in scores]
+    n_dec = Decimal(len(dec_scores))
 
-    mean_val = float(Decimal(str(sum(float_scores))) / Decimal(str(n)))
-    mean_rounded = round(mean_val, 2)
+    # 1. Mean (APS) - menggunakan Decimal presisi tinggi dan ROUND_HALF_UP
+    mean_dec = sum(dec_scores) / n_dec
+    mean_rounded = float(mean_dec.quantize(q2, rounding=ROUND_HALF_UP))
 
-    median_val = round(float(statistics.median(float_scores)), 2)
-    min_val = round(float(min(float_scores)), 2)
-    max_val = round(float(max(float_scores)), 2)
-    spread = round(max_val - min_val, 2)
+    # 2. Min (MPS) dan Max
+    min_dec = min(dec_scores)
+    max_dec = max(dec_scores)
+    min_rounded = float(min_dec.quantize(q2, rounding=ROUND_HALF_UP))
+    max_rounded = float(max_dec.quantize(q2, rounding=ROUND_HALF_UP))
 
-    if n > 1:
-        # Gunakan variansi populasi (pvariance) untuk mengukur dispersi seluruh pasangan dalam grup
-        var_val = float(statistics.pvariance(float_scores))
-        std_val = float(math.sqrt(var_val))
+    # 3. Spread (Disparitas)
+    spread_dec = max_dec - min_dec
+    spread_rounded = float(spread_dec.quantize(q2, rounding=ROUND_HALF_UP))
+
+    # 4. Median (Decimal)
+    sorted_dec = sorted(dec_scores)
+    len_int = len(sorted_dec)
+    if len_int % 2 == 1:
+        median_dec = sorted_dec[len_int // 2]
     else:
-        var_val = 0.0
-        std_val = 0.0
+        median_dec = (sorted_dec[len_int // 2 - 1] + sorted_dec[len_int // 2]) / Decimal("2")
+    median_rounded = float(median_dec.quantize(q2, rounding=ROUND_HALF_UP))
+
+    # 5. Variansi Populasi & Standar Deviasi
+    if len_int > 1:
+        sum_sq_diff = sum((x - mean_dec) ** 2 for x in dec_scores)
+        var_dec = sum_sq_diff / n_dec
+        var_float = float(var_dec)
+        std_float = math.sqrt(var_float)
+        var_rounded = float(var_dec.quantize(q2, rounding=ROUND_HALF_UP))
+        std_dec = Decimal(str(round(std_float, 4)))
+        std_rounded = float(std_dec.quantize(q2, rounding=ROUND_HALF_UP))
+    else:
+        var_rounded = 0.0
+        std_rounded = 0.0
 
     return PairwiseScoreDistribution(
-        count=n,
+        count=int(n_dec),
         mean=mean_rounded,
-        median=median_val,
-        std_dev=round(std_val, 2),
-        variance=round(var_val, 2),
-        min_score=min_val,
-        max_score=max_val,
-        score_spread=spread,
+        median=median_rounded,
+        std_dev=std_rounded,
+        variance=var_rounded,
+        min_score=min_rounded,
+        max_score=max_rounded,
+        score_spread=spread_rounded,
     )
 
 
 # ==============================================================================
-# 2. VALIDASI KONSISTENSI FORMULA GQ
+# 2. VALIDASI KONSISTENSI FORMULA GQ & BREAKDOWN (D19.1-02 HARDENING)
 # ==============================================================================
 
 def verify_gq_consistency(
@@ -145,34 +171,134 @@ def verify_pairwise_breakdown_consistency(
     """
     Memvalidasi apakah Compatibility Score suatu pasangan identik dengan
     penjumlahan seluruh sub-komponen breakdown Day 15:
-      Total Score == Topic + Goal + Style + Schedule + Mode
+      Total Score == Topic + Goal + Style + Schedule (Date) + Mode
+
+    PENTING (D19.1-02 HARDENING):
+    Validator mewajibkan kelima komponen ("topic", "goal", "style", "date", "mode")
+    tersedia secara lengkap dan memiliki kontribusi numerik valid.
+    Jika ada komponen yang hilang atau tidak valid, validasi dinyatakan GAGAL (is_consistent = False).
     """
-    total_score = float(pairwise_item.get("compatibility_score", 0.0))
-    breakdown = pairwise_item.get("breakdown", {})
+    if not isinstance(pairwise_item, dict):
+        return {
+            "is_consistent": False,
+            "compatibility_score": 0.0,
+            "sum_of_contributions": 0.0,
+            "discrepancy": 0.0,
+            "missing_components": list(REQUIRED_BREAKDOWN_COMPONENTS),
+            "invalid_components": [],
+            "error": "pairwise_item harus berupa dictionary",
+            "component_contributions": {},
+        }
 
-    sum_contributions = 0.0
+    # 1. Validasi Compatibility Score
+    raw_cs = pairwise_item.get("compatibility_score")
+    if raw_cs is None or isinstance(raw_cs, bool):
+        return {
+            "is_consistent": False,
+            "compatibility_score": 0.0,
+            "sum_of_contributions": 0.0,
+            "discrepancy": 0.0,
+            "missing_components": [],
+            "invalid_components": [],
+            "error": "compatibility_score tidak ditemukan atau bernilai boolean",
+            "component_contributions": {},
+        }
+    try:
+        total_score = float(raw_cs)
+        if math.isnan(total_score) or math.isinf(total_score):
+            raise ValueError()
+    except (ValueError, TypeError, OverflowError):
+        return {
+            "is_consistent": False,
+            "compatibility_score": 0.0,
+            "sum_of_contributions": 0.0,
+            "discrepancy": 0.0,
+            "missing_components": [],
+            "invalid_components": [],
+            "error": "compatibility_score bukan angka berhingga valid",
+            "component_contributions": {},
+        }
+
+    # 2. Validasi struktur breakdown
+    breakdown = pairwise_item.get("breakdown")
+    if hasattr(breakdown, "model_dump"):
+        breakdown = breakdown.model_dump()
+    elif hasattr(breakdown, "dict"):
+        breakdown = breakdown.dict()
+
+    if not isinstance(breakdown, dict) or not breakdown:
+        return {
+            "is_consistent": False,
+            "compatibility_score": round(total_score, 2),
+            "sum_of_contributions": 0.0,
+            "discrepancy": round(total_score, 2),
+            "missing_components": list(REQUIRED_BREAKDOWN_COMPONENTS),
+            "invalid_components": [],
+            "error": "breakdown kosong atau bukan dictionary",
+            "component_contributions": {},
+        }
+
+    # 3. Pengecekan ketat kelima komponen wajib Day 15
+    missing_components = []
+    invalid_components = []
     component_details = {}
+    sum_contributions = Decimal("0.0")
 
-    for comp_key in ["topic", "goal", "style", "date", "mode"]:
-        comp_data = breakdown.get(comp_key)
+    for comp_key in REQUIRED_BREAKDOWN_COMPONENTS:
+        if comp_key not in breakdown or breakdown[comp_key] is None:
+            missing_components.append(comp_key)
+            continue
+
+        comp_data = breakdown[comp_key]
         if isinstance(comp_data, dict):
-            contrib = float(comp_data.get("contribution", 0.0))
+            raw_contrib = comp_data.get("contribution")
         elif hasattr(comp_data, "contribution"):
-            contrib = float(getattr(comp_data, "contribution", 0.0))
+            raw_contrib = getattr(comp_data, "contribution")
         else:
-            contrib = 0.0
-        sum_contributions += contrib
-        component_details[comp_key] = contrib
+            raw_contrib = None
 
-    sum_rounded = round(sum_contributions, 2)
-    discrepancy = round(abs(total_score - sum_rounded), 4)
-    is_consistent = discrepancy <= tolerance
+        if raw_contrib is None or isinstance(raw_contrib, bool):
+            invalid_components.append(comp_key)
+            continue
+
+        try:
+            val_float = float(raw_contrib)
+            if math.isnan(val_float) or math.isinf(val_float):
+                invalid_components.append(comp_key)
+                continue
+            dec_contrib = Decimal(str(round(val_float, 4)))
+            sum_contributions += dec_contrib
+            component_details[comp_key] = float(dec_contrib.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        except (ValueError, TypeError, OverflowError):
+            invalid_components.append(comp_key)
+
+    q2 = Decimal("0.01")
+    sum_rounded = float(sum_contributions.quantize(q2, rounding=ROUND_HALF_UP))
+    dec_total = Decimal(str(round(total_score, 4))).quantize(q2, rounding=ROUND_HALF_UP)
+    total_rounded = float(dec_total)
+
+    discrepancy = round(abs(total_rounded - sum_rounded), 4)
+
+    is_complete = (len(missing_components) == 0 and len(invalid_components) == 0)
+    is_sum_matching = (discrepancy <= tolerance)
+    is_consistent = is_complete and is_sum_matching
+
+    error_msg = None
+    if missing_components:
+        error_msg = f"Komponen wajib tidak lengkap: {', '.join(missing_components)}"
+    elif invalid_components:
+        error_msg = f"Komponen memiliki kontribusi invalid: {', '.join(invalid_components)}"
+    elif not is_sum_matching:
+        error_msg = f"Total Compatibility Score ({total_rounded}) != Jumlah Kontribusi ({sum_rounded})"
 
     return {
         "is_consistent": is_consistent,
-        "compatibility_score": round(total_score, 2),
+        "compatibility_score": total_rounded,
         "sum_of_contributions": sum_rounded,
         "discrepancy": discrepancy,
+        "missing_components": missing_components,
+        "invalid_components": invalid_components,
+        "error": error_msg,
         "component_contributions": component_details,
     }
 
@@ -384,8 +510,124 @@ def validate_benchmark_cases() -> Dict[str, GroupQualityEvaluationResult]:
 
 
 # ==============================================================================
-# 7. EVALUASI STABILITAS & ORDER INVARIANCE (DAY 19.2)
+# 7. EVALUASI STABILITAS & ORDER INVARIANCE (DAY 19.2 HARDENING)
 # ==============================================================================
+
+def generate_distinct_permutations(
+    candidates: Sequence[StudyIntent],
+    num_permutations: int,
+    random_seed: int = 42
+) -> List[List[StudyIntent]]:
+    """
+    Menghasilkan daftar urutan kandidat yang TERBUKTI BERBEDA (distinct permutations).
+
+    Aturan:
+    - Permutasi 1: Urutan baseline asli.
+    - Permutasi 2+: Variasi unik yang dijamin tidak identik dengan baseline maupun
+      satu sama lain, meliputi urutan terbalik (reverse), rotasi siklis, interleave,
+      dan random shuffles dengan deduplikasi berbasis tuple ID intent.
+    - Menghindari pengulangan urutan identik saat pengujian stabilitas.
+    """
+    cand_list = list(candidates)
+    n = len(cand_list)
+    if n <= 1:
+        return [list(cand_list)]
+
+    seen_orders = set()
+    result: List[List[StudyIntent]] = []
+
+    def _sig(arr: Sequence[StudyIntent]) -> Tuple[str, ...]:
+        return tuple(str(getattr(c, "intent_id", id(c))) for c in arr)
+
+    # 1. Baseline Run (Urutan asli)
+    sig_base = _sig(cand_list)
+    seen_orders.add(sig_base)
+    result.append(list(cand_list))
+
+    if num_permutations <= 1:
+        # Jika diminta 1 run pengujian independen pada urutan yang diacak,
+        # berikan variasi yang dijamin berbeda dari baseline (reverse).
+        rev = list(reversed(cand_list))
+        return [rev]
+
+    # 2. Heuristik variasi deterministik:
+    # 2a. Reversed order
+    rev = list(reversed(cand_list))
+    sig_rev = _sig(rev)
+    if sig_rev not in seen_orders and len(result) < num_permutations:
+        seen_orders.add(sig_rev)
+        result.append(rev)
+
+    # 2b. Rotasi siklis (cyclic shifts)
+    for shift in range(1, n):
+        if len(result) >= num_permutations:
+            break
+        rotated = cand_list[shift:] + cand_list[:shift]
+        sig_rot = _sig(rotated)
+        if sig_rot not in seen_orders:
+            seen_orders.add(sig_rot)
+            result.append(rotated)
+
+    # 2c. Interleaved order (bergantian dari depan dan belakang)
+    if len(result) < num_permutations and n >= 3:
+        interleaved = []
+        left, right = 0, n - 1
+        while left <= right:
+            if left == right:
+                interleaved.append(cand_list[left])
+            else:
+                interleaved.append(cand_list[left])
+                interleaved.append(cand_list[right])
+            left += 1
+            right -= 1
+        sig_int = _sig(interleaved)
+        if sig_int not in seen_orders:
+            seen_orders.add(sig_int)
+            result.append(interleaved)
+
+    # 2d. Random shuffles terarah untuk memenuhi sisa kuota num_permutations
+    rng = random.Random(random_seed)
+    max_attempts = 200
+    attempts = 0
+    while len(result) < num_permutations and attempts < max_attempts:
+        attempts += 1
+        shuffled = list(cand_list)
+        rng.shuffle(shuffled)
+        sig_shuf = _sig(shuffled)
+        if sig_shuf not in seen_orders:
+            seen_orders.add(sig_shuf)
+            result.append(shuffled)
+
+    return result
+
+
+def _make_comprehensive_group_signature(res: Dict[str, Any]) -> str:
+    """
+    Menghasilkan representasi signature komprehensif dari hasil form_study_group:
+    Mencakup:
+      - formation_status (e.g. READY, NO_COMPATIBLE_GROUP, INSUFFICIENT_MEMBERS)
+      - group_size (jumlah anggota)
+      - sorted member intent IDs
+      - group_quality_score (GQ)
+      - average_pair_score (APS)
+      - minimum_pair_score (MPS)
+      - selected_schedule (date, start_time, end_time, duration)
+    """
+    status = str(res.get("formation_status", "UNKNOWN"))
+    size = int(res.get("group_size", 0))
+    members = sorted(str(m.get("intent_id", "")) for m in res.get("members", []))
+    gq = round(float(res.get("group_quality_score", 0.0)), 2)
+    aps = round(float(res.get("average_pair_score", 0.0)), 2)
+    mps = round(float(res.get("minimum_pair_score", 0.0)), 2)
+
+    sched = res.get("selected_schedule")
+    if sched and isinstance(sched, dict):
+        sched_key = f"{sched.get('date')}_{sched.get('start_time')}_{sched.get('end_time')}_{sched.get('duration_minutes')}"
+    else:
+        sched_key = "NO_SCHED"
+
+    return f"STATUS_{status}__SIZE_{size}__MEMBERS_{'-'.join(members)}__GQ_{gq:.2f}__APS_{aps:.2f}__MPS_{mps:.2f}__SCHED_{sched_key}"
+
 
 def evaluate_matching_stability(
     host_intent: StudyIntent,
@@ -397,17 +639,24 @@ def evaluate_matching_stability(
     random_seed: int = 42
 ) -> MatchingStabilityResult:
     """
-    Menguji order invariance engine:
-    Menjalankan algoritma form_study_group sebanyak num_permutations kali dengan urutan
-    candidate_intents yang diacak secara berbeda-beda.
+    Menguji order invariance matching engine (Day 19.2):
+    Menjalankan form_study_group terhadap berbagai urutan kandidat yang TERBUKTI BERBEDA.
 
-    Engine yang stabil dan deterministik harus menghasilkan keanggotaan kelompok,
-    Group Quality Score, dan jadwal yang 100% IDENTIK tanpa terpengaruh urutan input.
+    Kriteria Konsistensi:
+    Dinyatakan konsisten jika dan hanya jika seluruh atribut hasil identik:
+      1. formation_status identik
+      2. seluruh anggota kelompok terpilih identik
+      3. group_quality_score (GQ), APS, dan MPS identik
+      4. selected_schedule (tanggal, jam mulai, jam selesai, durasi) identik
+
+    Formula Determinism Rate:
+      DR = (N_consistent / N_runs) * 100%
+      Target: DR = 100.0%
     """
     if num_permutations < 1:
         raise ValueError("num_permutations minimal 1")
 
-    # Jalankan baseline dengan urutan asli
+    # 1. Jalankan baseline dengan urutan asli
     baseline_run = form_study_group(
         host_intent=host_intent,
         candidate_intents=list(candidate_intents),
@@ -416,58 +665,55 @@ def evaluate_matching_stability(
         max_candidate_pool=max_candidate_pool,
     )
 
-    baseline_members = sorted([m["intent_id"] for m in baseline_run.get("members", [])])
-    baseline_gq = round(float(baseline_run.get("group_quality_score", 0.0)), 2)
-    sched = baseline_run.get("selected_schedule")
-    baseline_sched_key = f"{sched['date']}_{sched['start_time']}_{sched['end_time']}" if sched else "NO_SCHED"
-    baseline_signature = f"{'-'.join(baseline_members)}__GQ_{baseline_gq:.2f}__{baseline_sched_key}"
+    baseline_signature = _make_comprehensive_group_signature(baseline_run)
 
-    rng = random.Random(random_seed)
-    candidates_list = list(candidate_intents)
+    # 2. Hasilkan permutasi urutan kandidat yang terbukti berbeda
+    permutations_list = generate_distinct_permutations(
+        candidates=candidate_intents,
+        num_permutations=num_permutations,
+        random_seed=random_seed
+    )
 
     permutation_runs: List[OrderPermutationRun] = []
     signatures_seen = set()
     matches_count = 0
 
-    for idx in range(num_permutations):
-        # Acak urutan kandidat
-        shuffled = list(candidates_list)
-        if idx > 0:
-            rng.shuffle(shuffled)
-
+    for idx, perm_candidates in enumerate(permutations_list):
         run_res = form_study_group(
             host_intent=host_intent,
-            candidate_intents=shuffled,
+            candidate_intents=perm_candidates,
             min_score=min_score,
             target_group_size=target_group_size,
             max_candidate_pool=max_candidate_pool,
         )
 
-        run_members = sorted([m["intent_id"] for m in run_res.get("members", [])])
+        run_members = sorted(str(m.get("intent_id", "")) for m in run_res.get("members", []))
         run_gq = round(float(run_res.get("group_quality_score", 0.0)), 2)
-        r_sched = run_res.get("selected_schedule")
-        r_sched_key = f"{r_sched['date']}_{r_sched['start_time']}_{r_sched['end_time']}" if r_sched else "NO_SCHED"
-        run_sig = f"{'-'.join(run_members)}__GQ_{run_gq:.2f}__{r_sched_key}"
+        run_sig = _make_comprehensive_group_signature(run_res)
 
         signatures_seen.add(run_sig)
         is_match = (run_sig == baseline_signature)
         if is_match:
             matches_count += 1
 
+        r_sched = run_res.get("selected_schedule")
+        r_sched_key = f"{r_sched.get('date')}_{r_sched.get('start_time')}_{r_sched.get('end_time')}" if r_sched else "NO_SCHED"
+
         permutation_runs.append(OrderPermutationRun(
             permutation_index=idx + 1,
-            input_order_intent_ids=[str(c.intent_id) for c in shuffled],
+            input_order_intent_ids=[str(getattr(c, "intent_id", "")) for c in perm_candidates],
             selected_member_intent_ids=run_members,
             group_quality_score=run_gq,
             selected_schedule_key=r_sched_key,
             matches_baseline=is_match,
         ))
 
-    determinism_rate = round((matches_count / num_permutations) * 100.0, 2)
-    is_order_invariant = (len(signatures_seen) == 1 and matches_count == num_permutations)
+    total_runs = len(permutations_list)
+    determinism_rate = round((matches_count / total_runs) * 100.0, 2)
+    is_order_invariant = (len(signatures_seen) == 1 and matches_count == total_runs)
 
     return MatchingStabilityResult(
-        num_permutations=num_permutations,
+        num_permutations=total_runs,
         is_order_invariant=is_order_invariant,
         determinism_rate=determinism_rate,
         distinct_group_signatures=len(signatures_seen),

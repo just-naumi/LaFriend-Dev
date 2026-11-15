@@ -1,13 +1,15 @@
 # ==============================================================================
-# test_day19_quality_evaluation.py - Test Suite Evaluasi Kualitas Matching (Day 19.1)
+# test_day19_quality_evaluation.py - Test Suite Evaluasi Kualitas Matching (Day 19.1 & 19.1.1)
 # ==============================================================================
 # Rangkaian pengujian untuk memvalidasi:
 # 1. Metrik Kualitas Kelompok: APS, MPS, GQ sesuai spesifikasi Day 7 & Day 19.
 # 2. Distribusi Skor Pairwise: Mean, Median, Min, Max, Disparitas, Variansi, Std Dev.
-# 3. Identifikasi Weakest Link (Pasangan Terlemah / Bottleneck) & Strongest Link.
-# 4. Validasi Konsistensi Formula Matematis (0.70 * APS + 0.30 * MPS) dan Breakdown.
-# 5. Benchmark Kelompok A vs Kelompok B (Pembuktian Penalti 30% MPS).
-# 6. Integrasi Evaluator dengan Output Engine Group Formation Aktual.
+# 3. Konsistensi Pembulatan Decimal ROUND_HALF_UP (D19.1-01: Paritas distribution.mean == APS).
+# 4. Validasi Ketat Kelengkapan 5 Komponen Breakdown (D19.1-02: Topic, Goal, Style, Date, Mode).
+# 5. Identifikasi Weakest Link (Pasangan Terlemah / Bottleneck) & Strongest Link.
+# 6. Validasi Konsistensi Formula Matematis (0.70 * APS + 0.30 * MPS).
+# 7. Benchmark Kelompok A vs Kelompok B (Pembuktian Penalti 30% MPS).
+# 8. Integrasi Evaluator dengan Output Engine Group Formation Aktual.
 # ==============================================================================
 
 import unittest
@@ -22,7 +24,7 @@ if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
 from app.models import Student, Course, StudyIntent, IntentAvailability
-from app.group_formation import form_study_group
+from app.group_formation import form_study_group, calculate_group_quality_score
 from app.matching_evaluation import (
     calculate_pairwise_distribution,
     verify_gq_consistency,
@@ -87,7 +89,7 @@ def make_intent(
 
 
 class TestDay19QualityEvaluation(unittest.TestCase):
-    """Test suite komprehensif Day 19.1: Quality Evaluation."""
+    """Test suite komprehensif Day 19.1 & 19.1.1: Quality Evaluation."""
 
     def test_01_pairwise_score_distribution_calculation(self):
         """
@@ -131,6 +133,37 @@ class TestDay19QualityEvaluation(unittest.TestCase):
         self.assertEqual(dist_empty.count, 0)
         self.assertEqual(dist_empty.mean, 0.0)
 
+    def test_01b_decimal_round_half_up_boundary_consistency_with_gq_engine(self):
+        """
+        D19.1-01 Hardening:
+        Menguji paritas 100% konsisten antara distribution.mean dengan average_pair_score
+        dari calculate_group_quality_score() menggunakan Decimal ROUND_HALF_UP.
+        Menguji kasus kritis [1.00, 1.01] (di mana float round menghasilkan 1.00 tetapi ROUND_HALF_UP menghasilkan 1.01).
+        """
+        boundary_cases = [
+            [1.00, 1.01],         # sum=2.01, mean=1.005 -> ROUND_HALF_UP = 1.01
+            [0.00, 0.01],         # sum=0.01, mean=0.005 -> ROUND_HALF_UP = 0.01
+            [99.99, 100.00],      # sum=199.99, mean=99.995 -> ROUND_HALF_UP = 100.00
+            [80.00, 80.01, 80.02],# sum=240.03, mean=80.01 -> 80.01
+            [75.555, 75.555],     # exact parity
+            [60.05, 60.04, 60.06],# sum=180.15, mean=60.05 -> 60.05
+        ]
+
+        for case in boundary_cases:
+            gq, aps, mps = calculate_group_quality_score(case)
+            dist = calculate_pairwise_distribution(case)
+
+            # Memvalidasi distribution.mean identik tanpa selisih terhadap aps
+            self.assertEqual(
+                dist.mean, aps,
+                f"Gagal pada case {case}: dist.mean ({dist.mean}) != engine aps ({aps})"
+            )
+            # Memvalidasi min_score identik dengan mps
+            self.assertEqual(
+                dist.min_score, mps,
+                f"Gagal pada case {case}: dist.min_score ({dist.min_score}) != engine mps ({mps})"
+            )
+
     def test_02_formula_consistency_verification(self):
         """
         Menguji validasi konsistensi formula matematis:
@@ -161,7 +194,7 @@ class TestDay19QualityEvaluation(unittest.TestCase):
         Menguji verifikasi apakah skor pasangan konsisten dengan penjumlahan
         seluruh kontribusi sub-komponen Day 15 (Topic, Goal, Style, Schedule, Mode).
         """
-        # Breakdown konsisten
+        # Breakdown konsisten lengkap 5 komponen
         valid_pair = {
             "compatibility_score": 85.00,
             "breakdown": {
@@ -177,7 +210,7 @@ class TestDay19QualityEvaluation(unittest.TestCase):
         self.assertEqual(res_valid["sum_of_contributions"], 85.00)
         self.assertEqual(res_valid["discrepancy"], 0.0)
 
-        # Breakdown tidak konsisten
+        # Breakdown tidak konsisten (total_score != sum_contributions)
         corrupted_pair = {
             "compatibility_score": 95.00,
             "breakdown": {
@@ -193,6 +226,80 @@ class TestDay19QualityEvaluation(unittest.TestCase):
         self.assertEqual(res_corrupt["sum_of_contributions"], 70.00)
         self.assertEqual(res_corrupt["compatibility_score"], 95.00)
         self.assertEqual(res_corrupt["discrepancy"], 25.00)
+
+    def test_03b_breakdown_validation_rejects_incomplete_or_invalid_components(self):
+        """
+        D19.1-02 Hardening:
+        Memastikan validator menolak (is_consistent = False) apabila:
+        1. Ada satu atau lebih dari kelima komponen wajib (topic, goal, style, date, mode) yang hilang.
+        2. Breakdown kosong atau None.
+        3. Komponen bernilai non-numeric, None, boolean, atau NaN.
+        4. Compatibility Score bernilai boolean, NaN, atau hilang.
+        """
+        # Kasus 1: Komponen 'mode' hilang meskipun jumlah 4 komponen lain kebetulan sama dengan CS
+        pair_missing_mode = {
+            "compatibility_score": 80.00,
+            "breakdown": {
+                "topic": {"contribution": 30.00},
+                "goal": {"contribution": 20.00},
+                "style": {"contribution": 15.00},
+                "date": {"contribution": 15.00},
+                # 'mode' sengaja dihilangkan
+            }
+        }
+        res_m1 = verify_pairwise_breakdown_consistency(pair_missing_mode)
+        self.assertFalse(res_m1["is_consistent"])
+        self.assertIn("mode", res_m1["missing_components"])
+        self.assertIn("Komponen wajib tidak lengkap", res_m1["error"])
+
+        # Kasus 2: Komponen 'topic' dan 'goal' hilang
+        pair_missing_two = {
+            "compatibility_score": 30.00,
+            "breakdown": {
+                "style": {"contribution": 10.00},
+                "date": {"contribution": 10.00},
+                "mode": {"contribution": 10.00},
+            }
+        }
+        res_m2 = verify_pairwise_breakdown_consistency(pair_missing_two)
+        self.assertFalse(res_m2["is_consistent"])
+        self.assertIn("topic", res_m2["missing_components"])
+        self.assertIn("goal", res_m2["missing_components"])
+
+        # Kasus 3: Breakdown kosong / None
+        res_empty = verify_pairwise_breakdown_consistency({"compatibility_score": 80.0, "breakdown": {}})
+        self.assertFalse(res_empty["is_consistent"])
+        self.assertEqual(len(res_empty["missing_components"]), 5)
+
+        res_none = verify_pairwise_breakdown_consistency({"compatibility_score": 80.0, "breakdown": None})
+        self.assertFalse(res_none["is_consistent"])
+
+        # Kasus 4: Komponen memiliki contribution bernilai tidak valid (string, boolean, None, NaN)
+        pair_invalid_contrib = {
+            "compatibility_score": 75.00,
+            "breakdown": {
+                "topic": {"contribution": "invalid_string"},
+                "goal": {"contribution": None},
+                "style": {"contribution": True},  # Boolean bukan float valid
+                "date": {"contribution": float("nan")},
+                "mode": {"contribution": 10.00},
+            }
+        }
+        res_inv = verify_pairwise_breakdown_consistency(pair_invalid_contrib)
+        self.assertFalse(res_inv["is_consistent"])
+        self.assertGreater(len(res_inv["invalid_components"]), 0)
+
+        # Kasus 5: Compatibility Score tidak valid (None, boolean, NaN)
+        pair_bad_cs = {
+            "compatibility_score": True,
+            "breakdown": {
+                "topic": {"contribution": 20.0}, "goal": {"contribution": 20.0},
+                "style": {"contribution": 15.0}, "date": {"contribution": 15.0},
+                "mode": {"contribution": 10.0}
+            }
+        }
+        res_bad_cs = verify_pairwise_breakdown_consistency(pair_bad_cs)
+        self.assertFalse(res_bad_cs["is_consistent"])
 
     def test_04_weakest_and_strongest_links_identification(self):
         """
