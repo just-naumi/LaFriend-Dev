@@ -1605,15 +1605,86 @@ def _extract_and_validate_candidate(
         if val_opt is not None:
             clean_sched[opt_k] = val_opt
 
-    # Rekonstruksi kamus komponen terisolasi
-    comps_dict = {
-        comp_k: {
+    # Rekonstruksi kamus komponen terisolasi dengan mempertahankan integritas kontribusi asli
+    raw_comps = _get_field(candidate, "components")
+    comps_dict = {}
+
+    for comp_k in ("topic", "goal", "style", "date", "mode"):
+        comp_data = _get_field(raw_comps, comp_k) if raw_comps is not None else None
+
+        # Bobot komponen: gunakan weight dari input jika valid numerik [0.0, 1.0], fallback ke SCORING_WEIGHTS
+        orig_weight = _get_field(comp_data, "weight") if comp_data is not None else None
+        if orig_weight is not None:
+            if isinstance(orig_weight, bool):
+                raise ValueError(f"weight komponen '{comp_k}' tidak boleh bertipe boolean")
+            try:
+                w_val = float(orig_weight)
+            except (ValueError, TypeError, OverflowError):
+                raise ValueError(f"weight komponen '{comp_k}' harus berupa angka numerik berhingga")
+            if math.isnan(w_val) or math.isinf(w_val) or not (0.0 <= w_val <= 1.0):
+                raise ValueError(f"weight komponen '{comp_k}' harus berupa angka berhingga dalam [0.0, 1.0]")
+            comp_weight = round(w_val, 4)
+        else:
+            comp_weight = SCORING_WEIGHTS[comp_k]
+
+        comp_entry: Dict[str, Any] = {
             "score": clean_components[comp_k],
-            "weight": SCORING_WEIGHTS[comp_k],
-            "contribution": round(100.0 * SCORING_WEIGHTS[comp_k] * clean_components[comp_k], 2),
+            "weight": comp_weight,
         }
-        for comp_k in ("topic", "goal", "style", "date", "mode")
-    }
+
+        # Pertahankan raw_contribution asli tanpa mutasi jika tersedia
+        orig_raw = _get_field(comp_data, "raw_contribution") if comp_data is not None else None
+        if orig_raw is not None:
+            if isinstance(orig_raw, bool):
+                raise ValueError(f"raw_contribution komponen '{comp_k}' tidak boleh bertipe boolean")
+            try:
+                r_val = float(orig_raw)
+            except (ValueError, TypeError, OverflowError):
+                raise ValueError(f"raw_contribution komponen '{comp_k}' harus berupa angka numerik berhingga")
+            if math.isnan(r_val) or math.isinf(r_val):
+                raise ValueError(f"raw_contribution komponen '{comp_k}' harus berupa angka berhingga (finite)")
+            comp_entry["raw_contribution"] = round(r_val, 4)
+
+        # Pertahankan contribution asli (yang sudah direkonsiliasi oleh Decimal / Largest Remainder)
+        orig_contrib = _get_field(comp_data, "contribution") if comp_data is not None else None
+        if orig_contrib is not None:
+            if isinstance(orig_contrib, bool):
+                raise ValueError(f"contribution komponen '{comp_k}' tidak boleh bertipe boolean")
+            try:
+                c_val = float(orig_contrib)
+            except (ValueError, TypeError, OverflowError):
+                raise ValueError(f"contribution komponen '{comp_k}' harus berupa angka numerik berhingga")
+            if math.isnan(c_val) or math.isinf(c_val):
+                raise ValueError(f"contribution komponen '{comp_k}' harus berupa angka berhingga (finite)")
+            comp_entry["contribution"] = round(c_val, 2)
+        elif "raw_contribution" in comp_entry:
+            comp_entry["contribution"] = round(comp_entry["raw_contribution"], 2)
+
+        # Pertahankan rounding_adjustment asli jika tersedia
+        orig_adj = _get_field(comp_data, "rounding_adjustment") if comp_data is not None else None
+        if orig_adj is not None:
+            if isinstance(orig_adj, bool):
+                raise ValueError(f"rounding_adjustment komponen '{comp_k}' tidak boleh bertipe boolean")
+            try:
+                a_val = float(orig_adj)
+            except (ValueError, TypeError, OverflowError):
+                raise ValueError(f"rounding_adjustment komponen '{comp_k}' harus berupa angka numerik berhingga")
+            if math.isnan(a_val) or math.isinf(a_val):
+                raise ValueError(f"rounding_adjustment komponen '{comp_k}' harus berupa angka berhingga (finite)")
+            comp_entry["rounding_adjustment"] = round(a_val, 4)
+
+        comps_dict[comp_k] = comp_entry
+
+    rec_raw = _get_field(candidate, "rounding_reconciliation", 0.0)
+    if isinstance(rec_raw, bool):
+        rec_val = 0.0
+    else:
+        try:
+            rec_val = float(rec_raw) if rec_raw is not None else 0.0
+            if not math.isfinite(rec_val):
+                rec_val = 0.0
+        except (ValueError, TypeError, OverflowError):
+            rec_val = 0.0
 
     if expected_type == "SESSION":
         sess_id = _get_field(candidate, "candidate_session_id") or _get_field(candidate, "session_id")
@@ -1626,7 +1697,7 @@ def _extract_and_validate_candidate(
             "candidate_type": "SESSION",
             "candidate_session_id": cand_id,
             "total_score": round(total_score, 2),
-            "rounding_reconciliation": float(_get_field(candidate, "rounding_reconciliation", 0.0) or 0.0),
+            "rounding_reconciliation": round(rec_val, 4),
             "components": comps_dict,
             "selected_schedule": clean_sched,
         }
@@ -1652,7 +1723,7 @@ def _extract_and_validate_candidate(
             "student_id": student_id,
             "target_intent_id": target_intent_id,
             "total_score": round(total_score, 2),
-            "rounding_reconciliation": float(_get_field(candidate, "rounding_reconciliation", 0.0) or 0.0),
+            "rounding_reconciliation": round(rec_val, 4),
             "components": comps_dict,
             "selected_schedule": clean_sched,
         }

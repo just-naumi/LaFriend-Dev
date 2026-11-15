@@ -1847,6 +1847,51 @@ def test_candidate_ranking_and_deduplication():
     except ValueError:
         report("Dispatcher Validation: Tolak min_score 10**400 pada list kosong", True)
 
+    # 17.15 Breakdown Reconciliation & Immutability Benchmark (Audit Benchmark 46.82)
+    scored_bench = calculate_compatibility_breakdown(
+        0.35991, 0.51916, 0.86274, 0.50660, 0.16717,
+    )
+    # Session Path
+    bench_session_cand = {
+        "intent_id": "int_user",
+        "candidate_type": "SESSION",
+        "candidate_session_id": "ses_bench_4682",
+        "total_score": scored_bench["total_score"],
+        "rounding_reconciliation": scored_bench["rounding_reconciliation"],
+        "components": scored_bench["components"],
+        "selected_schedule": make_sched(),
+    }
+    ranked_bench_sess = rank_session_candidates([bench_session_cand])[0]
+
+    report("Breakdown Preservation: total_score tepat 46.82", ranked_bench_sess["total_score"] == 46.82)
+    sum_contrib_sess = round(sum(c["contribution"] for c in ranked_bench_sess["components"].values()), 2)
+    report("Breakdown Preservation: sum(contribution) == total_score (46.82)", sum_contrib_sess == 46.82)
+    report("Breakdown Preservation: Topic contribution terekonsiliasi 10.79", ranked_bench_sess["components"]["topic"]["contribution"] == 10.79)
+    report("Breakdown Preservation: Topic rounding_adjustment -0.01 dipertahankan", ranked_bench_sess["components"]["topic"]["rounding_adjustment"] == -0.01)
+    report("Breakdown Preservation: Topic raw_contribution 10.7973 dipertahankan", ranked_bench_sess["components"]["topic"]["raw_contribution"] == 10.7973)
+    report("Breakdown Preservation: Objek input asli tidak dimutasi", bench_session_cand["components"]["topic"]["contribution"] == 10.79 and "rank" not in bench_session_cand)
+
+    # Partner Path
+    bench_partner_cand = {
+        "intent_id": "int_user",
+        "candidate_type": "PARTNER",
+        "student_id": "std_bench_4682",
+        "target_intent_id": "int_target_bench",
+        "total_score": scored_bench["total_score"],
+        "rounding_reconciliation": scored_bench["rounding_reconciliation"],
+        "components": scored_bench["components"],
+        "selected_schedule": make_sched(),
+    }
+    ranked_bench_part = rank_partner_candidates([bench_partner_cand])[0]
+
+    report("Breakdown Preservation Partner: total_score tepat 46.82", ranked_bench_part["total_score"] == 46.82)
+    sum_contrib_part = round(sum(c["contribution"] for c in ranked_bench_part["components"].values()), 2)
+    report("Breakdown Preservation Partner: sum(contribution) == total_score (46.82)", sum_contrib_part == 46.82)
+    report("Breakdown Preservation Partner: Topic contribution 10.79 dipertahankan", ranked_bench_part["components"]["topic"]["contribution"] == 10.79)
+    report("Breakdown Preservation Partner: Topic rounding_adjustment -0.01 dipertahankan", ranked_bench_part["components"]["topic"]["rounding_adjustment"] == -0.01)
+    report("Breakdown Preservation Partner: Topic raw_contribution 10.7973 dipertahankan", ranked_bench_part["components"]["topic"]["raw_contribution"] == 10.7973)
+    report("Breakdown Preservation Partner: Objek input asli tidak dimutasi", bench_partner_cand["components"]["topic"]["contribution"] == 10.79 and "rank" not in bench_partner_cand)
+
 
 def run_tests():
     print("=" * 70)
