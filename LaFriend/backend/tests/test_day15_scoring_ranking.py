@@ -836,6 +836,14 @@ def test_compatibility_breakdown():
     except OverflowError:
         report("Breakdown: Tolak integer raksasa 10**400 dengan ValueError", False, "Memicu unhandled OverflowError")
 
+    # 14.10 Presisi Decimal murni tanpa early float conversion (Temuan Audit Reviewer P1 Tahap 15.5)
+    # topic_score = 0.9001666666666666, other components = 0.0
+    # 100 * 0.30 * 0.9001666666666666 = 27.004999999999998 -> 27.00, reconciliation 0.00
+    bd_prec = calculate_compatibility_breakdown(0.9001666666666666, 0.0, 0.0, 0.0, 0.0)
+    report("Breakdown Precision: total_score tepat 27.00", math.isclose(bd_prec["total_score"], 27.00))
+    report("Breakdown Precision: topic contribution tepat 27.00", math.isclose(bd_prec["components"]["topic"]["contribution"], 27.00))
+    report("Breakdown Precision: rounding_reconciliation tepat 0.00", math.isclose(bd_prec["rounding_reconciliation"], 0.00))
+
 
 # ==============================================================================
 # DUMMY MODELS FOR TESTING ORM & PYDANTIC COMPATIBILITY

@@ -830,80 +830,84 @@ def calculate_compatibility_breakdown(
     d = validate_component_score(date_score, "date")
     m = validate_component_score(mode_score, "mode")
 
+    quantum = Decimal("1").scaleb(-2)
     raw_contribs = {
-        "topic": float(Decimal("100") * Decimal(str(WEIGHT_TOPIC)) * Decimal(str(t))),
-        "goal": float(Decimal("100") * Decimal(str(WEIGHT_GOAL)) * Decimal(str(g))),
-        "style": float(Decimal("100") * Decimal(str(WEIGHT_STYLE)) * Decimal(str(s))),
-        "date": float(Decimal("100") * Decimal(str(WEIGHT_DATE)) * Decimal(str(d))),
-        "mode": float(Decimal("100") * Decimal(str(WEIGHT_MODE)) * Decimal(str(m))),
+        "topic": Decimal("100") * Decimal(str(WEIGHT_TOPIC)) * Decimal(str(t)),
+        "goal": Decimal("100") * Decimal(str(WEIGHT_GOAL)) * Decimal(str(g)),
+        "style": Decimal("100") * Decimal(str(WEIGHT_STYLE)) * Decimal(str(s)),
+        "date": Decimal("100") * Decimal(str(WEIGHT_DATE)) * Decimal(str(d)),
+        "mode": Decimal("100") * Decimal(str(WEIGHT_MODE)) * Decimal(str(m)),
     }
 
-    total_score = calculate_compatibility_score(t, g, s, d, m)
+    dec_total = sum(raw_contribs.values())
+    clamped_total = max(Decimal("0.0"), min(Decimal("100.0"), dec_total))
+    total_score_dec = clamped_total.quantize(quantum, rounding=ROUND_HALF_UP)
 
-    # Pembulatan awal 2 desimal dengan ROUND_HALF_UP tanpa double rounding
-    rounded_contribs = {k: _round_half_up(v, 2) for k, v in raw_contribs.items()}
-    adjustments = {k: 0.0 for k in raw_contribs}
+    # Pembulatan awal 2 desimal secara Decimal murni
+    rounded_contribs = {
+        k: v.quantize(quantum, rounding=ROUND_HALF_UP)
+        for k, v in raw_contribs.items()
+    }
+    adjustments = {k: Decimal("0.00") for k in raw_contribs}
 
-    diff = round(total_score - sum(rounded_contribs.values()), 2)
+    diff = total_score_dec - sum(rounded_contribs.values())
 
     # Jika terdapat selisih pembulatan, lakukan alokasi sisa terbesar (Largest Remainder Reconciliation)
-    if not math.isclose(diff, 0.0, abs_tol=1e-5):
-        steps = int(round(diff * 100))
-        sign = 1 if steps > 0 else -1
-        # Urutkan secara deterministik berdasarkan delta pembulatan terbesar, lalu bobot komponen
+    if diff != Decimal("0.00"):
+        steps = int(diff * 100)
+        sign = Decimal("0.01") if steps > 0 else Decimal("-0.01")
         component_keys = ["topic", "goal", "style", "date", "mode"]
         order = sorted(
             component_keys,
             key=lambda k: (
-                (raw_contribs[k] - rounded_contribs[k]) if sign > 0 else (rounded_contribs[k] - raw_contribs[k]),
-                SCORING_WEIGHTS[k]
+                (raw_contribs[k] - rounded_contribs[k]) if steps > 0 else (rounded_contribs[k] - raw_contribs[k]),
+                Decimal(str(SCORING_WEIGHTS[k]))
             ),
             reverse=True
         )
         for i in range(abs(steps)):
             target_key = order[i % len(order)]
-            adj = round(sign * 0.01, 2)
-            rounded_contribs[target_key] = round(rounded_contribs[target_key] + adj, 2)
-            adjustments[target_key] = round(adjustments[target_key] + adj, 2)
+            rounded_contribs[target_key] += sign
+            adjustments[target_key] += sign
 
     return {
-        "total_score": total_score,
-        "rounding_reconciliation": round(diff, 2),
+        "total_score": float(total_score_dec),
+        "rounding_reconciliation": float(diff),
         "components": {
             "topic": {
                 "score": round(t, 4),
                 "weight": WEIGHT_TOPIC,
-                "raw_contribution": round(raw_contribs["topic"], 4),
-                "contribution": rounded_contribs["topic"],
-                "rounding_adjustment": adjustments["topic"],
+                "raw_contribution": round(float(raw_contribs["topic"]), 4),
+                "contribution": float(rounded_contribs["topic"]),
+                "rounding_adjustment": float(adjustments["topic"]),
             },
             "goal": {
                 "score": round(g, 4),
                 "weight": WEIGHT_GOAL,
-                "raw_contribution": round(raw_contribs["goal"], 4),
-                "contribution": rounded_contribs["goal"],
-                "rounding_adjustment": adjustments["goal"],
+                "raw_contribution": round(float(raw_contribs["goal"]), 4),
+                "contribution": float(rounded_contribs["goal"]),
+                "rounding_adjustment": float(adjustments["goal"]),
             },
             "style": {
                 "score": round(s, 4),
                 "weight": WEIGHT_STYLE,
-                "raw_contribution": round(raw_contribs["style"], 4),
-                "contribution": rounded_contribs["style"],
-                "rounding_adjustment": adjustments["style"],
+                "raw_contribution": round(float(raw_contribs["style"]), 4),
+                "contribution": float(rounded_contribs["style"]),
+                "rounding_adjustment": float(adjustments["style"]),
             },
             "date": {
                 "score": round(d, 4),
                 "weight": WEIGHT_DATE,
-                "raw_contribution": round(raw_contribs["date"], 4),
-                "contribution": rounded_contribs["date"],
-                "rounding_adjustment": adjustments["date"],
+                "raw_contribution": round(float(raw_contribs["date"]), 4),
+                "contribution": float(rounded_contribs["date"]),
+                "rounding_adjustment": float(adjustments["date"]),
             },
             "mode": {
                 "score": round(m, 4),
                 "weight": WEIGHT_MODE,
-                "raw_contribution": round(raw_contribs["mode"], 4),
-                "contribution": rounded_contribs["mode"],
-                "rounding_adjustment": adjustments["mode"],
+                "raw_contribution": round(float(raw_contribs["mode"]), 4),
+                "contribution": float(rounded_contribs["mode"]),
+                "rounding_adjustment": float(adjustments["mode"]),
             },
         },
     }
