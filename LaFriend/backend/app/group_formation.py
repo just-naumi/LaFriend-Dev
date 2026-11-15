@@ -219,19 +219,26 @@ def form_study_group(
     host_intent: StudyIntent,
     candidate_intents: Sequence[StudyIntent],
     min_score: float = 60.0,
-    target_group_size: Optional[int] = None
+    target_group_size: Optional[int] = None,
+    max_candidate_pool: Optional[int] = 20
 ) -> Dict[str, Any]:
     """
-    Algoritma pembentukan kelompok belajar secara bertahap (Greedy Stepwise Selection):
-    1. Mulai dengan host_intent sebagai anggota pertama.
-    2. Evaluasi seluruh kandidat:
-       - Cek deduplikasi mahasiswa (student_id tidak boleh berulang).
-       - Cek keselarasan ukuran kelompok (MinGroup <= MaxGroup).
-       - Cek ketersediaan irisan jadwal bersama (Group Availability >= 60 menit).
-       - Cek skor seluruh pasangan terhadap seluruh anggota yang sudah ada (CS >= min_score).
-       - Hitung calon Group Quality Score (GQ).
-    3. Pilih kandidat yang menghasilkan GQ terbaik secara deterministik.
-    4. Ulangi proses hingga mencapai batas maksimum kelompok atau tidak ada kandidat lolos.
+    Algoritma pembentukan kelompok belajar teroptimasi (Day 18):
+    1. Pre-Filtering & Candidate Pool Pruning:
+       - Evaluasi hard constraints kandidat terhadap host_intent.
+       - Hitung skor kompatibilitas kandidat terhadap host.
+       - Buang kandidat dengan CS < min_score atau irisan jadwal < 60 menit.
+       - Urutkan kandidat potensial secara deterministik berdasarkan skor terhadap host.
+       - Ambil Top-K kandidat (default max_candidate_pool = 20) untuk masuk ke Greedy Loop.
+       - Catat statistik pruning untuk evaluasi performa & debugging.
+    2. Pairwise Memoization Cache:
+       - Memoization berbasis tuple sorted intent ID dengan cakupan satu kali pemanggilan fungsi.
+    3. Multi-Way Hard Constraints Check:
+       - Batasan ukuran kelompok dinamis: MinGroup <= MaxGroup.
+       - Mode belajar konsisten secara multi-arah (no ONLINE-OFFLINE mix).
+       - Irisan jadwal bersama seluruh anggota >= 60 menit.
+    4. Deterministic Hierarchical Tie-Breaker:
+       - Urutan: (-gq, -best_duration, -mps, -aps, earliest_date, earliest_start_time, cand_id).
     """
     # Validasi parameter input
     if host_intent is None:
@@ -254,35 +261,18 @@ def form_study_group(
         if target_group_size < 2:
             raise ValueError(f"target_group_size ({target_group_size}) minimal harus 2")
 
+    if max_candidate_pool is not None:
+        if isinstance(max_candidate_pool, bool) or not isinstance(max_candidate_pool, int):
+            raise ValueError("max_candidate_pool harus integer positif")
+        if max_candidate_pool < 1:
+            raise ValueError(f"max_candidate_pool ({max_candidate_pool}) minimal harus 1")
+        if max_candidate_pool > 100:
+            raise ValueError(f"max_candidate_pool ({max_candidate_pool}) maksimal bernilai 100")
+
     host_student_id = str(getattr(host_intent, "student_id", ""))
     course_id = str(getattr(host_intent, "course_id", ""))
 
-    # Filter kandidat awal yang memenuhi pra-syarat dasar
-    eligible_candidates: List[StudyIntent] = []
-    for cand in candidate_intents or []:
-        if cand is None or getattr(cand, "intent_id", None) == host_intent.intent_id:
-            continue
-        c_student_id = str(getattr(cand, "student_id", ""))
-        if not c_student_id or c_student_id == host_student_id:
-            continue
-        if str(getattr(cand, "course_id", "")) != course_id:
-            continue
-        if getattr(cand, "status", None) != "ACTIVE":
-            continue
-
-        st = getattr(cand, "student", None)
-        if st is not None:
-            if (getattr(st, "account_status", "ACTIVE") or "").upper() != "ACTIVE":
-                continue
-            if (getattr(st, "verification_status", "VERIFIED") or "").upper() != "VERIFIED":
-                continue
-            if getattr(st, "is_discoverable", True) is False:
-                continue
-
-        eligible_candidates.append(cand)
-
-    # Inisialisasi kelompok dengan Host sebagai anggota awal
-    selected_members: List[StudyIntent] = [host_intent]
+    # Pairwise Memoization Cache (Scoping lokal per pemanggilan form_study_group)
     pairwise_cache: Dict[Tuple[str, str], Optional[Dict[str, Any]]] = {}
 
     def get_pair_score(ia: StudyIntent, ib: StudyIntent) -> Optional[Dict[str, Any]]:
@@ -293,7 +283,98 @@ def form_study_group(
             pairwise_cache[pair_key] = evaluate_pairwise_compatibility(ia, ib)
         return pairwise_cache[pair_key]
 
-    # Stepwise Greedy Loop
+    # ==========================================================================
+    # TAHAP 1: PRE-FILTERING KANDIDAT & CANDIDATE PRUNING
+    # ==========================================================================
+    total_candidates_examined = 0
+    candidates_pruned_hard_constraints = 0
+    candidates_pruned_min_score = 0
+    viable_candidates = []
+
+    for cand in candidate_intents or []:
+        total_candidates_examined += 1
+        if cand is None or getattr(cand, "intent_id", None) == host_intent.intent_id:
+            candidates_pruned_hard_constraints += 1
+            continue
+        c_student_id = str(getattr(cand, "student_id", ""))
+        if not c_student_id or c_student_id == host_student_id:
+            candidates_pruned_hard_constraints += 1
+            continue
+        if str(getattr(cand, "course_id", "")) != course_id:
+            candidates_pruned_hard_constraints += 1
+            continue
+        if getattr(cand, "status", None) != "ACTIVE":
+            candidates_pruned_hard_constraints += 1
+            continue
+
+        st = getattr(cand, "student", None)
+        if st is not None:
+            if (getattr(st, "account_status", "ACTIVE") or "").upper() != "ACTIVE":
+                candidates_pruned_hard_constraints += 1
+                continue
+            if (getattr(st, "verification_status", "VERIFIED") or "").upper() != "VERIFIED":
+                candidates_pruned_hard_constraints += 1
+                continue
+            if getattr(st, "is_discoverable", True) is False:
+                candidates_pruned_hard_constraints += 1
+                continue
+
+        # Evaluasi kompatibilitas awal terhadap Host (Hard Constraints & Jadwal >= 60m)
+        score_dict = get_pair_score(host_intent, cand)
+        if score_dict is None:
+            candidates_pruned_hard_constraints += 1
+            continue
+
+        # Evaluasi batas skor minimal terhadap Host
+        score_vs_host = float(score_dict.get("total_score", 0.0))
+        if score_vs_host < min_score_val:
+            candidates_pruned_min_score += 1
+            continue
+
+        # Ambil jadwal terbaik bersama host untuk penentuan urutan awal
+        sched_host = score_dict.get("selected_schedule") or {}
+        dur_host = int(sched_host.get("duration_minutes", 0))
+        date_host = sched_host.get("date", "9999-12-31")
+        time_host = sched_host.get("start_time", "23:59")
+
+        viable_candidates.append({
+            "candidate": cand,
+            "score_vs_host": score_vs_host,
+            "best_duration": dur_host,
+            "earliest_date": date_host,
+            "earliest_start_time": time_host,
+            "cand_id": str(cand.intent_id),
+        })
+
+    # Urutkan kandidat yang lolos pra-syarat secara deterministik terhadap Host
+    viable_candidates.sort(
+        key=lambda item: (
+            -item["score_vs_host"],
+            -item["best_duration"],
+            item["earliest_date"],
+            item["earliest_start_time"],
+            item["cand_id"]
+        )
+    )
+
+    # Batasi pada Top-K kandidat untuk masuk ke Greedy Loop (Heuristik Skalabilitas)
+    if max_candidate_pool is not None and len(viable_candidates) > max_candidate_pool:
+        pool_candidates = [item["candidate"] for item in viable_candidates[:max_candidate_pool]]
+    else:
+        pool_candidates = [item["candidate"] for item in viable_candidates]
+
+    candidate_pruning_stats = {
+        "total_candidates_examined": total_candidates_examined,
+        "candidates_pruned_hard_constraints": candidates_pruned_hard_constraints,
+        "candidates_pruned_min_score": candidates_pruned_min_score,
+        "candidates_in_pool": len(pool_candidates),
+    }
+
+    # ==========================================================================
+    # TAHAP 2: INTI ENGINE GREEDY SELECTION DENGAN MULTI-WAY CONSTRAINTS
+    # ==========================================================================
+    selected_members: List[StudyIntent] = [host_intent]
+
     while True:
         curr_min, curr_max = calculate_group_size_bounds(selected_members)
         curr_size = len(selected_members)
@@ -307,7 +388,7 @@ def form_study_group(
         existing_student_ids = {str(m.student_id) for m in selected_members}
         candidate_evaluations = []
 
-        for cand in eligible_candidates:
+        for cand in pool_candidates:
             # 1. Deduplikasi Mahasiswa
             if str(cand.student_id) in existing_student_ids:
                 continue
@@ -320,27 +401,37 @@ def form_study_group(
             if target_group_size and len(test_group) > target_group_size:
                 continue
 
-            # 3. Irisan Jadwal Bersama Seluruh Anggota
+            # 3. Multi-Way Learning Mode Consistency
+            # Setiap pasang anggota harus kompatibel secara mode belajar
+            cand_mode = getattr(cand, "learning_mode", "OFFLINE")
+            modes_compatible = True
+            for m in selected_members:
+                m_mode = getattr(m, "learning_mode", "OFFLINE")
+                compat, _ = is_learning_mode_compatible(m_mode, cand_mode)
+                if not compat:
+                    modes_compatible = False
+                    break
+            if not modes_compatible:
+                continue
+
+            # 4. Multi-Way Irisan Jadwal Bersama Seluruh Anggota
             all_windows = [resolve_availability_windows(m) for m in test_group]
             common_scheds = find_group_common_schedules(all_windows, min_duration=60)
             if not common_scheds:
                 continue
 
-            # 4. Kompatibilitas Seluruh Pasangan & Threshold Skor Minimal
+            # 5. Kompatibilitas Seluruh Pasangan & Threshold Skor Minimal
             all_pairs_valid = True
-            cand_pair_scores: List[float] = []
-
             for member in selected_members:
                 score_dict = get_pair_score(member, cand)
                 if not score_dict or score_dict.get("total_score", 0.0) < min_score_val:
                     all_pairs_valid = False
                     break
-                cand_pair_scores.append(score_dict["total_score"])
 
             if not all_pairs_valid:
                 continue
 
-            # 5. Hitung Calon Group Quality Score (GQ) untuk seluruh pasangan di test_group
+            # 6. Hitung Calon Group Quality Score (GQ) untuk seluruh pasangan di test_group
             total_group_pairwise_scores = []
             for m1, m2 in itertools.combinations(test_group, 2):
                 ps = get_pair_score(m1, m2)
@@ -349,10 +440,12 @@ def form_study_group(
 
             calon_gq, calon_aps, calon_mps = calculate_group_quality_score(total_group_pairwise_scores)
 
-            # Durasi jadwal bersama terbaik (terpanjang) sebagai tie-breaker sekunder
-            best_duration = common_scheds[0]["duration_minutes"] if common_scheds else 0
-            # Skor kandidat terhadap Host (sebagai referensi)
-            score_vs_host = get_pair_score(host_intent, cand)["total_score"]
+            # Metadata jadwal terbaik (sudah berurutan -durasi, date, start_time)
+            best_sched = common_scheds[0]
+            best_duration = best_sched["duration_minutes"]
+            earliest_date = best_sched["date"]
+            earliest_start_time = best_sched["start_time"]
+            cand_id = str(cand.intent_id)
 
             candidate_evaluations.append({
                 "candidate": cand,
@@ -360,22 +453,31 @@ def form_study_group(
                 "aps": calon_aps,
                 "mps": calon_mps,
                 "best_duration": best_duration,
-                "score_vs_host": score_vs_host,
+                "earliest_date": earliest_date,
+                "earliest_start_time": earliest_start_time,
                 "schedules": common_scheds,
-                "cand_id": str(cand.intent_id)
+                "cand_id": cand_id,
             })
 
         if not candidate_evaluations:
             break
 
-        # Pengurutan deterministik (Tie-breaker resmi Day 17.1):
+        # Pengurutan deterministik bertingkat lengkap (Day 18.5):
         # 1. Group Quality Score (GQ) tertinggi (-item["gq"])
         # 2. Durasi jadwal bersama terpanjang (-item["best_duration"])
-        # 3. ID intent terkecil secara alfabetis (item["cand_id"])
+        # 3. Minimum Pairwise Score (MPS) tertinggi (-item["mps"])
+        # 4. Average Pairwise Score (APS) tertinggi (-item["aps"])
+        # 5. Tanggal jadwal bersama paling awal (item["earliest_date"])
+        # 6. Jam mulai jadwal bersama paling awal (item["earliest_start_time"])
+        # 7. ID intent terkecil secara alfabetis (item["cand_id"])
         candidate_evaluations.sort(
             key=lambda item: (
                 -item["gq"],
                 -item["best_duration"],
+                -item["mps"],
+                -item["aps"],
+                item["earliest_date"],
+                item["earliest_start_time"],
                 item["cand_id"]
             )
         )
@@ -384,7 +486,7 @@ def form_study_group(
         selected_members.append(best_choice["candidate"])
 
     # ==========================================================================
-    # PEMBENTUKAN OUTPUT PROPOSAL LENGKAP
+    # TAHAP 3: PEMBENTUKAN OUTPUT PROPOSAL LENGKAP
     # ==========================================================================
     final_size = len(selected_members)
     min_bound, max_bound = calculate_group_size_bounds(selected_members)
@@ -464,6 +566,7 @@ def form_study_group(
         "pairwise_scores": pairwise_score_items,
         "schedule_options": final_schedules,
         "selected_schedule": selected_sched,
+        "candidate_pruning_stats": candidate_pruning_stats,
         "message": message,
     }
 
@@ -475,7 +578,8 @@ def preview_group_formation_pipeline(
     host_intent_id: str,
     db: Session,
     min_score: float = 60.0,
-    target_group_size: Optional[int] = None
+    target_group_size: Optional[int] = None,
+    max_candidate_pool: Optional[int] = 20
 ) -> Dict[str, Any]:
     """
     Menjalankan alur pencarian dan penyusunan calon kelompok belajar untuk host_intent_id.
@@ -510,6 +614,7 @@ def preview_group_formation_pipeline(
         host_intent=host_intent,
         candidate_intents=candidate_intents,
         min_score=min_score,
-        target_group_size=target_group_size
+        target_group_size=target_group_size,
+        max_candidate_pool=max_candidate_pool
     )
 

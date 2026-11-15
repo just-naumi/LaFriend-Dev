@@ -669,6 +669,7 @@ class GroupProposalPreviewRequest(BaseModel):
     host_intent_id: str
     min_score: Optional[float] = 60.0
     target_group_size: Optional[int] = None
+    max_candidate_pool: Optional[int] = 20
 
     @field_validator("host_intent_id")
     @classmethod
@@ -706,6 +707,19 @@ class GroupProposalPreviewRequest(BaseModel):
             raise ValueError(f"target_group_size ({v}) minimal harus bernilai 2")
         return v
 
+    @field_validator("max_candidate_pool", mode="before")
+    @classmethod
+    def validate_max_candidate_pool(cls, v: Any) -> Optional[int]:
+        if v is None:
+            return None
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise ValueError("max_candidate_pool harus berupa integer positif")
+        if v < 1:
+            raise ValueError(f"max_candidate_pool ({v}) minimal harus bernilai 1")
+        if v > 100:
+            raise ValueError(f"max_candidate_pool ({v}) maksimal bernilai 100")
+        return v
+
 
 class GroupMemberItem(BaseModel):
     student_id: str
@@ -724,9 +738,9 @@ class PairwiseComponentDetail(BaseModel):
     score: float
     weight: float
     contribution: float
-    raw_contribution: Optional[float] = None
-    base_contribution: Optional[float] = None
-    rounding_adjustment: Optional[float] = None
+    raw_contribution: float
+    base_contribution: float
+    rounding_adjustment: float
 
     model_config = ConfigDict(extra="allow")
 
@@ -758,6 +772,15 @@ class GroupScheduleOption(BaseModel):
     duration_minutes: int
 
 
+class CandidatePruningStats(BaseModel):
+    total_candidates_examined: int
+    candidates_pruned_hard_constraints: int
+    candidates_pruned_min_score: int
+    candidates_in_pool: int
+
+    model_config = ConfigDict(extra="allow")
+
+
 class GroupProposalPreviewResponse(BaseModel):
     host_intent_id: str
     course_id: str
@@ -773,6 +796,7 @@ class GroupProposalPreviewResponse(BaseModel):
     pairwise_scores: List[PairwiseScoreItem]
     schedule_options: List[GroupScheduleOption]
     selected_schedule: Optional[GroupScheduleOption] = None
+    candidate_pruning_stats: Optional[CandidatePruningStats] = None
     message: str
 
 

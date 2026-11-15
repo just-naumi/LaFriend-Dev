@@ -695,7 +695,8 @@ def preview_group_proposal_endpoint(
             host_intent_id=req.host_intent_id,
             db=db,
             min_score=req.min_score,
-            target_group_size=req.target_group_size
+            target_group_size=req.target_group_size,
+            max_candidate_pool=req.max_candidate_pool
         )
         return result
     except ValueError as ve:
