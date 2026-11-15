@@ -664,4 +664,95 @@ class RecommendationResponse(BaseModel):
     message: Optional[str] = None
 
 
+# --- G. SKEMA GROUP FORMATION ENGINE (Day 17) ---
+class GroupProposalPreviewRequest(BaseModel):
+    host_intent_id: str
+    min_score: Optional[float] = 60.0
+    target_group_size: Optional[int] = None
+
+    @field_validator("host_intent_id")
+    @classmethod
+    def validate_host_intent_id(cls, v: str) -> str:
+        clean = (v or "").strip()
+        if not clean:
+            raise ValueError("host_intent_id tidak boleh kosong")
+        return clean
+
+    @field_validator("min_score", mode="before")
+    @classmethod
+    def validate_min_score(cls, v: Any) -> Optional[float]:
+        if v is None:
+            return 60.0
+        if isinstance(v, bool):
+            raise ValueError("min_score harus numerik non-boolean")
+        try:
+            val = float(v)
+        except (ValueError, TypeError, OverflowError):
+            raise ValueError("min_score harus berupa angka numerik valid")
+        if math.isnan(val) or math.isinf(val):
+            raise ValueError("min_score harus berupa angka berhingga")
+        if not (0.0 <= val <= 100.0):
+            raise ValueError(f"min_score ({val}) harus dalam rentang [0.0, 100.0]")
+        return val
+
+    @field_validator("target_group_size", mode="before")
+    @classmethod
+    def validate_target_group_size(cls, v: Any) -> Optional[int]:
+        if v is None:
+            return None
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise ValueError("target_group_size harus berupa integer positif")
+        if v < 2:
+            raise ValueError(f"target_group_size ({v}) minimal harus bernilai 2")
+        return v
+
+
+class GroupMemberItem(BaseModel):
+    student_id: str
+    student_name: Optional[str] = None
+    intent_id: str
+    role: str  # HOST, MEMBER
+    study_program: Optional[str] = None
+    academic_year: Optional[int] = None
+    learning_goal: Optional[str] = None
+    collaboration_style: Optional[str] = None
+    min_group_size: int
+    max_group_size: int
+
+
+class PairwiseScoreItem(BaseModel):
+    student_a_id: str
+    student_b_id: str
+    intent_a_id: str
+    intent_b_id: str
+    compatibility_score: float
+    breakdown: Dict[str, float]
+    explanation: str
+
+
+class GroupScheduleOption(BaseModel):
+    date: str
+    start_time: str
+    end_time: str
+    duration_minutes: int
+
+
+class GroupProposalPreviewResponse(BaseModel):
+    host_intent_id: str
+    course_id: str
+    course_name: Optional[str] = None
+    formation_status: str  # READY, INSUFFICIENT_MEMBERS, NO_COMPATIBLE_GROUP
+    group_size: int
+    min_group_size_bound: int
+    max_group_size_bound: int
+    group_quality_score: float
+    average_pair_score: float
+    minimum_pair_score: float
+    members: List[GroupMemberItem]
+    pairwise_scores: List[PairwiseScoreItem]
+    schedule_options: List[GroupScheduleOption]
+    selected_schedule: Optional[GroupScheduleOption] = None
+    message: str
+
+
 

@@ -25,10 +25,12 @@ from app.schemas import (
     StudentRegister, StudentLogin, StudentResponse, TokenResponse,
     CourseResponse, StudyIntentCreate, StudyIntentResponse,
     ChatExtractionRequest, ChatExtractionResponse,
-    RecommendationRequest, RecommendationResponse, MatchResultResponse
+    RecommendationRequest, RecommendationResponse, MatchResultResponse,
+    GroupProposalPreviewRequest, GroupProposalPreviewResponse
 )
 from app.extraction import process_chat_for_study_intent
 from app.matching import run_matching_pipeline, calculate_session_occupied_capacity
+from app.group_formation import preview_group_formation_pipeline
 
 # Buat router utama API v1
 api_router = APIRouter(prefix="/api/v1")
@@ -637,5 +639,66 @@ def get_persisted_match_results(
         .all()
     )
     return results
+
+
+@api_router.post(
+    "/matching/group-proposals/preview",
+    response_model=GroupProposalPreviewResponse,
+    tags=["Matching Engine"]
+)
+def preview_group_proposal_endpoint(
+    req: GroupProposalPreviewRequest,
+    current_student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db)
+):
+    """
+    Day 17: Menghasilkan pratinjau (preview) calon kelompok belajar terpadu
+    berdasarkan hasil Partner Matching yang saling cocok (Pairwise Compatibility & GQ Score).
+    Operasi ini bersifat murni READ-ONLY (tidak menulis atau mengubah database apa pun).
+    """
+    # 1. Validasi status akun dan verifikasi mahasiswa
+    if (current_student.account_status or "").upper() != "ACTIVE":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Akun mahasiswa kamu sedang ditangguhkan atau tidak aktif."
+        )
+    if (current_student.verification_status or "").upper() != "VERIFIED":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Akun mahasiswa kamu belum berstatus VERIFIED."
+        )
+
+    # 2. Validasi keberadaan Study Intent
+    intent = db.query(StudyIntent).filter(StudyIntent.intent_id == req.host_intent_id).first()
+    if not intent:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Study Intent dengan ID '{req.host_intent_id}' tidak ditemukan."
+        )
+
+    # 3. Validasi kepemilikan intent (Otorisasi)
+    if intent.student_id != current_student.student_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Kamu hanya berhak membuat usulan kelompok untuk Study Intent milikmu sendiri."
+        )
+
+    # 4. Validasi status intent
+    if intent.status != "ACTIVE":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Study Intent ini berstatus '{intent.status}'. Usulan kelompok hanya dapat dibuat untuk intent ACTIVE."
+        )
+
+    try:
+        result = preview_group_formation_pipeline(
+            host_intent_id=req.host_intent_id,
+            db=db,
+            min_score=req.min_score,
+            target_group_size=req.target_group_size
+        )
+        return result
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
 
 

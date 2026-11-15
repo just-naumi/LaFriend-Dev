@@ -39,7 +39,14 @@ backend/*.db
 # Environment Secrets
 .env
 .env.*
+!error.example
 !.env.example
+
+# Frontend & Node Dependencies
+node_modules/
+.vite/
+dist/
+build/
 
 # OS & IDE Files
 .DS_Store
