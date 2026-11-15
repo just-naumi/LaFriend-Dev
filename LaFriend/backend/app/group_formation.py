@@ -192,10 +192,12 @@ def evaluate_pairwise_compatibility(
     dan menghitung Compatibility Score Day 15 beserta rincian penjelasannya.
     Mengembalikan dictionary hasil atau None jika tidak ada irisan jadwal valid.
     """
-    # 1. Mode belajar harus kompatibel
+    # 1. Mode belajar harus kompatibel (Day 14 Hard Constraint)
+    # is_learning_mode_compatible mengembalikan tuple (is_compat: bool, agreed_mode: Optional[str])
     mode_a = getattr(intent_a, "learning_mode", "OFFLINE")
     mode_b = getattr(intent_b, "learning_mode", "OFFLINE")
-    if not is_learning_mode_compatible(mode_a, mode_b):
+    mode_compatible, _ = is_learning_mode_compatible(mode_a, mode_b)
+    if not mode_compatible:
         return None
 
     # 2. Irisan jadwal >= 60 menit
@@ -347,7 +349,9 @@ def form_study_group(
 
             calon_gq, calon_aps, calon_mps = calculate_group_quality_score(total_group_pairwise_scores)
 
-            # Skor kandidat terhadap Host (sebagai tie-breaker sekunder)
+            # Durasi jadwal bersama terbaik (terpanjang) sebagai tie-breaker sekunder
+            best_duration = common_scheds[0]["duration_minutes"] if common_scheds else 0
+            # Skor kandidat terhadap Host (sebagai referensi)
             score_vs_host = get_pair_score(host_intent, cand)["total_score"]
 
             candidate_evaluations.append({
@@ -355,6 +359,7 @@ def form_study_group(
                 "gq": calon_gq,
                 "aps": calon_aps,
                 "mps": calon_mps,
+                "best_duration": best_duration,
                 "score_vs_host": score_vs_host,
                 "schedules": common_scheds,
                 "cand_id": str(cand.intent_id)
@@ -363,12 +368,14 @@ def form_study_group(
         if not candidate_evaluations:
             break
 
-        # Pengurutan deterministik: GQ tertinggi > MPS tertinggi > Skor vs Host tertinggi > ID terkecil
+        # Pengurutan deterministik (Tie-breaker resmi Day 17.1):
+        # 1. Group Quality Score (GQ) tertinggi (-item["gq"])
+        # 2. Durasi jadwal bersama terpanjang (-item["best_duration"])
+        # 3. ID intent terkecil secara alfabetis (item["cand_id"])
         candidate_evaluations.sort(
             key=lambda item: (
                 -item["gq"],
-                -item["mps"],
-                -item["score_vs_host"],
+                -item["best_duration"],
                 item["cand_id"]
             )
         )
@@ -506,3 +513,4 @@ def preview_group_formation_pipeline(
         min_score=min_score,
         target_group_size=target_group_size
     )
+

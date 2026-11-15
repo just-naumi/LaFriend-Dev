@@ -56,6 +56,7 @@ from app.group_formation import (
     form_study_group,
     preview_group_formation_pipeline
 )
+from app.matching import is_learning_mode_compatible
 from app.routes import (
     create_token, hash_password,
     get_current_student, preview_group_proposal_endpoint
@@ -417,54 +418,101 @@ class TestDay17GroupFormation(unittest.TestCase):
             engine.dispose()
 
     # =========================================================================
-    # 14. API DI AKSES MAHASISWA LAIN -> 403 FORBIDDEN & AUTH CHECKS
+    # 14. API DI AKSES MAHASISWA LAIN -> 403 FORBIDDEN & AUTH CHECKS (TESTCLIENT)
     # =========================================================================
     def test_14_api_access_cross_student_forbidden(self):
         engine, TestingSession = create_test_db()
         db = TestingSession()
+        original_overrides = dict(app.dependency_overrides)
 
         try:
             c = Course(course_id="c1", course_code="ACK2AAB3", course_name="Struktur Data", study_program="S1")
             andi = Student(student_id="s1", full_name="Andi", email="a@t.ac", student_number="1", password_hash=hash_password("p"), account_status="ACTIVE", verification_status="VERIFIED", is_discoverable=True)
             budi = Student(student_id="s2", full_name="Budi", email="b@t.ac", student_number="2", password_hash=hash_password("p"), account_status="ACTIVE", verification_status="VERIFIED", is_discoverable=True)
-            db.add_all([c, andi, budi])
+            citra = Student(student_id="s3", full_name="Citra", email="c@t.ac", student_number="3", password_hash=hash_password("p"), account_status="SUSPENDED", verification_status="VERIFIED", is_discoverable=True)
+            dono = Student(student_id="s4", full_name="Dono", email="d@t.ac", student_number="4", password_hash=hash_password("p"), account_status="ACTIVE", verification_status="PENDING", is_discoverable=True)
+            db.add_all([c, andi, budi, citra, dono])
             db.commit()
 
             token_budi = create_token(budi.student_id, budi.email)
-            auth_header_budi = f"Bearer {token_budi}"
-
-            # Verifikasi autentikasi token resolving mahasiswa Budi
-            resolved_student = get_current_student(authorization=auth_header_budi, db=db)
-            self.assertEqual(resolved_student.student_id, budi.student_id)
+            token_citra = create_token(citra.student_id, citra.email)
+            token_dono = create_token(dono.student_id, dono.email)
+            token_andi = create_token(andi.student_id, andi.email)
 
             ia = StudyIntent(intent_id="ia-andi", student_id=andi.student_id, course_id=c.course_id, topics="Tree", learning_goal="PRACTICE", collaboration_style="DISCUSSION", learning_mode="OFFLINE", earliest_date="2026-11-20", latest_date="2026-11-25", status="ACTIVE")
             db.add(ia)
             db.commit()
 
-            # Budi mencoba membuat preview proposal untuk intent milik Andi -> 403 Forbidden
-            req = GroupProposalPreviewRequest(host_intent_id=ia.intent_id)
-            with self.assertRaises(HTTPException) as ctx:
-                preview_group_proposal_endpoint(req=req, current_student=budi, db=db)
-            self.assertEqual(ctx.exception.status_code, 403)
-            self.assertIn("milikmu sendiri", ctx.exception.detail)
+            def override_get_db():
+                session = TestingSession()
+                try:
+                    yield session
+                finally:
+                    session.close()
 
-            # Mahasiswa dengan akun SUSPENDED ditolak -> 403 Forbidden
-            budi.account_status = "SUSPENDED"
+            app.dependency_overrides[get_db] = override_get_db
+            client = TestClient(app)
+
+            # 1. 401 Unauthorized tanpa token
+            r_no_auth = client.post("/api/v1/matching/group-proposals/preview", json={"host_intent_id": ia.intent_id})
+            self.assertEqual(r_no_auth.status_code, 401)
+
+            # 2. 401 Unauthorized dengan token tidak valid
+            r_bad = client.post("/api/v1/matching/group-proposals/preview", json={"host_intent_id": ia.intent_id}, headers={"Authorization": "Bearer token_rusak"})
+            self.assertEqual(r_bad.status_code, 401)
+
+            # 3. 403 Forbidden: Budi mencoba membuat preview proposal untuk intent milik Andi (ownership guard)
+            r_cross = client.post(
+                "/api/v1/matching/group-proposals/preview",
+                json={"host_intent_id": ia.intent_id},
+                headers={"Authorization": f"Bearer {token_budi}"}
+            )
+            self.assertEqual(r_cross.status_code, 403)
+            self.assertIn("milikmu sendiri", r_cross.json()["detail"])
+
+            # 4. 403 Forbidden: Mahasiswa dengan akun SUSPENDED ditolak
+            ic = StudyIntent(intent_id="ic-citra", student_id=citra.student_id, course_id=c.course_id, topics="Tree", learning_goal="PRACTICE", collaboration_style="DISCUSSION", learning_mode="OFFLINE", earliest_date="2026-11-20", latest_date="2026-11-25", status="ACTIVE")
+            db.add(ic)
             db.commit()
-            with self.assertRaises(HTTPException) as ctx_suspended:
-                preview_group_proposal_endpoint(req=req, current_student=budi, db=db)
-            self.assertEqual(ctx_suspended.exception.status_code, 403)
-            self.assertIn("ditangguhkan", ctx_suspended.exception.detail)
+            r_suspended = client.post(
+                "/api/v1/matching/group-proposals/preview",
+                json={"host_intent_id": ic.intent_id},
+                headers={"Authorization": f"Bearer {token_citra}"}
+            )
+            self.assertEqual(r_suspended.status_code, 403)
+            self.assertIn("ditangguhkan atau tidak aktif", r_suspended.json()["detail"])
+
+            # 5. 403 Forbidden: Mahasiswa belum VERIFIED ditolak
+            idono = StudyIntent(intent_id="idono", student_id=dono.student_id, course_id=c.course_id, topics="Tree", learning_goal="PRACTICE", collaboration_style="DISCUSSION", learning_mode="OFFLINE", earliest_date="2026-11-20", latest_date="2026-11-25", status="ACTIVE")
+            db.add(idono)
+            db.commit()
+            r_unverified = client.post(
+                "/api/v1/matching/group-proposals/preview",
+                json={"host_intent_id": idono.intent_id},
+                headers={"Authorization": f"Bearer {token_dono}"}
+            )
+            self.assertEqual(r_unverified.status_code, 403)
+            self.assertIn("VERIFIED", r_unverified.json()["detail"])
+
+            # 6. 404 Not Found: Intent tidak ditemukan
+            r_not_found = client.post(
+                "/api/v1/matching/group-proposals/preview",
+                json={"host_intent_id": "intent-fiktif-404"},
+                headers={"Authorization": f"Bearer {token_andi}"}
+            )
+            self.assertEqual(r_not_found.status_code, 404)
         finally:
+            app.dependency_overrides = original_overrides
             db.close()
             engine.dispose()
 
     # =========================================================================
-    # 15. PREVIEW DIPANGGIL -> TIDAK ADA PERUBAHAN DB (STRICTLY READ-ONLY)
+    # 15. PREVIEW DIPANGGIL -> TIDAK ADA PERUBAHAN DB (STRICTLY READ-ONLY VIA TESTCLIENT)
     # =========================================================================
     def test_15_preview_endpoint_strictly_read_only(self):
         engine, TestingSession = create_test_db()
         db = TestingSession()
+        original_overrides = dict(app.dependency_overrides)
 
         try:
             c = Course(course_id="c1", course_code="ACK2AAB3", course_name="Struktur Data", study_program="S1")
@@ -475,9 +523,7 @@ class TestDay17GroupFormation(unittest.TestCase):
             db.commit()
 
             token_andi = create_token(andi.student_id, andi.email)
-            auth_header_andi = f"Bearer {token_andi}"
-            resolved_andi = get_current_student(authorization=auth_header_andi, db=db)
-            self.assertEqual(resolved_andi.student_id, andi.student_id)
+            headers_andi = {"Authorization": f"Bearer {token_andi}"}
 
             ia = StudyIntent(intent_id="ia", student_id=andi.student_id, course_id=c.course_id, topics="Tree", learning_goal="PRACTICE", collaboration_style="DISCUSSION", learning_mode="OFFLINE", earliest_date="2026-11-20", latest_date="2026-11-25", status="ACTIVE")
             sa = IntentAvailability(availability_id="sa", intent_id=ia.intent_id, day_or_date="2026-11-22", start_time="09:00", end_time="12:00", priority_rank=1)
@@ -488,6 +534,16 @@ class TestDay17GroupFormation(unittest.TestCase):
             db.add_all([ia, sa, ib, sb, ic, sc])
             db.commit()
 
+            def override_get_db():
+                session = TestingSession()
+                try:
+                    yield session
+                finally:
+                    session.close()
+
+            app.dependency_overrides[get_db] = override_get_db
+            client = TestClient(app)
+
             # Catat jumlah baris pada seluruh tabel terkait sebelum preview dipanggil
             count_sessions_before = db.query(StudySession).count()
             count_slots_before = db.query(SessionSlot).count()
@@ -496,17 +552,23 @@ class TestDay17GroupFormation(unittest.TestCase):
             count_matches_before = db.query(MatchResult).count()
             count_intents_before = db.query(StudyIntent).count()
 
-            # Panggil endpoint preview_group_proposal_endpoint
-            req = GroupProposalPreviewRequest(host_intent_id=ia.intent_id, min_score=60.0)
-            res = preview_group_proposal_endpoint(req=req, current_student=andi, db=db)
+            # Panggil endpoint POST /api/v1/matching/group-proposals/preview via TestClient
+            r_prev = client.post(
+                "/api/v1/matching/group-proposals/preview",
+                json={"host_intent_id": ia.intent_id, "min_score": 60.0},
+                headers=headers_andi
+            )
+            self.assertEqual(r_prev.status_code, 200)
+            data_prev = r_prev.json()
 
             # Validasi isi respon
-            self.assertEqual(res["formation_status"], "READY")
-            self.assertEqual(res["group_size"], 3)
+            self.assertEqual(data_prev["formation_status"], "READY")
+            self.assertEqual(data_prev["group_size"], 3)
             # Validasi skema respons Pydantic
-            GroupProposalPreviewResponse.model_validate(res)
+            validated_resp = GroupProposalPreviewResponse.model_validate(data_prev)
+            self.assertEqual(len(validated_resp.members), 3)
 
-            # Verifikasi bahwa sama sekali TIDAK ADA MUTASI DATABASE
+            # Verifikasi bahwa sama sekali TIDAK ADA MUTASI DATABASE (Strictly Read-Only)
             count_sessions_after = db.query(StudySession).count()
             count_slots_after = db.query(SessionSlot).count()
             count_members_after = db.query(SessionMember).count()
@@ -525,6 +587,162 @@ class TestDay17GroupFormation(unittest.TestCase):
             refreshed_intent = db.query(StudyIntent).filter(StudyIntent.intent_id == ia.intent_id).first()
             self.assertEqual(refreshed_intent.status, "ACTIVE")
         finally:
+            app.dependency_overrides = original_overrides
+            db.close()
+            engine.dispose()
+
+    # =========================================================================
+    # 16. REGRESI P1: KOMPATIBILITAS MODE BELAJAR (HARD CONSTRAINT DAY 14)
+    # =========================================================================
+    def test_16_pairwise_learning_mode_hard_constraints(self):
+        engine, TestingSession = create_test_db()
+        db = TestingSession()
+        try:
+            c = Course(course_id="c1", course_code="ACK2AAB3", course_name="Struktur Data", study_program="S1")
+            s1 = Student(student_id="s1", full_name="Andi", email="a@t.ac", student_number="1", password_hash=hash_password("p"), account_status="ACTIVE", verification_status="VERIFIED", is_discoverable=True)
+            s2 = Student(student_id="s2", full_name="Budi", email="b@t.ac", student_number="2", password_hash=hash_password("p"), account_status="ACTIVE", verification_status="VERIFIED", is_discoverable=True)
+            db.add_all([c, s1, s2])
+            db.commit()
+
+            def make_pair(mode_a, mode_b):
+                ia = StudyIntent(intent_id="ia", student_id="s1", course_id="c1", topics="Tree", learning_goal="PRACTICE", collaboration_style="DISCUSSION", learning_mode=mode_a, earliest_date="2026-11-20", latest_date="2026-11-25", status="ACTIVE")
+                sa = IntentAvailability(availability_id="sa", intent_id="ia", day_or_date="2026-11-22", start_time="09:00", end_time="12:00", priority_rank=1)
+                ib = StudyIntent(intent_id="ib", student_id="s2", course_id="c1", topics="Tree", learning_goal="PRACTICE", collaboration_style="DISCUSSION", learning_mode=mode_b, earliest_date="2026-11-20", latest_date="2026-11-25", status="ACTIVE")
+                sb = IntentAvailability(availability_id="sb", intent_id="ib", day_or_date="2026-11-22", start_time="09:00", end_time="12:00", priority_rank=1)
+                ia.availabilities = [sa]
+                ib.availabilities = [sb]
+                return ia, ib
+
+            # 1. ONLINE + ONLINE -> Kompatibel
+            ia, ib = make_pair("ONLINE", "ONLINE")
+            res = evaluate_pairwise_compatibility(ia, ib)
+            self.assertIsNotNone(res, "ONLINE + ONLINE harus kompatibel")
+
+            # 2. OFFLINE + OFFLINE -> Kompatibel
+            ia, ib = make_pair("OFFLINE", "OFFLINE")
+            res = evaluate_pairwise_compatibility(ia, ib)
+            self.assertIsNotNone(res, "OFFLINE + OFFLINE harus kompatibel")
+
+            # 3. HYBRID + ONLINE -> Kompatibel
+            ia, ib = make_pair("HYBRID", "ONLINE")
+            res = evaluate_pairwise_compatibility(ia, ib)
+            self.assertIsNotNone(res, "HYBRID + ONLINE harus kompatibel")
+
+            # 4. HYBRID + OFFLINE -> Kompatibel
+            ia, ib = make_pair("HYBRID", "OFFLINE")
+            res = evaluate_pairwise_compatibility(ia, ib)
+            self.assertIsNotNone(res, "HYBRID + OFFLINE harus kompatibel")
+
+            # 5. ONLINE + OFFLINE -> DITOLAK (HARD CONSTRAINT DAY 14)
+            ia, ib = make_pair("ONLINE", "OFFLINE")
+            res = evaluate_pairwise_compatibility(ia, ib)
+            self.assertIsNone(res, "ONLINE + OFFLINE HARUS DITOLAK (mengembalikan None)")
+
+            # 6. OFFLINE + ONLINE -> DITOLAK (SIMETRIS)
+            ia, ib = make_pair("OFFLINE", "ONLINE")
+            res = evaluate_pairwise_compatibility(ia, ib)
+            self.assertIsNone(res, "OFFLINE + ONLINE HARUS DITOLAK (mengembalikan None)")
+
+            # 7. Mode tidak valid -> DITOLAK
+            ia, ib = make_pair("REMOTE", "ONLINE")
+            res = evaluate_pairwise_compatibility(ia, ib)
+            self.assertIsNone(res, "Mode tidak valid (REMOTE) harus ditolak")
+        finally:
+            db.close()
+            engine.dispose()
+
+    # =========================================================================
+    # 17. FORM STUDY GROUP MENOLAK ANGGOTA DENGAN KOMBINASI ONLINE-OFFLINE
+    # =========================================================================
+    def test_17_group_formation_blocks_online_offline_mix(self):
+        engine, TestingSession = create_test_db()
+        db = TestingSession()
+        try:
+            c = Course(course_id="c1", course_code="ACK2AAB3", course_name="Struktur Data", study_program="S1")
+            andi = Student(student_id="s1", full_name="Andi", email="a@t.ac", student_number="1", password_hash=hash_password("p"), account_status="ACTIVE", verification_status="VERIFIED", is_discoverable=True)
+            budi = Student(student_id="s2", full_name="Budi", email="b@t.ac", student_number="2", password_hash=hash_password("p"), account_status="ACTIVE", verification_status="VERIFIED", is_discoverable=True)
+            citra = Student(student_id="s3", full_name="Citra", email="c@t.ac", student_number="3", password_hash=hash_password("p"), account_status="ACTIVE", verification_status="VERIFIED", is_discoverable=True)
+            db.add_all([c, andi, budi, citra])
+            db.commit()
+
+            # Host Andi memilih mode ONLINE
+            ia = StudyIntent(intent_id="ia", student_id=andi.student_id, course_id=c.course_id, topics="Tree", learning_goal="PRACTICE", collaboration_style="DISCUSSION", learning_mode="ONLINE", earliest_date="2026-11-20", latest_date="2026-11-25", max_group_size=4, status="ACTIVE")
+            sa = IntentAvailability(availability_id="sa", intent_id=ia.intent_id, day_or_date="2026-11-22", start_time="09:00", end_time="12:00", priority_rank=1)
+
+            # Kandidat Budi memilih mode OFFLINE (incompatible dengan Host ONLINE)
+            ib = StudyIntent(intent_id="ib", student_id=budi.student_id, course_id=c.course_id, topics="Tree", learning_goal="PRACTICE", collaboration_style="DISCUSSION", learning_mode="OFFLINE", earliest_date="2026-11-20", latest_date="2026-11-25", max_group_size=4, status="ACTIVE")
+            sb = IntentAvailability(availability_id="sb", intent_id=ib.intent_id, day_or_date="2026-11-22", start_time="09:00", end_time="12:00", priority_rank=1)
+
+            # Kandidat Citra memilih mode ONLINE (compatible dengan Host ONLINE)
+            ic = StudyIntent(intent_id="ic", student_id=citra.student_id, course_id=c.course_id, topics="Tree", learning_goal="PRACTICE", collaboration_style="DISCUSSION", learning_mode="ONLINE", earliest_date="2026-11-20", latest_date="2026-11-25", max_group_size=4, status="ACTIVE")
+            sc = IntentAvailability(availability_id="sc", intent_id=ic.intent_id, day_or_date="2026-11-22", start_time="09:00", end_time="12:00", priority_rank=1)
+
+            db.add_all([ia, sa, ib, sb, ic, sc])
+            db.commit()
+
+            res = form_study_group(host_intent=ia, candidate_intents=[ib, ic], min_score=60.0)
+
+            # Verifikasi bahwa Budi (OFFLINE) TIDAK PERNAH masuk kelompok
+            member_ids = [m["student_id"] for m in res["members"]]
+            self.assertIn(andi.student_id, member_ids, "Host Andi harus ada di kelompok")
+            self.assertIn(citra.student_id, member_ids, "Citra (ONLINE) harus ada di kelompok")
+            self.assertNotIn(budi.student_id, member_ids, "Budi (OFFLINE) TIDAK BOLEH masuk kelompok bersama Host ONLINE")
+            self.assertEqual(res["formation_status"], "READY")
+            self.assertEqual(res["group_size"], 2)
+
+            # Skenario 2: Host HYBRID tidak boleh menghasilkan kelompok campuran ONLINE dan OFFLINE
+            ia.learning_mode = "HYBRID"
+            db.commit()
+
+            res_hybrid = form_study_group(host_intent=ia, candidate_intents=[ic, ib], min_score=60.0)
+            member_ids_hybrid = [m["student_id"] for m in res_hybrid["members"]]
+            # Buktikan bahwa tidak ada kondisi di mana ONLINE dan OFFLINE berada dalam 1 kelompok
+            self.assertFalse(
+                budi.student_id in member_ids_hybrid and citra.student_id in member_ids_hybrid,
+                "Kelompok belajar TIDAK BOLEH memuat anggota ONLINE dan OFFLINE sekaligus"
+            )
+        finally:
+            db.close()
+            engine.dispose()
+
+    # =========================================================================
+    # 18. TIE-BREAKER: DURASI JADWAL TERPANJANG LEBIH UTAMA DIBANDING ID ALFABETIS
+    # =========================================================================
+    def test_18_tie_breaker_duration_takes_precedence_over_intent_id_when_gq_equal(self):
+        engine, TestingSession = create_test_db()
+        db = TestingSession()
+        try:
+            c = Course(course_id="c1", course_code="ACK2AAB3", course_name="Struktur Data", study_program="S1")
+            andi = Student(student_id="s1", full_name="Andi", email="a@t.ac", student_number="1", password_hash=hash_password("p"), account_status="ACTIVE", verification_status="VERIFIED", is_discoverable=True)
+            budi = Student(student_id="s2", full_name="Budi", email="b@t.ac", student_number="2", password_hash=hash_password("p"), account_status="ACTIVE", verification_status="VERIFIED", is_discoverable=True)
+            citra = Student(student_id="s3", full_name="Citra", email="c@t.ac", student_number="3", password_hash=hash_password("p"), account_status="ACTIVE", verification_status="VERIFIED", is_discoverable=True)
+            db.add_all([c, andi, budi, citra])
+            db.commit()
+
+            # Host Andi: Ketersediaan 09:00 - 15:00 (panjang)
+            ia = StudyIntent(intent_id="ia", student_id=andi.student_id, course_id=c.course_id, topics="Tree", learning_goal="PRACTICE", collaboration_style="DISCUSSION", learning_mode="OFFLINE", earliest_date="2026-11-20", latest_date="2026-11-25", max_group_size=2, status="ACTIVE")
+            sa = IntentAvailability(availability_id="sa", intent_id=ia.intent_id, day_or_date="2026-11-22", start_time="09:00", end_time="15:00", priority_rank=1)
+
+            # Kandidat Citra: intent_id alfabetis LEBIH BESAR ("z-cand-longer"), durasi 09:00 - 13:00 (240 menit)
+            ic = StudyIntent(intent_id="z-cand-longer", student_id=citra.student_id, course_id=c.course_id, topics="Tree", learning_goal="PRACTICE", collaboration_style="DISCUSSION", learning_mode="OFFLINE", earliest_date="2026-11-20", latest_date="2026-11-25", max_group_size=2, status="ACTIVE")
+            sc = IntentAvailability(availability_id="sc", intent_id=ic.intent_id, day_or_date="2026-11-22", start_time="09:00", end_time="13:00", priority_rank=1)
+
+            # Kandidat Budi: intent_id alfabetis LEBIH KECIL ("a-cand-shorter"), durasi 09:00 - 11:00 (120 menit)
+            ib = StudyIntent(intent_id="a-cand-shorter", student_id=budi.student_id, course_id=c.course_id, topics="Tree", learning_goal="PRACTICE", collaboration_style="DISCUSSION", learning_mode="OFFLINE", earliest_date="2026-11-20", latest_date="2026-11-25", max_group_size=2, status="ACTIVE")
+            sb = IntentAvailability(availability_id="sb", intent_id=ib.intent_id, day_or_date="2026-11-22", start_time="09:00", end_time="11:00", priority_rank=1)
+
+            db.add_all([ia, sa, ic, sc, ib, sb])
+            db.commit()
+
+            # Jalankan form_study_group dengan kedua kandidat
+            res = form_study_group(host_intent=ia, candidate_intents=[ib, ic], target_group_size=2, min_score=60.0)
+
+            # Karena max_group_size=2, hanya 1 kandidat yang dapat dipilih
+            selected_cand = res["members"][1]
+            self.assertEqual(selected_cand["intent_id"], "z-cand-longer",
+                             "Kandidat dengan durasi jadwal lebih panjang (240 menit) HARUS diprioritaskan dibanding alfabetis ID")
+            self.assertEqual(res["selected_schedule"]["duration_minutes"], 240)
+        finally:
             db.close()
             engine.dispose()
 
@@ -534,7 +752,7 @@ class TestDay17GroupFormation(unittest.TestCase):
 # =============================================================================
 def run_tests():
     print("=" * 80)
-    print("RUNNING DAY 17: GROUP FORMATION ENGINE TEST SUITE (15 SCENARIOS)")
+    print("RUNNING DAY 17.1: GROUP FORMATION HARDENING TEST SUITE (18 SCENARIOS)")
     print("=" * 80)
 
     suite = unittest.TestLoader().loadTestsFromTestCase(TestDay17GroupFormation)
@@ -547,7 +765,7 @@ def run_tests():
     passed = total - failures - errors
 
     print("=" * 80)
-    print(f"DAY 17 TEST SUITE RESULT: {passed} / {total} TESTS PASSED (100% SUCCESS)")
+    print(f"DAY 17.1 TEST SUITE RESULT: {passed} / {total} TESTS PASSED (100% SUCCESS)")
     print("=" * 80)
     return passed, total
 
