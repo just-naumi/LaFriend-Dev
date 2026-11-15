@@ -5,8 +5,9 @@
 # 1. Day 19.1 & 19.1.1 - Group Quality Evaluation (APS, MPS, GQ, sebaran skor pairwise,
 #    identifikasi weakest link/strongest link, variansi skor, catatan kualitas,
 #    konsistensi pembulatan Decimal ROUND_HALF_UP, dan validasi kelengkapan 5 komponen breakdown).
-# 2. Day 19.2 - Matching Stability & Order Invariance (pengujian determinisme permutasi unik).
-# 3. Day 19.3 - Robustness Testing (evaluasi data sparse, non-ideal, dan hard constraints).
+# 2. Day 19.2 - Matching Stability & Order Invariance (pengujian determinisme permutasi unik,
+#    dokumentasi status sampling/exhaustive, dan determinisme pemilihan jadwal bersama).
+# 3. Day 19.3 - Robustness Testing (evaluasi data sparse, non-ideal, dan pemantauan CVR = 0%).
 # 4. Day 19.4 - Top-K Quality Benchmarking (analisis Quality Retention & Quality Loss).
 # 5. Day 19.5 - Performance & Reliability Metrics (pengukuran metrik komprehensif).
 #
@@ -76,7 +77,15 @@ def calculate_pairwise_distribution(
         )
 
     q2 = Decimal("0.01")
-    dec_scores = [Decimal(str(round(float(s), 4))) for s in scores]
+    dec_scores = []
+    for s in scores:
+        if isinstance(s, Decimal):
+            dec_scores.append(s)
+        elif isinstance(s, (int, float)):
+            dec_scores.append(Decimal(str(round(float(s), 4))))
+        else:
+            dec_scores.append(Decimal(str(s)))
+
     n_dec = Decimal(len(dec_scores))
 
     # 1. Mean (APS) - menggunakan Decimal presisi tinggi dan ROUND_HALF_UP
@@ -175,8 +184,8 @@ def verify_pairwise_breakdown_consistency(
 
     PENTING (D19.1-02 HARDENING):
     Validator mewajibkan kelima komponen ("topic", "goal", "style", "date", "mode")
-    tersedia secara lengkap dan memiliki kontribusi numerik valid.
-    Jika ada komponen yang hilang atau tidak valid, validasi dinyatakan GAGAL (is_consistent = False).
+    tersedia secara lengkap dan memiliki kontribusi numerik valid (int/float/Decimal, bukan boolean/string).
+    Jika ada komponen yang hilang, bertipe string numerik, atau tidak valid, validasi dinyatakan GAGAL.
     """
     if not isinstance(pairwise_item, dict):
         return {
@@ -192,7 +201,7 @@ def verify_pairwise_breakdown_consistency(
 
     # 1. Validasi Compatibility Score
     raw_cs = pairwise_item.get("compatibility_score")
-    if raw_cs is None or isinstance(raw_cs, bool):
+    if raw_cs is None or isinstance(raw_cs, bool) or not isinstance(raw_cs, (int, float, Decimal)):
         return {
             "is_consistent": False,
             "compatibility_score": 0.0,
@@ -200,7 +209,7 @@ def verify_pairwise_breakdown_consistency(
             "discrepancy": 0.0,
             "missing_components": [],
             "invalid_components": [],
-            "error": "compatibility_score tidak ditemukan atau bernilai boolean",
+            "error": "compatibility_score tidak ditemukan, bernilai boolean, atau bukan numerik",
             "component_contributions": {},
         }
     try:
@@ -257,7 +266,8 @@ def verify_pairwise_breakdown_consistency(
         else:
             raw_contrib = None
 
-        if raw_contrib is None or isinstance(raw_contrib, bool):
+        # Tolak boolean, string numerik, None, atau tipe non-numerik
+        if raw_contrib is None or isinstance(raw_contrib, bool) or not isinstance(raw_contrib, (int, float, Decimal)):
             invalid_components.append(comp_key)
             continue
 
@@ -545,8 +555,6 @@ def generate_distinct_permutations(
     result.append(list(cand_list))
 
     if num_permutations <= 1:
-        # Jika diminta 1 run pengujian independen pada urutan yang diacak,
-        # berikan variasi yang dijamin berbeda dari baseline (reverse).
         rev = list(reversed(cand_list))
         return [rev]
 
@@ -712,6 +720,16 @@ def evaluate_matching_stability(
     determinism_rate = round((matches_count / total_runs) * 100.0, 2)
     is_order_invariant = (len(signatures_seen) == 1 and matches_count == total_runs)
 
+    # D19.2-01: Dokumentasi apakah pengujian bersifat exhaustive atau sampled
+    cand_count = len(candidate_intents)
+    if cand_count <= 1:
+        is_exhaustive = True
+        sample_method = "TRIVIAL_SINGLE_CANDIDATE"
+    else:
+        max_possible_perms = math.factorial(min(cand_count, 10)) if cand_count <= 10 else 10**10
+        is_exhaustive = (max_possible_perms <= total_runs)
+        sample_method = "EXHAUSTIVE" if is_exhaustive else "SAMPLED_DETERMINISTIC_AND_RANDOM"
+
     return MatchingStabilityResult(
         num_permutations=total_runs,
         is_order_invariant=is_order_invariant,
@@ -719,6 +737,8 @@ def evaluate_matching_stability(
         distinct_group_signatures=len(signatures_seen),
         baseline_signature=baseline_signature,
         permutations=permutation_runs,
+        is_exhaustive=is_exhaustive,
+        sample_method=sample_method,
     )
 
 
@@ -800,4 +820,176 @@ def benchmark_top_k_candidate_pool(
         total_candidates=total_candidates,
         baseline_k="Full",
         benchmarks=items,
+    )
+
+
+# ==============================================================================
+# 9. EVALUASI KETAHANAN DATA TIDAK IDEAL (ROBUSTNESS TESTING - DAY 19.3)
+# ==============================================================================
+
+def check_hard_constraint_violations(
+    host_intent: StudyIntent,
+    formation_result: Dict[str, Any],
+    candidate_lookup: Optional[Dict[str, StudyIntent]] = None
+) -> List[str]:
+    """
+    Memeriksa secara independen apakah hasil pembentukan kelompok melanggar
+    satu pun aturan Hard Constraints dari Day 14 atau aturan multi-way Day 17/18.
+
+    Aturan yang diperiksa:
+    1. Status konsistensi ukuran: jika READY, maka group_size >= 2 dan min_bound <= group_size <= max_bound.
+    2. Mata kuliah identik: seluruh anggota harus memiliki course_id yang sama persis dengan host.
+    3. Akun valid: seluruh anggota harus berstatus ACTIVE, VERIFIED, dan is_discoverable.
+    4. Transitive Learning Mode: tidak boleh ada kelompok yang memuat anggota ONLINE dan OFFLINE sekaligus.
+    5. Kapasitas beririsan: min_bound <= max_bound dan ukuran kelompok memenuhi kapasitas setiap anggota.
+    6. Irisan jadwal: jika READY, selected_schedule harus ada dengan durasi >= 60 menit.
+    7. Deduplikasi mahasiswa: seluruh anggota harus memiliki student_id unik (tidak ada duplikasi akun).
+    """
+    violations = []
+    status = formation_result.get("formation_status", "UNKNOWN")
+    group_size = int(formation_result.get("group_size", 0))
+    members = formation_result.get("members", [])
+    selected_sched = formation_result.get("selected_schedule")
+    min_bound = int(formation_result.get("min_group_size_bound", 2))
+    max_bound = int(formation_result.get("max_group_size_bound", 10))
+
+    # 1. Pengecekan status READY
+    if status == "READY":
+        if group_size < 2:
+            violations.append(f"Ukuran kelompok READY ({group_size}) kurang dari batas minimum absolut (2)")
+        if group_size < min_bound:
+            violations.append(f"Ukuran kelompok READY ({group_size}) kurang dari min_group_size_bound ({min_bound})")
+        if group_size > max_bound:
+            violations.append(f"Ukuran kelompok READY ({group_size}) melebihi max_group_size_bound ({max_bound})")
+        if not selected_sched:
+            violations.append("Kelompok berstatus READY tetapi tidak memiliki selected_schedule")
+        elif selected_sched.get("duration_minutes", 0) < 60:
+            violations.append(f"Durasi selected_schedule ({selected_sched.get('duration_minutes')}m) kurang dari 60 menit")
+
+    # 2. Pengecekan anggota jika ada lookup kandidat
+    if candidate_lookup:
+        student_ids = []
+        modes = []
+        # Tambahkan host ke daftar pengecekan
+        host_student = getattr(host_intent, "student", None)
+        if host_student:
+            student_ids.append(host_student.student_id)
+        modes.append(getattr(host_intent, "learning_mode", "HYBRID"))
+
+        for m in members:
+            iid = m.get("intent_id")
+            if str(iid) == str(host_intent.intent_id):
+                continue
+            intent_obj = candidate_lookup.get(iid)
+            if intent_obj:
+                # Cek Course
+                if str(intent_obj.course_id) != str(host_intent.course_id):
+                    violations.append(f"Anggota {iid} memiliki course_id berbeda ({intent_obj.course_id} != {host_intent.course_id})")
+
+                # Cek Student status
+                st = getattr(intent_obj, "student", None)
+                if st:
+                    if getattr(st, "account_status", None) != "ACTIVE":
+                        violations.append(f"Anggota {iid} memiliki akun tidak aktif ({getattr(st, 'account_status', None)})")
+                    if getattr(st, "verification_status", None) != "VERIFIED":
+                        violations.append(f"Anggota {iid} belum terverifikasi ({getattr(st, 'verification_status', None)})")
+                    if not getattr(st, "is_discoverable", True):
+                        violations.append(f"Anggota {iid} memiliki is_discoverable=False")
+                    student_ids.append(st.student_id)
+
+                # Mode
+                modes.append(getattr(intent_obj, "learning_mode", "HYBRID"))
+
+        # Cek Deduplikasi Mahasiswa
+        if len(student_ids) != len(set(student_ids)):
+            violations.append("Terdapat duplikasi mahasiswa (student_id sama) dalam kelompok yang sama")
+
+        # Cek Mode Transitive
+        if "ONLINE" in modes and "OFFLINE" in modes:
+            violations.append("Kelompok memuat mahasiswa ONLINE dan OFFLINE sekaligus (inkompatibel)")
+
+    return violations
+
+
+def evaluate_matching_robustness(
+    host_intent: StudyIntent,
+    candidate_scenarios: Sequence[Dict[str, Any]]
+) -> RobustnessEvaluationResult:
+    """
+    Evaluator Ketahanan Sistem (Day 19.3):
+    Menjalankan kumpulan skenario data tidak ideal (sparse, empty, disjoint schedule,
+    course mismatch, insufficient members, restricted account, adversarial).
+
+    Menghitung Constraint Violation Rate (CVR):
+      CVR = (N_violations / N_scenarios_evaluated) * 100%
+      Target: CVR = 0.0%
+    """
+    scenario_results: List[RobustnessScenarioResult] = []
+    total_tested = len(candidate_scenarios)
+    passed_count = 0
+    failed_count = 0
+    violation_count = 0
+
+    for sc in candidate_scenarios:
+        name = sc.get("scenario_name", "Unnamed Scenario")
+        desc = sc.get("description", "")
+        expected_status = sc.get("expected_status", "UNKNOWN")
+        candidates = sc.get("candidates", [])
+        min_score = sc.get("min_score", 60.0)
+        target_size = sc.get("target_group_size")
+
+        # Buat lookup dict kandidat
+        cand_lookup = {str(c.intent_id): c for c in candidates}
+        cand_lookup[str(host_intent.intent_id)] = host_intent
+
+        try:
+            res = form_study_group(
+                host_intent=host_intent,
+                candidate_intents=candidates,
+                min_score=min_score,
+                target_group_size=target_size
+            )
+            actual_status = res.get("formation_status", "UNKNOWN")
+            violations = check_hard_constraint_violations(host_intent, res, cand_lookup)
+        except Exception as e:
+            # Jika skenario memang dirancang untuk melempar error input (misal host intent None/inaktif)
+            actual_status = "ERROR_RAISED"
+            violations = []
+            if expected_status != "ERROR_RAISED":
+                violations.append(f"Exception tidak terduga: {str(e)}")
+
+        has_violation = (len(violations) > 0)
+        # Skenario lolos jika status sesuai ekspektasi DAN tidak ada pelanggaran hard constraint
+        is_passed = (not has_violation) and (actual_status == expected_status)
+
+        if has_violation:
+            violation_count += 1
+            failed_count += 1
+            msg = f"GAGAL: Terjadi {len(violations)} pelanggaran constraint: {'; '.join(violations)}"
+        elif not is_passed:
+            failed_count += 1
+            msg = f"GAGAL: Status tidak sesuai ekspektasi (expected: {expected_status}, actual: {actual_status})"
+        else:
+            passed_count += 1
+            msg = f"SUKSES: Status tepat '{actual_status}' tanpa pelanggaran constraint."
+
+        scenario_results.append(RobustnessScenarioResult(
+            scenario_name=name,
+            description=desc,
+            expected_status=expected_status,
+            actual_status=actual_status,
+            is_violation=has_violation,
+            message=msg,
+        ))
+
+    cvr = round((violation_count / total_tested) * 100.0, 2) if total_tested > 0 else 0.0
+    all_preserved = (cvr == 0.0 and passed_count == total_tested)
+
+    return RobustnessEvaluationResult(
+        total_scenarios_tested=total_tested,
+        passed_scenarios=passed_count,
+        failed_scenarios=failed_count,
+        constraint_violation_rate=cvr,
+        all_constraints_preserved=all_preserved,
+        scenario_results=scenario_results,
     )

@@ -382,10 +382,13 @@ class TestDay19Stability(unittest.TestCase):
 
     def test_09_schedule_selection_determinism_under_order_scrambling(self):
         """
+        D19.2-02 Hardening:
         Menguji bahwa jadwal bersama yang dipilih (selected_schedule) selalu 100% konsisten
-        meskipun urutan kandidat dibalik atau diacak.
+        pada kelompok beranggotakan beberapa mahasiswa (Host + Cand 1 + Cand 2) yang memiliki
+        lebih dari satu opsi jadwal bersama valid (Slot A: 120m vs Slot B: 180m),
+        meskipun urutan kandidat dibalik ([c1, c2] vs [c2, c1]) atau diacak.
         """
-        host = make_intent("ih_sched", "sh", "c_stab", min_size=2, max_size=3)
+        host = make_intent("ih_sched", "sh", "c_stab", min_size=3, max_size=3)
         host.availabilities = [
             IntentAvailability(availability_id="ah1", intent_id="ih_sched", day_or_date="2026-11-21", start_time="09:00", end_time="11:00", priority_rank=1),
             IntentAvailability(availability_id="ah2", intent_id="ih_sched", day_or_date="2026-11-22", start_time="13:00", end_time="16:00", priority_rank=2),
@@ -393,24 +396,46 @@ class TestDay19Stability(unittest.TestCase):
         host.student = make_student("sh", "Host", "host@t.ac.id")
         host.course = self.course
 
-        cand = make_intent("ic_sched", "sc", "c_stab", min_size=2, max_size=3)
-        cand.availabilities = [
-            IntentAvailability(availability_id="ac1", intent_id="ic_sched", day_or_date="2026-11-21", start_time="09:00", end_time="11:00", priority_rank=1),
-            IntentAvailability(availability_id="ac2", intent_id="ic_sched", day_or_date="2026-11-22", start_time="13:00", end_time="16:00", priority_rank=2),
+        cand1 = make_intent("ic1_sched", "sc1", "c_stab", min_size=3, max_size=3)
+        cand1.availabilities = [
+            IntentAvailability(availability_id="ac1_1", intent_id="ic1_sched", day_or_date="2026-11-21", start_time="09:00", end_time="11:00", priority_rank=1),
+            IntentAvailability(availability_id="ac1_2", intent_id="ic1_sched", day_or_date="2026-11-22", start_time="13:00", end_time="16:00", priority_rank=2),
         ]
-        cand.student = make_student("sc", "Cand", "cand@t.ac.id")
-        cand.course = self.course
+        cand1.student = make_student("sc1", "Cand 1", "cand1@t.ac.id")
+        cand1.course = self.course
 
-        res1 = form_study_group(host, [cand])
-        res2 = form_study_group(host, [cand])
+        cand2 = make_intent("ic2_sched", "sc2", "c_stab", min_size=3, max_size=3)
+        cand2.availabilities = [
+            IntentAvailability(availability_id="ac2_1", intent_id="ic2_sched", day_or_date="2026-11-21", start_time="09:00", end_time="11:00", priority_rank=1),
+            IntentAvailability(availability_id="ac2_2", intent_id="ic2_sched", day_or_date="2026-11-22", start_time="13:00", end_time="16:00", priority_rank=2),
+        ]
+        cand2.student = make_student("sc2", "Cand 2", "cand2@t.ac.id")
+        cand2.course = self.course
 
-        sched1 = res1["selected_schedule"]
-        sched2 = res2["selected_schedule"]
+        # Jalankan form_study_group dengan urutan asli [cand1, cand2] dan terbalik [cand2, cand1]
+        res_order1 = form_study_group(host, [cand1, cand2])
+        res_order2 = form_study_group(host, [cand2, cand1])
 
+        self.assertEqual(res_order1["formation_status"], "READY")
+        self.assertEqual(res_order2["formation_status"], "READY")
+        self.assertEqual(res_order1["group_size"], 3)
+        self.assertEqual(res_order2["group_size"], 3)
+
+        sched1 = res_order1["selected_schedule"]
+        sched2 = res_order2["selected_schedule"]
+
+        # Keduanya harus menghasilkan jadwal yang identik (durasi terpanjang: 2026-11-22 13:00-16:00, 180m)
         self.assertEqual(sched1["date"], sched2["date"])
         self.assertEqual(sched1["start_time"], sched2["start_time"])
         self.assertEqual(sched1["end_time"], sched2["end_time"])
         self.assertEqual(sched1["duration_minutes"], sched2["duration_minutes"])
+        self.assertEqual(sched1["duration_minutes"], 180)
+        self.assertEqual(sched1["date"], "2026-11-22")
+
+        # Uji via stability evaluator dengan 2 permutasi unik
+        stab_sched = evaluate_matching_stability(host, [cand1, cand2], num_permutations=2)
+        self.assertTrue(stab_sched.is_order_invariant)
+        self.assertEqual(stab_sched.determinism_rate, 100.0)
 
     def test_10_mathematical_determinism_rate_calculation(self):
         """
@@ -464,3 +489,4 @@ class TestDay19Stability(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+

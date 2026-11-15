@@ -895,6 +895,8 @@ class MatchingStabilityResult(BaseModel):
     distinct_group_signatures: int
     baseline_signature: str
     permutations: List[OrderPermutationRun]
+    is_exhaustive: bool = False
+    sample_method: str = "SAMPLED"
 
     model_config = ConfigDict(extra="allow")
 

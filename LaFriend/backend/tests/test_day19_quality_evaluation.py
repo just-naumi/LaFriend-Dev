@@ -289,6 +289,21 @@ class TestDay19QualityEvaluation(unittest.TestCase):
         self.assertFalse(res_inv["is_consistent"])
         self.assertGreater(len(res_inv["invalid_components"]), 0)
 
+        # Kasus 4b: Komponen bertipe string numerik (misal "20.00") harus ditolak ketat
+        pair_numeric_str = {
+            "compatibility_score": 75.00,
+            "breakdown": {
+                "topic": {"contribution": "20.00"},  # String numerik harus ditolak
+                "goal": {"contribution": 15.00},
+                "style": {"contribution": 15.00},
+                "date": {"contribution": 15.00},
+                "mode": {"contribution": 10.00},
+            }
+        }
+        res_num_str = verify_pairwise_breakdown_consistency(pair_numeric_str)
+        self.assertFalse(res_num_str["is_consistent"])
+        self.assertIn("topic", res_num_str["invalid_components"])
+
         # Kasus 5: Compatibility Score tidak valid (None, boolean, NaN)
         pair_bad_cs = {
             "compatibility_score": True,
