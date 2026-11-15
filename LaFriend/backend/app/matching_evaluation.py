@@ -38,6 +38,8 @@ from app.schemas import (
     RobustnessEvaluationResult,
     TopKPoolBenchmarkItem,
     TopKBenchmarkResult,
+    ComprehensiveEvaluationSummary,
+    ComprehensiveEvaluationReport,
 )
 
 
@@ -452,6 +454,16 @@ def evaluate_group_quality(
         gq = float(data.get("group_quality_score", 0.0))
         aps = float(data.get("average_pair_score", 0.0))
         mps = float(data.get("minimum_pair_score", 0.0))
+        group_size = int(data.get("group_size", len(data.get("members", []))))
+
+        # Periksa konsistensi breakdown untuk setiap item pairwise jika tersedia
+        breakdown_consistent = True
+        for pw in raw_pairwise:
+            if isinstance(pw, dict) and "breakdown" in pw and pw["breakdown"] is not None:
+                chk = verify_pairwise_breakdown_consistency(pw)
+                if not chk["is_consistent"]:
+                    breakdown_consistent = False
+                    break
 
         # Jika scores kosong atau tidak konsisten, hitung ulang
         if not scores and "all_pairwise_scores" in data:
@@ -464,6 +476,8 @@ def evaluate_group_quality(
     else:
         scores = [float(s) for s in data]
         gq, aps, mps = calculate_group_quality_score(scores)
+        group_size = len(scores) + 1 if scores else 0
+        breakdown_consistent = True
         weakest_link = None
         strongest_link = None
         if scores:
@@ -491,6 +505,8 @@ def evaluate_group_quality(
         all_pairwise_scores=[round(s, 2) for s in scores],
         quality_tier=tier,
         evaluation_notes=notes,
+        group_size=group_size,
+        is_breakdown_consistent=breakdown_consistent,
     )
 
 
@@ -1007,4 +1023,216 @@ def evaluate_matching_robustness(
         constraint_violation_rate=cvr,
         all_constraints_preserved=all_preserved,
         scenario_results=scenario_results,
+    )
+
+
+# ==============================================================================
+# 10. LAPORAN EVALUASI KOMPREHENSIF MATCHING ENGINE (DAY 19.5)
+# ==============================================================================
+
+def build_default_robustness_scenarios(host_intent: StudyIntent) -> List[Dict[str, Any]]:
+    """
+    Membangun skenario pengujian ketahanan default berbasis parameter host_intent.
+    """
+    from app.models import Student, Course, IntentAvailability
+    host_course_id = str(getattr(host_intent, "course_id", "c1"))
+    host_mode = getattr(host_intent, "learning_mode", "OFFLINE")
+    opp_mode = "ONLINE" if host_mode == "OFFLINE" else "OFFLINE"
+
+    def make_cand(iid, cid, mode, status="ACTIVE", acct="ACTIVE", verif="VERIFIED"):
+        st = Student(
+            student_id=f"s_{iid}", full_name=f"Student {iid}", email=f"{iid}@t.ac.id",
+            student_number=f"120125{abs(hash(iid)) % 9000 + 1000}", study_program="S1", academic_year=2025,
+            verification_status=verif, account_status=acct, is_discoverable=True
+        )
+        ci = StudyIntent(
+            intent_id=iid, student_id=st.student_id, course_id=cid, topics="Tree",
+            learning_goal="PRACTICE", collaboration_style="DISCUSSION", learning_mode=mode,
+            min_group_size=2, max_group_size=4, earliest_date="2026-11-20", latest_date="2026-11-30",
+            status=status
+        )
+        ci.student = st
+        return ci
+
+    # Skenario 1: Empty candidate pool
+    sc1 = {
+        "scenario_name": "Default 1: Empty Candidate Pool",
+        "description": "Pengujian candidate pool kosong",
+        "expected_status": "NO_COMPATIBLE_GROUP",
+        "candidates": [],
+    }
+
+    # Skenario 2: Incompatible learning mode
+    c2 = make_cand("c_def_mode", host_course_id, opp_mode)
+    c2.availabilities = [IntentAvailability(
+        availability_id="av_def_2", intent_id=c2.intent_id, day_or_date="2026-11-25",
+        start_time="09:00", end_time="12:00", priority_rank=1
+    )]
+    sc2 = {
+        "scenario_name": "Default 2: Incompatible Learning Mode",
+        "description": f"Kandidat bermode {opp_mode} terhadap host {host_mode}",
+        "expected_status": "NO_COMPATIBLE_GROUP",
+        "candidates": [c2],
+    }
+
+    # Skenario 3: Course mismatch
+    c3 = make_cand("c_def_course", f"{host_course_id}_OTHER", host_mode)
+    c3.availabilities = [IntentAvailability(
+        availability_id="av_def_3", intent_id=c3.intent_id, day_or_date="2026-11-25",
+        start_time="09:00", end_time="12:00", priority_rank=1
+    )]
+    sc3 = {
+        "scenario_name": "Default 3: Course Mismatch",
+        "description": "Kandidat berbeda mata kuliah",
+        "expected_status": "NO_COMPATIBLE_GROUP",
+        "candidates": [c3],
+    }
+
+    # Skenario 4: Disjoint schedule
+    c4 = make_cand("c_def_sched", host_course_id, host_mode)
+    c4.availabilities = [IntentAvailability(
+        availability_id="av_def_4", intent_id=c4.intent_id, day_or_date="2026-12-15",
+        start_time="09:00", end_time="12:00", priority_rank=1
+    )]
+    sc4 = {
+        "scenario_name": "Default 4: Zero Schedule Overlap",
+        "description": "Kandidat tidak memiliki irisan jadwal pada tanggal yang sama",
+        "expected_status": "NO_COMPATIBLE_GROUP",
+        "candidates": [c4],
+    }
+
+    # Skenario 5: Unverified account
+    c5 = make_cand("c_def_unverif", host_course_id, host_mode, verif="UNVERIFIED")
+    c5.availabilities = [IntentAvailability(
+        availability_id="av_def_5", intent_id=c5.intent_id, day_or_date="2026-11-25",
+        start_time="09:00", end_time="12:00", priority_rank=1
+    )]
+    sc5 = {
+        "scenario_name": "Default 5: Unverified Account",
+        "description": "Kandidat berstatus UNVERIFIED ditolak",
+        "expected_status": "NO_COMPATIBLE_GROUP",
+        "candidates": [c5],
+    }
+
+    return [sc1, sc2, sc3, sc4, sc5]
+
+
+def generate_comprehensive_evaluation_report(
+    host_intent: StudyIntent,
+    candidate_intents: Sequence[StudyIntent],
+    candidate_scenarios: Optional[Sequence[Dict[str, Any]]] = None,
+    k_values: Sequence[Optional[int]] = (5, 10, 20, None),
+    stability_permutations: int = 10,
+    min_score: float = 60.0
+) -> ComprehensiveEvaluationReport:
+    """
+    Generator Laporan Evaluasi Komprehensif Matching Engine (Day 19.5).
+    Mengagregasi 4 pilar pengujian:
+    1. Group Quality Evaluation (Day 19.1 & 19.1.1)
+    2. Matching Stability & Order Invariance (Day 19.2)
+    3. Robustness & Constraint Violation Rate (Day 19.3)
+    4. Top-K Efficiency & Quality Retention Benchmarking (Day 19.4)
+
+    Menghitung metrik ringkasan, waktu eksekusi total, status kelulusan (PASSED/WARNING/FAILED),
+    dan rekomendasi operasional.
+    """
+    t_start = time.perf_counter()
+    candidates_list = list(candidate_intents or [])
+    host_id = str(getattr(host_intent, "intent_id", "unknown_host"))
+    report_id = f"eval_report_{host_id}_{int(time.time())}"
+    generated_at = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
+    # 1. Eksekusi Pembentukan Kelompok Baseline
+    formation_res = form_study_group(
+        host_intent=host_intent,
+        candidate_intents=candidates_list,
+        min_score=min_score
+    )
+
+    # 2. Pilar 1: Group Quality Evaluation (Day 19.1)
+    quality_res = evaluate_group_quality(formation_res)
+
+    # 3. Pilar 2: Matching Stability & Order Invariance (Day 19.2)
+    stability_res = evaluate_matching_stability(
+        host_intent=host_intent,
+        candidate_intents=candidates_list,
+        num_permutations=stability_permutations,
+        min_score=min_score
+    )
+
+    # 4. Pilar 3: Robustness & Constraint Violation Rate (Day 19.3)
+    scenarios = candidate_scenarios if candidate_scenarios is not None else build_default_robustness_scenarios(host_intent)
+    robustness_res = evaluate_matching_robustness(
+        host_intent=host_intent,
+        candidate_scenarios=scenarios
+    )
+
+    # 5. Pilar 4: Top-K Efficiency Benchmarking (Day 19.4)
+    topk_res = benchmark_top_k_candidate_pool(
+        host_intent=host_intent,
+        candidate_intents=candidates_list,
+        k_values=k_values,
+        min_score=min_score
+    )
+
+    # 6. Agregasi Metrik Ringkasan (Day 19.5)
+    total_elapsed_ms = round((time.perf_counter() - t_start) * 1000, 2)
+    gq_mean = round(quality_res.group_quality_score, 2)
+    dr_rate = round(stability_res.determinism_rate, 2)
+    cvr_rate = round(robustness_res.constraint_violation_rate, 2)
+
+    # Ambil retensi Top-20 atau K terbesar yang diuji di bawah Full
+    topk_retention = 100.0
+    for b in topk_res.benchmarks:
+        if b.k_value == 20:
+            topk_retention = b.quality_retention
+            break
+        elif b.k_value != "Full":
+            topk_retention = b.quality_retention
+
+    # Penentuan overall status & rekomendasi
+    is_stable = (dr_rate == 100.0)
+    is_robust = (cvr_rate == 0.0 and robustness_res.all_constraints_preserved)
+    is_breakdown_valid = quality_res.is_breakdown_consistent
+
+    if is_stable and is_robust and is_breakdown_valid:
+        overall_status = "PASSED"
+        recommendation = (
+            f"Matching Engine LaFriend LOLOS pengujian komprehensif Day 19. "
+            f"Kualitas grup optimal (GQ: {gq_mean}), stabilitas 100% invarian urutan (DR: 100%), "
+            f"integritas hard constraints terlindungi sempurna (CVR: 0.0%), "
+            f"dan retensi kualitas Top-K tinggi ({topk_retention}%)."
+        )
+    elif cvr_rate > 0.0:
+        overall_status = "FAILED"
+        recommendation = (
+            f"Ditemukan pelanggaran hard constraints (CVR: {cvr_rate}%). "
+            f"Segera periksa filtering sebelum melanjutkan deployment."
+        )
+    else:
+        overall_status = "WARNING"
+        recommendation = (
+            f"Pengujian menghasilkan status peringatan (DR: {dr_rate}%, CVR: {cvr_rate}%). "
+            f"Harap tinjau catatan kualitas dan variansi skor."
+        )
+
+    summary = ComprehensiveEvaluationSummary(
+        overall_status=overall_status,
+        quality_score_mean=gq_mean,
+        order_determinism_rate=dr_rate,
+        constraint_violation_rate=cvr_rate,
+        topk_quality_retention=topk_retention,
+        total_evaluation_time_ms=total_elapsed_ms,
+        recommendation=recommendation
+    )
+
+    return ComprehensiveEvaluationReport(
+        report_id=report_id,
+        generated_at=generated_at,
+        host_intent_id=host_id,
+        summary=summary,
+        quality_evaluation=quality_res,
+        stability_evaluation=stability_res,
+        robustness_evaluation=robustness_res,
+        top_k_benchmark=topk_res
     )

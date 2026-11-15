@@ -871,6 +871,8 @@ class GroupQualityEvaluationResult(BaseModel):
     all_pairwise_scores: List[float]
     quality_tier: str  # EXCELLENT, GOOD, SATISFACTORY, NEEDS_IMPROVEMENT
     evaluation_notes: List[str]
+    group_size: int = 0
+    is_breakdown_consistent: bool = True
 
     model_config = ConfigDict(extra="allow")
 
@@ -948,6 +950,33 @@ class TopKBenchmarkResult(BaseModel):
     total_candidates: int
     baseline_k: Union[int, str]
     benchmarks: List[TopKPoolBenchmarkItem]
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ComprehensiveEvaluationSummary(BaseModel):
+    """Ringkasan evaluasi komprehensif matching engine (Day 19.5)."""
+    overall_status: str  # "PASSED", "WARNING", "FAILED"
+    quality_score_mean: float
+    order_determinism_rate: float  # Target: 100.0%
+    constraint_violation_rate: float  # Target: 0.0%
+    topk_quality_retention: float  # Target: >= 95.0%
+    total_evaluation_time_ms: float
+    recommendation: str
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ComprehensiveEvaluationReport(BaseModel):
+    """Laporan agregat komprehensif evaluasi matching engine (Day 19.5)."""
+    report_id: str
+    generated_at: str
+    host_intent_id: str
+    summary: ComprehensiveEvaluationSummary
+    quality_evaluation: GroupQualityEvaluationResult
+    stability_evaluation: MatchingStabilityResult
+    robustness_evaluation: RobustnessEvaluationResult
+    top_k_benchmark: TopKBenchmarkResult
 
     model_config = ConfigDict(extra="allow")
 
