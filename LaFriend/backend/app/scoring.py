@@ -761,11 +761,14 @@ def validate_component_score(score: Any, name: str) -> float:
     return float_val
 
 
-def _round_half_up(val: float, decimals: int = 2) -> float:
-    """Pembulatan presisi desimal standar (ROUND_HALF_UP) untuk mengatasi artefak biner IEEE 754."""
-    s_val = f"{val:.8f}"
-    d = Decimal(s_val).quantize(Decimal("10") ** -decimals, rounding=ROUND_HALF_UP)
-    return float(d)
+def _round_half_up(val: Union[float, int, Decimal], decimals: int = 2) -> float:
+    """
+    Pembulatan presisi desimal standar (ROUND_HALF_UP) tanpa double-rounding.
+    Mengkuantisasi representasi nilai langsung ke quantum desimal yang diinginkan.
+    """
+    quantum = Decimal("1").scaleb(-decimals)
+    result = Decimal(str(val)).quantize(quantum, rounding=ROUND_HALF_UP)
+    return float(result)
 
 
 def calculate_compatibility_score(
@@ -782,7 +785,7 @@ def calculate_compatibility_score(
     Aturan Day 15:
     - Seluruh 5 komponen (T, G, S, D, M) wajib tersedia dalam rentang [0.0, 1.0].
     - Tidak boleh ada normalisasi ulang bobot jika ada komponen yang hilang/None (wajib raise ValueError).
-    - Skor dibatasi pada rentang [0.0, 100.0] dan dibulatkan 2 desimal (round half-up).
+    - Skor dibatasi pada rentang [0.0, 100.0] dan dibulatkan 2 desimal (ROUND_HALF_UP tanpa double rounding).
     """
     t = validate_component_score(topic_score, "topic")
     g = validate_component_score(goal_score, "goal")
@@ -790,14 +793,15 @@ def calculate_compatibility_score(
     d = validate_component_score(date_score, "date")
     m = validate_component_score(mode_score, "mode")
 
-    raw_score = 100.0 * (
-        WEIGHT_TOPIC * t +
-        WEIGHT_GOAL * g +
-        WEIGHT_STYLE * s +
-        WEIGHT_DATE * d +
-        WEIGHT_MODE * m
+    # Akumulasi bobot menggunakan representasi Decimal eksak untuk menghindari truncation IEEE 754
+    dec_score = Decimal("100") * (
+        Decimal(str(WEIGHT_TOPIC)) * Decimal(str(t)) +
+        Decimal(str(WEIGHT_GOAL)) * Decimal(str(g)) +
+        Decimal(str(WEIGHT_STYLE)) * Decimal(str(s)) +
+        Decimal(str(WEIGHT_DATE)) * Decimal(str(d)) +
+        Decimal(str(WEIGHT_MODE)) * Decimal(str(m))
     )
-    clamped = max(0.0, min(100.0, raw_score))
+    clamped = max(Decimal("0.0"), min(Decimal("100.0"), dec_score))
     return _round_half_up(clamped, 2)
 
 
@@ -827,16 +831,16 @@ def calculate_compatibility_breakdown(
     m = validate_component_score(mode_score, "mode")
 
     raw_contribs = {
-        "topic": 100.0 * WEIGHT_TOPIC * t,
-        "goal": 100.0 * WEIGHT_GOAL * g,
-        "style": 100.0 * WEIGHT_STYLE * s,
-        "date": 100.0 * WEIGHT_DATE * d,
-        "mode": 100.0 * WEIGHT_MODE * m,
+        "topic": float(Decimal("100") * Decimal(str(WEIGHT_TOPIC)) * Decimal(str(t))),
+        "goal": float(Decimal("100") * Decimal(str(WEIGHT_GOAL)) * Decimal(str(g))),
+        "style": float(Decimal("100") * Decimal(str(WEIGHT_STYLE)) * Decimal(str(s))),
+        "date": float(Decimal("100") * Decimal(str(WEIGHT_DATE)) * Decimal(str(d))),
+        "mode": float(Decimal("100") * Decimal(str(WEIGHT_MODE)) * Decimal(str(m))),
     }
 
     total_score = calculate_compatibility_score(t, g, s, d, m)
 
-    # Pembulatan awal 2 desimal dengan ROUND_HALF_UP
+    # Pembulatan awal 2 desimal dengan ROUND_HALF_UP tanpa double rounding
     rounded_contribs = {k: _round_half_up(v, 2) for k, v in raw_contribs.items()}
     adjustments = {k: 0.0 for k in raw_contribs}
 
@@ -939,6 +943,10 @@ def priority_pair_key(priority_a: int, priority_b: int) -> Tuple[int, int, int, 
     )
 
 
+DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+TIME_PATTERN = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
 def _validate_common_slot(slot: Mapping[str, Any], for_partner: bool = False) -> None:
     """
     Memvalidasi integritas struktur dan nilai dari satu slot jadwal (common slot).
@@ -956,33 +964,33 @@ def _validate_common_slot(slot: Mapping[str, Any], for_partner: bool = False) ->
         if key not in slot or slot[key] is None:
             raise ValueError(f"Slot jadwal tidak memiliki field wajib '{key}'")
 
-    # Validasi format tanggal YYYY-MM-DD
+    # Validasi format tanggal YYYY-MM-DD ketat (4 digit tahun, 2 digit bulan, 2 digit hari)
     date_val = slot["date"]
     if not isinstance(date_val, str) or not date_val.strip():
         raise ValueError("Field 'date' pada slot harus berupa string non-kosong")
+    date_str = date_val.strip()
+    if not DATE_PATTERN.fullmatch(date_str):
+        raise ValueError(f"Format tanggal invalid: '{date_val}', harus persis YYYY-MM-DD dengan zero padding")
     try:
-        datetime.strptime(date_val.strip(), "%Y-%m-%d")
+        datetime.strptime(date_str, "%Y-%m-%d")
     except (ValueError, TypeError):
-        raise ValueError(f"Format tanggal invalid: '{date_val}', harus YYYY-MM-DD")
+        raise ValueError(f"Tanggal kalender invalid: '{date_val}', harus YYYY-MM-DD")
 
-    # Validasi format waktu HH:MM
-    start_str = slot["start_time"]
-    end_str = slot["end_time"]
-    if not isinstance(start_str, str) or not isinstance(end_str, str):
+    # Validasi format waktu HH:MM ketat (2 digit jam 00..23, 2 digit menit 00..59)
+    start_val = slot["start_time"]
+    end_val = slot["end_time"]
+    if not isinstance(start_val, str) or not isinstance(end_val, str):
         raise ValueError("Field 'start_time' dan 'end_time' harus berupa string")
 
-    try:
-        s_parts = start_str.strip().split(":")
-        e_parts = end_str.strip().split(":")
-        if len(s_parts) != 2 or len(e_parts) != 2:
-            raise ValueError
-        sh, sm = int(s_parts[0]), int(s_parts[1])
-        eh, em = int(e_parts[0]), int(e_parts[1])
-        if not (0 <= sh <= 23 and 0 <= sm <= 59 and 0 <= eh <= 23 and 0 <= em <= 59):
-            raise ValueError
-    except Exception:
-        raise ValueError(f"Format waktu invalid: '{start_str}' atau '{end_str}', harus HH:MM")
+    start_str = start_val.strip()
+    end_str = end_val.strip()
+    if not TIME_PATTERN.fullmatch(start_str):
+        raise ValueError(f"Format start_time invalid: '{start_val}', harus persis HH:MM dengan zero padding")
+    if not TIME_PATTERN.fullmatch(end_str):
+        raise ValueError(f"Format end_time invalid: '{end_val}', harus persis HH:MM dengan zero padding")
 
+    sh, sm = map(int, start_str.split(":"))
+    eh, em = map(int, end_str.split(":"))
     start_mins = sh * 60 + sm
     end_mins = eh * 60 + em
     calc_dur = end_mins - start_mins

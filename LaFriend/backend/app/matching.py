@@ -420,7 +420,7 @@ def filter_candidate_partners(
     5. Mode belajar kompatibel
     6. Rentang kapasitas kelompok beririsan
     7. Memiliki irisan ketersediaan waktu bersama >= min_duration menit
-    8. Deduplikasi per mahasiswa (1 mahasiswa hanya muncul 1 kali)
+    8. Deduplikasi intent kandidat yang identik berdasarkan intent_id (seluruh intent berbeda dari mahasiswa yang sama lolos agar dapat dinilai di Day 15.5 dan dideduplikasi di Day 15.6)
 
     Mengembalikan daftar pasangan: [(StudyIntent, common_slots), ...]
     """

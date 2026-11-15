@@ -48,6 +48,7 @@ from app.scoring import (
     WEIGHT_MODE,
     SCORING_WEIGHTS,
     validate_component_score,
+    _round_half_up,
     calculate_compatibility_score,
     calculate_compatibility_breakdown,
     # Tahap 15.5
@@ -731,6 +732,14 @@ def test_weighted_compatibility_score():
     except OverflowError:
         report("CS Validation: Tolak integer raksasa 10**400 dengan ValueError", False, "Memicu unhandled OverflowError")
 
+    # 13.7 Anti Double-Rounding: 1.234999996 -> tepat 1.23 (Temuan Audit Reviewer P1)
+    val_raw = 1.234999996
+    res_half_up = _round_half_up(val_raw, 2)
+    report("CS Rounding: _round_half_up(1.234999996, 2) tepat 1.23 (tanpa double-rounding)", math.isclose(res_half_up, 1.23))
+
+    score_audit_p1 = calculate_compatibility_score(0.04116666653333333, 0.0, 0.0, 0.0, 0.0)
+    report("CS Rounding: calculate_compatibility_score(0.04116666653333333, 0, 0, 0, 0) tepat 1.23", math.isclose(score_audit_p1, 1.23))
+
 
 def test_compatibility_breakdown():
     """Menguji rincian transparan breakdown skor dan konsistensi matematis (Tahap 15.4)."""
@@ -1031,7 +1040,18 @@ def test_session_scoring():
     res_t1 = calculate_session_score(intent_perf, session_perf, slots_tier1)
     report("Session Tie-Breaker: Tier 1 Date Score tertinggi dipilih", res_t1["selected_schedule"]["duration_minutes"] == 120)
 
-    # Kasus B: Tier 3 - Priority_a terbaik saat durasi sama (prio 1 > prio 2)
+    # Kasus B: Tier 2 - Durasi terpanjang saat Date Score sama
+    # Slot 1: 120 menit, prio 1 (D=1.00) vs Slot 2: 150 menit, prio 1 (D=1.00)
+    slots_tier2 = [
+        {"date": "2026-11-16", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1},
+        {"date": "2026-11-16", "start_time": "14:00", "end_time": "16:30", "duration_minutes": 150, "priority_a": 1},
+    ]
+    res_t2 = calculate_session_score(intent_perf, session_perf, slots_tier2)
+    report("Session Tie-Breaker: Tier 2 Durasi terpanjang (150 vs 120 menit) dipilih saat Date Score sama (1.00)", (
+        res_t2["selected_schedule"]["duration_minutes"] == 150 and math.isclose(res_t2["selected_schedule"]["date_score"], 1.00)
+    ))
+
+    # Kasus C: Tier 3 - Priority_a terbaik saat durasi sama (prio 1 > prio 2)
     slots_tier3 = [
         {"date": "2026-11-16", "start_time": "10:00", "end_time": "11:30", "duration_minutes": 90, "priority_a": 2}, # prio 2 (D=0.73)
         {"date": "2026-11-16", "start_time": "14:00", "end_time": "15:30", "duration_minutes": 90, "priority_a": 1}, # prio 1 (D=0.94)
@@ -1039,7 +1059,7 @@ def test_session_scoring():
     res_t3 = calculate_session_score(intent_perf, session_perf, slots_tier3)
     report("Session Tie-Breaker: Tier 3 Priority_a terbaik (1 vs 2) dipilih", res_t3["selected_schedule"]["priority_a"] == 1)
 
-    # Kasus C: Tier 4 - Tanggal lebih awal saat date_score, durasi, dan priority sama
+    # Kasus D: Tier 4 - Tanggal lebih awal saat date_score, durasi, dan priority sama
     slots_tier4_date = [
         {"date": "2026-11-20", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1},
         {"date": "2026-11-16", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1},
@@ -1047,7 +1067,7 @@ def test_session_scoring():
     res_t4d = calculate_session_score(intent_perf, session_perf, slots_tier4_date)
     report("Session Tie-Breaker: Tier 4 Tanggal paling awal (16 vs 20) dipilih", res_t4d["selected_schedule"]["date"] == "2026-11-16")
 
-    # Kasus D: Tier 4 - Jam mulai lebih awal pada tanggal yang sama
+    # Kasus E: Tier 4 - Jam mulai lebih awal pada tanggal yang sama
     slots_tier4_time = [
         {"date": "2026-11-16", "start_time": "14:00", "end_time": "16:00", "duration_minutes": 120, "priority_a": 1},
         {"date": "2026-11-16", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120, "priority_a": 1},
@@ -1067,7 +1087,13 @@ def test_session_scoring():
     assert_session_error(["bukan dict"], "Tolak slot bukan Mapping")
     assert_session_error([{"date": "2026-11-16"}], "Tolak slot tanpa field wajib")
     assert_session_error([{"date": "2026-13-40", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1}], "Tolak format tanggal invalid")
+    assert_session_error([{"date": "2026-1-6", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1}], "Tolak format tanggal tanpa zero padding bulan (2026-1-6)")
+    assert_session_error([{"date": "2026-01-6", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1}], "Tolak format tanggal tanpa zero padding hari (2026-01-6)")
+    assert_session_error([{"date": "2026-02-30", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1}], "Tolak tanggal kalender fiktif (2026-02-30)")
     assert_session_error([{"date": "2026-11-16", "start_time": "25:00", "end_time": "26:00", "duration_minutes": 60, "priority_a": 1}], "Tolak format jam invalid")
+    assert_session_error([{"date": "2026-11-16", "start_time": "9:00", "end_time": "11:00", "duration_minutes": 120, "priority_a": 1}], "Tolak start_time tanpa zero padding (9:00)")
+    assert_session_error([{"date": "2026-11-16", "start_time": "09:0", "end_time": "11:00", "duration_minutes": 120, "priority_a": 1}], "Tolak start_time tanpa zero padding menit (09:0)")
+    assert_session_error([{"date": "2026-11-16", "start_time": "09:00", "end_time": "11:0", "duration_minutes": 120, "priority_a": 1}], "Tolak end_time tanpa zero padding menit (11:0)")
     assert_session_error([{"date": "2026-11-16", "start_time": "14:00", "end_time": "10:00", "duration_minutes": 60, "priority_a": 1}], "Tolak waktu selesai lebih awal dari mulai")
     assert_session_error([{"date": "2026-11-16", "start_time": "10:00", "end_time": "10:59", "duration_minutes": 59, "priority_a": 1}], "Tolak durasi < 60 menit")
     assert_session_error([{"date": "2026-11-16", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 90, "priority_a": 1}], "Tolak duration_minutes tidak konsisten dengan selisih waktu")
@@ -1213,6 +1239,17 @@ def test_partner_scoring():
     ))
 
     # 16.4 Multi-Slot Schedule Selection & 4-Tier Tie-Breaker
+    # Tier 2: Durasi terpanjang saat Date Score sama
+    # Slot 1: 120 menit, prio (1, 2) -> D=0.895 vs Slot 2: 150 menit, prio (1, 2) -> D=0.895
+    slots_tier2_p = [
+        {"date": "2026-11-16", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1, "priority_b": 2},
+        {"date": "2026-11-16", "start_time": "14:00", "end_time": "16:30", "duration_minutes": 150, "priority_a": 1, "priority_b": 2},
+    ]
+    res_t2_p = calculate_partner_score(intent_perf_a, intent_perf_b, slots_tier2_p)
+    report("Partner Tie-Breaker: Tier 2 Durasi terpanjang (150 vs 120 menit) dipilih saat Date Score sama (0.895)", (
+        res_t2_p["selected_schedule"]["duration_minutes"] == 150 and math.isclose(res_t2_p["selected_schedule"]["date_score"], 0.895)
+    ))
+
     # Tier 3: priority_pair_key pemecah seri (1, 2) vs (2, 1) -> (1, 2) menang karena prio_a lebih kecil
     slots_tie_prio = [
         {"date": "2026-11-16", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 2, "priority_b": 1},
@@ -1275,6 +1312,26 @@ def test_partner_scoring():
         intent_perf_a, intent_perf_b,
         [{"date": "2026-11-16", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1, "priority_b": 4}],
         "Tolak priority_b di luar {1, 2, 3}"
+    )
+    assert_partner_error(
+        intent_perf_a, intent_perf_b,
+        [{"date": "2026-1-6", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1, "priority_b": 1}],
+        "Tolak partner slot tanpa zero padding bulan (2026-1-6)"
+    )
+    assert_partner_error(
+        intent_perf_a, intent_perf_b,
+        [{"date": "2026-01-6", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1, "priority_b": 1}],
+        "Tolak partner slot tanpa zero padding hari (2026-01-6)"
+    )
+    assert_partner_error(
+        intent_perf_a, intent_perf_b,
+        [{"date": "2026-11-16", "start_time": "9:00", "end_time": "11:00", "duration_minutes": 120, "priority_a": 1, "priority_b": 1}],
+        "Tolak start_time partner tanpa zero padding (9:00)"
+    )
+    assert_partner_error(
+        intent_perf_a, intent_perf_b,
+        [{"date": "2026-11-16", "start_time": "09:0", "end_time": "11:00", "duration_minutes": 120, "priority_a": 1, "priority_b": 1}],
+        "Tolak start_time partner tanpa zero padding menit (09:0)"
     )
     assert_partner_error(
         intent_perf_a, dict(intent_perf_b, student_id=None), slot_perf_p, "Tolak intent_b tanpa student_id"
