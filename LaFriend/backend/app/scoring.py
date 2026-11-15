@@ -739,15 +739,21 @@ def validate_component_score(score: Any, name: str) -> float:
     - Harus berupa angka numerik (int atau float, bukan bool).
     - Harus finite (bukan NaN, bukan Infinity).
     - Harus berada dalam rentang [0.0, 1.0].
+    - Menolak angka integer raksasa (misal 10**400) yang memicu OverflowError sebagai ValueError.
     - Melempar ValueError jika melanggar kontrak.
     """
     if score is None:
         raise ValueError(f"Komponen {name} tidak boleh bernilai None")
     if not isinstance(score, (int, float)) or isinstance(score, bool):
         raise ValueError(f"Komponen {name} harus berupa angka numerik, diterima: {type(score).__name__}")
-    if not math.isfinite(score):
+    
+    try:
+        float_val = float(score)
+    except OverflowError:
+        raise ValueError(f"Komponen {name} mengalami overflow numerik (angka terlalu besar untuk float)")
+
+    if not math.isfinite(float_val):
         raise ValueError(f"Komponen {name} tidak finite (NaN atau Infinity)")
-    float_val = float(score)
     if not (0.0 <= float_val <= 1.0):
         raise ValueError(f"Komponen {name} ({float_val}) harus berada dalam rentang [0.0, 1.0]")
     return float_val
@@ -796,11 +802,14 @@ def calculate_compatibility_breakdown(
     """
     Menghasilkan rincian transparan dari perhitungan Compatibility Score:
     - total_score: float [0.0, 100.0] identik dengan hasil calculate_compatibility_score
+    - rounding_reconciliation: selisih total pembulatan yang dialokasikan (+/- 0.01 atau 0.00)
     - components: kamus kontribusi untuk kelima komponen (topic, goal, style, date, mode)
       Setiap komponen memuat:
         * score: nilai mentah [0.0, 1.0] dibulatkan 4 desimal
         * weight: bobot resmi komponen (0.30, 0.25, 0.15, dll.)
-        * contribution: poin kontribusi ke skor total (100 * weight * score, dibulatkan 2 desimal)
+        * raw_contribution: nilai kontribusi sebelum pembulatan (100 * weight * score)
+        * contribution: poin kontribusi ke skor total (dibulatkan 2 desimal dengan rekonsiliasi sisa pembulatan)
+        * rounding_adjustment: penyesuaian pembulatan yang dialokasikan (misal -0.01, +0.01, atau 0.0)
     """
     t = validate_component_score(topic_score, "topic")
     g = validate_component_score(goal_score, "goal")
@@ -808,41 +817,80 @@ def calculate_compatibility_breakdown(
     d = validate_component_score(date_score, "date")
     m = validate_component_score(mode_score, "mode")
 
-    contrib_topic = round(100.0 * WEIGHT_TOPIC * t, 2)
-    contrib_goal = round(100.0 * WEIGHT_GOAL * g, 2)
-    contrib_style = round(100.0 * WEIGHT_STYLE * s, 2)
-    contrib_date = round(100.0 * WEIGHT_DATE * d, 2)
-    contrib_mode = round(100.0 * WEIGHT_MODE * m, 2)
+    raw_contribs = {
+        "topic": 100.0 * WEIGHT_TOPIC * t,
+        "goal": 100.0 * WEIGHT_GOAL * g,
+        "style": 100.0 * WEIGHT_STYLE * s,
+        "date": 100.0 * WEIGHT_DATE * d,
+        "mode": 100.0 * WEIGHT_MODE * m,
+    }
 
     total_score = calculate_compatibility_score(t, g, s, d, m)
 
+    # Pembulatan awal 2 desimal
+    rounded_contribs = {k: round(v, 2) for k, v in raw_contribs.items()}
+    adjustments = {k: 0.0 for k in raw_contribs}
+
+    diff = round(total_score - sum(rounded_contribs.values()), 2)
+
+    # Jika terdapat selisih pembulatan, lakukan alokasi sisa terbesar (Largest Remainder Reconciliation)
+    if not math.isclose(diff, 0.0, abs_tol=1e-5):
+        steps = int(round(diff * 100))
+        sign = 1 if steps > 0 else -1
+        # Urutkan secara deterministik berdasarkan delta pembulatan terbesar, lalu bobot komponen
+        component_keys = ["topic", "goal", "style", "date", "mode"]
+        order = sorted(
+            component_keys,
+            key=lambda k: (
+                (raw_contribs[k] - rounded_contribs[k]) if sign > 0 else (rounded_contribs[k] - raw_contribs[k]),
+                SCORING_WEIGHTS[k]
+            ),
+            reverse=True
+        )
+        for i in range(abs(steps)):
+            target_key = order[i % len(order)]
+            adj = round(sign * 0.01, 2)
+            rounded_contribs[target_key] = round(rounded_contribs[target_key] + adj, 2)
+            adjustments[target_key] = round(adjustments[target_key] + adj, 2)
+
     return {
         "total_score": total_score,
+        "rounding_reconciliation": round(diff, 2),
         "components": {
             "topic": {
                 "score": round(t, 4),
                 "weight": WEIGHT_TOPIC,
-                "contribution": contrib_topic,
+                "raw_contribution": round(raw_contribs["topic"], 4),
+                "contribution": rounded_contribs["topic"],
+                "rounding_adjustment": adjustments["topic"],
             },
             "goal": {
                 "score": round(g, 4),
                 "weight": WEIGHT_GOAL,
-                "contribution": contrib_goal,
+                "raw_contribution": round(raw_contribs["goal"], 4),
+                "contribution": rounded_contribs["goal"],
+                "rounding_adjustment": adjustments["goal"],
             },
             "style": {
                 "score": round(s, 4),
                 "weight": WEIGHT_STYLE,
-                "contribution": contrib_style,
+                "raw_contribution": round(raw_contribs["style"], 4),
+                "contribution": rounded_contribs["style"],
+                "rounding_adjustment": adjustments["style"],
             },
             "date": {
                 "score": round(d, 4),
                 "weight": WEIGHT_DATE,
-                "contribution": contrib_date,
+                "raw_contribution": round(raw_contribs["date"], 4),
+                "contribution": rounded_contribs["date"],
+                "rounding_adjustment": adjustments["date"],
             },
             "mode": {
                 "score": round(m, 4),
                 "weight": WEIGHT_MODE,
-                "contribution": contrib_mode,
+                "raw_contribution": round(raw_contribs["mode"], 4),
+                "contribution": rounded_contribs["mode"],
+                "rounding_adjustment": adjustments["mode"],
             },
         },
     }

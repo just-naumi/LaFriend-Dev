@@ -711,6 +711,15 @@ def test_weighted_compatibility_score():
         except ValueError:
             report(f"CS Validation: Tolak {desc}", True)
 
+    # 13.6 Tolak integer raksasa 10**400 dengan ValueError (Temuan Audit Reviewer P2)
+    try:
+        calculate_compatibility_score(10**400, 1.0, 1.0, 1.0, 1.0)
+        report("CS Validation: Tolak integer raksasa 10**400 dengan ValueError", False, "Harusnya raise ValueError")
+    except ValueError as e:
+        report("CS Validation: Tolak integer raksasa 10**400 dengan ValueError", "overflow numerik" in str(e))
+    except OverflowError:
+        report("CS Validation: Tolak integer raksasa 10**400 dengan ValueError", False, "Memicu unhandled OverflowError")
+
 
 def test_compatibility_breakdown():
     """Menguji rincian transparan breakdown skor dan konsistensi matematis (Tahap 15.4)."""
@@ -763,12 +772,49 @@ def test_compatibility_breakdown():
     sum_contrib2 = sum(comp["contribution"] for comp in bd2["components"].values())
     report("Breakdown Case 2: Jumlah kontribusi tepat sama dengan total_score", math.isclose(sum_contrib2, bd2["total_score"]))
 
-    # 14.6 Tolak input invalid pada breakdown
+    # 14.6 Benchmark Rekonsiliasi Pembulatan (Temuan Audit Reviewer P1)
+    # T=0.35991, G=0.51916, S=0.86274, D=0.50660, M=0.16717
+    # Raw total = 46.82395 -> Total Score = 46.82
+    # Unreconciled sum = 10.80 + 12.98 + 12.94 + 7.60 + 2.51 = 46.83
+    # Reconciled: Topic dialokasikan -0.01 sehingga contribution = 10.79
+    # Final sum = 10.79 + 12.98 + 12.94 + 7.60 + 2.51 = 46.82 == Total Score!
+    bd_audit = calculate_compatibility_breakdown(0.35991, 0.51916, 0.86274, 0.50660, 0.16717)
+    report("Breakdown Audit P1: total_score tepat 46.82", math.isclose(bd_audit["total_score"], 46.82))
+    report("Breakdown Audit P1: rounding_reconciliation tercatat -0.01", math.isclose(bd_audit["rounding_reconciliation"], -0.01))
+    report("Breakdown Audit P1: Topic contribution terekonsiliasi 10.79", math.isclose(bd_audit["components"]["topic"]["contribution"], 10.79))
+    report("Breakdown Audit P1: Topic raw_contribution transparan 10.7973", math.isclose(bd_audit["components"]["topic"]["raw_contribution"], 10.7973))
+    report("Breakdown Audit P1: Topic rounding_adjustment tercatat -0.01", math.isclose(bd_audit["components"]["topic"]["rounding_adjustment"], -0.01))
+    sum_audit = sum(c["contribution"] for c in bd_audit["components"].values())
+    report("Breakdown Audit P1: Jumlah kontribusi identik dengan total_score (46.82 == 46.82)", math.isclose(sum_audit, bd_audit["total_score"]))
+
+    # 14.7 Fuzzing Numerik: 50 kombinasi acak desimal selalu memenuhi sum(contributions) == total_score
+    import random
+    all_fuzz_passed = True
+    for seed in range(50):
+        random.seed(seed)
+        t_rnd, g_rnd, s_rnd, d_rnd, m_rnd = [random.random() for _ in range(5)]
+        bd_rnd = calculate_compatibility_breakdown(t_rnd, g_rnd, s_rnd, d_rnd, m_rnd)
+        sum_rnd = sum(c["contribution"] for c in bd_rnd["components"].values())
+        if not math.isclose(sum_rnd, bd_rnd["total_score"]):
+            all_fuzz_passed = False
+            break
+    report("Breakdown Fuzzing: 50 kombinasi acak desimal selalu memiliki sum(contrib) == total_score", all_fuzz_passed)
+
+    # 14.8 Tolak input invalid pada breakdown
     try:
         calculate_compatibility_breakdown(None, 1.0, 1.0, 1.0, 1.0)
         report("Breakdown: Tolak input None", False, "Harusnya raise ValueError")
     except ValueError:
         report("Breakdown: Tolak input None", True)
+
+    # 14.9 Tolak integer raksasa 10**400 dengan ValueError (Temuan Audit Reviewer P2)
+    try:
+        calculate_compatibility_breakdown(10**400, 1.0, 1.0, 1.0, 1.0)
+        report("Breakdown: Tolak integer raksasa 10**400 dengan ValueError", False, "Harusnya raise ValueError")
+    except ValueError as e:
+        report("Breakdown: Tolak integer raksasa 10**400 dengan ValueError", "overflow numerik" in str(e))
+    except OverflowError:
+        report("Breakdown: Tolak integer raksasa 10**400 dengan ValueError", False, "Memicu unhandled OverflowError")
 
 
 def run_tests():
