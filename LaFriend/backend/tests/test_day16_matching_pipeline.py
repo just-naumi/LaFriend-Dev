@@ -777,7 +777,7 @@ class TestDay16MatchingPipeline(unittest.TestCase):
                 headers=headers_eko
             )
             self.assertEqual(r_res_susp.status_code, 403)
-            self.assertIn("dinonaktifkan atau ditangguhkan", r_res_susp.json()["detail"])
+            self.assertIn("ditangguhkan atau tidak aktif", r_res_susp.json()["detail"])
 
         finally:
             # Temuan 3 Audit: Pulihkan dependency_overrides secara bersih
@@ -962,13 +962,123 @@ class TestDay16MatchingPipeline(unittest.TestCase):
             db.close()
             engine.dispose()
 
+    # =========================================================================
+    # SUITE 18.10: Migrasi Database Legacy SQLite (Temuan Day 16.2)
+    # =========================================================================
+    def test_legacy_database_migration_preserves_old_records_and_adds_column(self):
+        """
+        Menguji bahwa database SQLite yang masih menggunakan struktur sebelum Day 16.1
+        (tanpa kolom selected_schedule_json) dapat dimigrasikan secara sukses:
+        1. Kolom selected_schedule_json berhasil ditambahkan.
+        2. Seluruh 9 kolom lama tetap utuh.
+        3. Rekaman data lama tidak hilang dan nilainya tetap valid.
+        4. ORM SQLAlchemy MatchResult dapat membaca rekaman lama tanpa OperationalError.
+        5. Migrasi bersifat idempoten (dapat dijalankan berulang tanpa error).
+        """
+        from sqlalchemy import text
+        from sqlalchemy.orm import sessionmaker
+
+        legacy_engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool
+        )
+
+        legacy_ddl = """
+        CREATE TABLE match_results (
+            match_id VARCHAR(36) NOT NULL PRIMARY KEY,
+            intent_id VARCHAR(36) NOT NULL,
+            candidate_type VARCHAR(20) NOT NULL,
+            candidate_session_id VARCHAR(36),
+            target_intent_id VARCHAR(36),
+            compatibility_score FLOAT NOT NULL,
+            breakdown_json TEXT NOT NULL,
+            explanation TEXT,
+            created_at DATETIME NOT NULL
+        );
+        """
+        with legacy_engine.connect() as conn:
+            conn.execute(text(legacy_ddl))
+            conn.execute(text("""
+                INSERT INTO match_results (
+                    match_id, intent_id, candidate_type, candidate_session_id, target_intent_id,
+                    compatibility_score, breakdown_json, explanation, created_at
+                ) VALUES (
+                    'legacy-match-001', 'intent-legacy-001', 'PARTNER', NULL, 'intent-target-001',
+                    88.50, '{"topic_similarity": 90.0}', 'Sangat cocok', '2026-11-10 10:00:00'
+                )
+            """))
+            conn.commit()
+
+            cols_before = [r[1] for r in conn.execute(text("PRAGMA table_info(match_results)")).fetchall()]
+            self.assertNotIn("selected_schedule_json", cols_before, "Kolom selected_schedule_json belum ada sebelum migrasi")
+            self.assertEqual(len(cols_before), 9, "Harus tepat 9 kolom pada struktur lama")
+
+        # Eksekusi migrasi skema
+        ensure_database_schema(legacy_engine)
+
+        with legacy_engine.connect() as conn:
+            cols_after = [r[1] for r in conn.execute(text("PRAGMA table_info(match_results)")).fetchall()]
+            self.assertIn("selected_schedule_json", cols_after, "Kolom selected_schedule_json harus tersedia setelah migrasi")
+            self.assertEqual(len(cols_after), 10, "Harus menjadi tepat 10 kolom setelah migrasi")
+            # Pastikan 9 kolom lama tidak ada yang terhapus/berubah nama
+            for c in cols_before:
+                self.assertIn(c, cols_after, f"Kolom lama '{c}' harus tetap dipertahankan")
+
+        # Verifikasi bahwa ORM SQLAlchemy MatchResult dapat membaca rekaman lama
+        LegacySession = sessionmaker(bind=legacy_engine)
+        session = LegacySession()
+        try:
+            old_record = session.query(MatchResult).filter(MatchResult.match_id == "legacy-match-001").first()
+            self.assertIsNotNone(old_record, "Data lama tidak boleh hilang")
+            self.assertEqual(old_record.match_id, "legacy-match-001")
+            self.assertEqual(old_record.compatibility_score, 88.50)
+            self.assertEqual(old_record.explanation, "Sangat cocok")
+            self.assertIsNone(old_record.selected_schedule_json, "Baris lama harus memiliki selected_schedule_json bernilai None")
+        finally:
+            session.close()
+
+        # Uji idempotensi: Jalankan migrasi sekali lagi dan pastikan tidak ada exception
+        ensure_database_schema(legacy_engine)
+        legacy_engine.dispose()
+
+    # =========================================================================
+    # SUITE 18.11: Penanganan Kegagalan Migrasi (Temuan Day 16.2)
+    # =========================================================================
+    def test_migration_failure_raises_and_is_not_swallowed(self):
+        """
+        Menguji bahwa ketika terjadi kegagalan tak terpulihkan pada saat migrasi
+        (misalnya database terkunci atau disk I/O error), exception TIDAK ditelan
+        secara diam-diam dan langsung memicu error untuk mencegah startup dalam kondisi korup.
+        """
+        from sqlalchemy import text
+        from sqlalchemy.exc import OperationalError
+
+        fail_engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool
+        )
+
+        with fail_engine.connect() as conn:
+            conn.execute(text("CREATE TABLE match_results (match_id VARCHAR(36) PRIMARY KEY);"))
+            conn.commit()
+
+        # Simulasi error unrecoverable saat koneksi eksekusi migrasi
+        with patch.object(fail_engine, "connect") as mock_connect:
+            mock_connect.side_effect = OperationalError("database is locked / disk I/O failure", None, None)
+            with self.assertRaises(OperationalError):
+                ensure_database_schema(fail_engine)
+
+        fail_engine.dispose()
+
 
 # =============================================================================
 # Standalone CLI Test Runner
 # =============================================================================
 def run_tests():
     print("=" * 80)
-    print("RUNNING DAY 16.1: PERSISTENCE & API CONSISTENCY HARDENING TEST SUITE")
+    print("RUNNING DAY 16.2: SQLITE MIGRATION HARDENING TEST SUITE")
     print("=" * 80)
 
     suite = unittest.TestLoader().loadTestsFromTestCase(TestDay16MatchingPipeline)
@@ -981,7 +1091,7 @@ def run_tests():
     passed = total - failures - errors
 
     print("=" * 80)
-    print(f"DAY 16.1 TEST SUITE RESULT: {passed} / {total} TESTS PASSED (100% SUCCESS)")
+    print(f"DAY 16.2 TEST SUITE RESULT: {passed} / {total} TESTS PASSED (100% SUCCESS)")
     print("=" * 80)
     return passed, total
 

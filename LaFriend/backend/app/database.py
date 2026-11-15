@@ -66,17 +66,28 @@ def ensure_database_schema(target_engine=None):
     """
     Memastikan seluruh tabel dibuat dan kolom-kolom baru (seperti selected_schedule_json)
     pada tabel match_results termigrasi secara otomatis jika belum ada (SQLite safe migration).
+    Kegagalan migrasi tidak boleh ditelan secara diam-diam dan akan memicu exception.
     """
     from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError
+
     eng = target_engine or engine
     Base.metadata.create_all(bind=eng)
-    try:
-        with eng.connect() as conn:
-            result = conn.execute(text("PRAGMA table_info(match_results)"))
-            columns = [row[1] for row in result.fetchall()]
-            if columns and "selected_schedule_json" not in columns:
+
+    with eng.connect() as conn:
+        result = conn.execute(text("PRAGMA table_info(match_results)"))
+        columns = [row[1] for row in result.fetchall()]
+        if columns and "selected_schedule_json" not in columns:
+            try:
                 conn.execute(text("ALTER TABLE match_results ADD COLUMN selected_schedule_json TEXT"))
                 conn.commit()
-    except Exception:
-        pass
+            except OperationalError as oe:
+                # Periksa apakah error disebabkan oleh race condition duplicate column
+                err_msg = str(oe).lower()
+                if "duplicate column name" in err_msg or "already exists" in err_msg:
+                    re_check = conn.execute(text("PRAGMA table_info(match_results)"))
+                    current_cols = [row[1] for row in re_check.fetchall()]
+                    if "selected_schedule_json" in current_cols:
+                        return
+                raise oe
 

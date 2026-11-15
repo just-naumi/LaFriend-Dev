@@ -619,12 +619,12 @@ def get_persisted_match_results(
         )
 
     # 3. Validasi status akun dan status verifikasi mahasiswa
-    if current_student.account_status != "ACTIVE":
+    if (current_student.account_status or "").upper() != "ACTIVE":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Akun mahasiswa kamu sedang dinonaktifkan atau ditangguhkan."
+            detail="Akun mahasiswa kamu sedang ditangguhkan atau tidak aktif."
         )
-    if current_student.verification_status != "VERIFIED":
+    if (current_student.verification_status or "").upper() != "VERIFIED":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Akun mahasiswa kamu belum berstatus VERIFIED."
