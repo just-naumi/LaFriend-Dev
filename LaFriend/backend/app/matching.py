@@ -592,8 +592,12 @@ def run_matching_pipeline(
     intent_windows = resolve_availability_windows(study_intent)
     if not intent_windows:
         if persist and db is not None and getattr(study_intent, "intent_id", None):
-            db.query(MatchResult).filter(MatchResult.intent_id == str(study_intent.intent_id)).delete(synchronize_session=False)
-            db.commit()
+            try:
+                db.query(MatchResult).filter(MatchResult.intent_id == str(study_intent.intent_id)).delete(synchronize_session=False)
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
         c_name = study_intent.course.course_name if getattr(study_intent, "course", None) else None
         return {
             "intent_id": str(getattr(study_intent, "intent_id", "")),
@@ -686,91 +690,153 @@ def run_matching_pipeline(
     # ==========================================================================
     # TAHAP 3: FORMAT PAYLOAD, DETAIL ENRICHMENT & PERSISTENSI
     # ==========================================================================
-    if persist and db is not None and getattr(study_intent, "intent_id", None):
-        # Bersihkan hasil rekomendasi sebelumnya untuk intent ini
-        db.query(MatchResult).filter(MatchResult.intent_id == str(study_intent.intent_id)).delete(synchronize_session=False)
-
     formatted_recommendations = []
-    for item in ranked_candidates:
-        payload = format_match_result_payload(item)
-        validated_payload = MatchResultCreate.model_validate(payload)
 
-        match_id = str(uuid.uuid4())
-        if persist and db is not None:
-            match_record = MatchResult(
-                match_id=match_id,
-                intent_id=validated_payload.intent_id,
-                candidate_type=validated_payload.candidate_type,
-                candidate_session_id=validated_payload.candidate_session_id,
-                target_intent_id=validated_payload.target_intent_id,
-                compatibility_score=validated_payload.compatibility_score,
-                breakdown_json=json.dumps(validated_payload.breakdown.model_dump()),
-                explanation=validated_payload.explanation,
-                created_at=datetime.utcnow()
-            )
-            db.add(match_record)
-
-        rec_item = {
-            "match_id": match_id,
-            "rank": item.get("rank", 1),
-            "candidate_type": validated_payload.candidate_type,
-            "candidate_session_id": validated_payload.candidate_session_id,
-            "target_intent_id": validated_payload.target_intent_id,
-            "compatibility_score": validated_payload.compatibility_score,
-            "breakdown": validated_payload.breakdown.model_dump(),
-            "explanation": validated_payload.explanation,
-            "selected_schedule": item.get("selected_schedule"),
-            "session_details": None,
-            "partner_details": None,
-        }
-
-        if validated_payload.candidate_type == "SESSION":
-            sess = sessions_by_id.get(validated_payload.candidate_session_id)
-            if sess:
-                occupied = calculate_session_occupied_capacity(sess)
-                host_name = sess.host.full_name if getattr(sess, "host", None) else None
-                course_title = sess.course.course_name if getattr(sess, "course", None) else None
-                rec_item["session_details"] = {
-                    "session_id": sess.session_id,
-                    "title": sess.title,
-                    "description": sess.description,
-                    "host_id": sess.host_id,
-                    "host_name": host_name,
-                    "course_id": sess.course_id,
-                    "course_name": course_title,
-                    "learning_goal": sess.learning_goal,
-                    "collaboration_style": sess.collaboration_style,
-                    "learning_mode": sess.learning_mode,
-                    "location": sess.location,
-                    "occupied_seats": occupied,
-                    "max_group_size": sess.max_group_size,
-                }
-        elif validated_payload.candidate_type == "PARTNER":
-            part = partners_by_intent_id.get(validated_payload.target_intent_id)
-            if part:
-                st = getattr(part, "student", None)
-                rec_item["partner_details"] = {
-                    "target_intent_id": part.intent_id,
-                    "student_id": part.student_id,
-                    "student_name": st.full_name if st else None,
-                    "study_program": st.study_program if st else None,
-                    "academic_year": st.academic_year if st else None,
-                    "topics": part.topics,
-                    "learning_goal": part.learning_goal,
-                    "collaboration_style": part.collaboration_style,
-                    "learning_mode": part.learning_mode,
-                    "min_group_size": part.min_group_size,
-                    "max_group_size": part.max_group_size,
-                }
-
-        formatted_recommendations.append(rec_item)
-
-    if persist and db is not None:
+    if persist and db is not None and getattr(study_intent, "intent_id", None):
         try:
+            # 1. Hapus rekaman rekomendasi lama dalam transaksi aman
+            db.query(MatchResult).filter(MatchResult.intent_id == str(study_intent.intent_id)).delete(synchronize_session=False)
+
+            # 2. Validasi seluruh kandidat, buat MatchResult, dan susun payload
+            for item in ranked_candidates:
+                payload = format_match_result_payload(item)
+                validated_payload = MatchResultCreate.model_validate(payload)
+
+                match_id = str(uuid.uuid4())
+                match_record = MatchResult(
+                    match_id=match_id,
+                    intent_id=validated_payload.intent_id,
+                    candidate_type=validated_payload.candidate_type,
+                    candidate_session_id=validated_payload.candidate_session_id,
+                    target_intent_id=validated_payload.target_intent_id,
+                    compatibility_score=validated_payload.compatibility_score,
+                    breakdown_json=json.dumps(validated_payload.breakdown.model_dump()),
+                    explanation=validated_payload.explanation,
+                    created_at=datetime.utcnow()
+                )
+                db.add(match_record)
+
+                rec_item = {
+                    "match_id": match_id,
+                    "rank": item.get("rank", 1),
+                    "candidate_type": validated_payload.candidate_type,
+                    "candidate_session_id": validated_payload.candidate_session_id,
+                    "target_intent_id": validated_payload.target_intent_id,
+                    "compatibility_score": validated_payload.compatibility_score,
+                    "breakdown": validated_payload.breakdown.model_dump(),
+                    "explanation": validated_payload.explanation,
+                    "selected_schedule": item.get("selected_schedule"),
+                    "session_details": None,
+                    "partner_details": None,
+                }
+
+                if validated_payload.candidate_type == "SESSION":
+                    sess = sessions_by_id.get(validated_payload.candidate_session_id)
+                    if sess:
+                        occupied = calculate_session_occupied_capacity(sess)
+                        host_name = sess.host.full_name if getattr(sess, "host", None) else None
+                        course_title = sess.course.course_name if getattr(sess, "course", None) else None
+                        rec_item["session_details"] = {
+                            "session_id": sess.session_id,
+                            "title": sess.title,
+                            "description": sess.description,
+                            "host_id": sess.host_id,
+                            "host_name": host_name,
+                            "course_id": sess.course_id,
+                            "course_name": course_title,
+                            "learning_goal": sess.learning_goal,
+                            "collaboration_style": sess.collaboration_style,
+                            "learning_mode": sess.learning_mode,
+                            "location": sess.location,
+                            "occupied_seats": occupied,
+                            "max_group_size": sess.max_group_size,
+                        }
+                elif validated_payload.candidate_type == "PARTNER":
+                    part = partners_by_intent_id.get(validated_payload.target_intent_id)
+                    if part:
+                        st = getattr(part, "student", None)
+                        rec_item["partner_details"] = {
+                            "target_intent_id": part.intent_id,
+                            "student_id": part.student_id,
+                            "student_name": st.full_name if st else None,
+                            "study_program": st.study_program if st else None,
+                            "academic_year": st.academic_year if st else None,
+                            "topics": part.topics,
+                            "learning_goal": part.learning_goal,
+                            "collaboration_style": part.collaboration_style,
+                            "learning_mode": part.learning_mode,
+                            "min_group_size": part.min_group_size,
+                            "max_group_size": part.max_group_size,
+                        }
+
+                formatted_recommendations.append(rec_item)
+
+            # 3. Commit transaksi secara atomik hanya setelah SELURUH proses validasi & staging berhasil
             db.commit()
-        except Exception as exc:
+        except Exception:
             db.rollback()
-            raise exc
+            raise
+    else:
+        # Jalur non-persistensi (persist=False atau db is None)
+        for item in ranked_candidates:
+            payload = format_match_result_payload(item)
+            validated_payload = MatchResultCreate.model_validate(payload)
+            match_id = str(uuid.uuid4())
+
+            rec_item = {
+                "match_id": match_id,
+                "rank": item.get("rank", 1),
+                "candidate_type": validated_payload.candidate_type,
+                "candidate_session_id": validated_payload.candidate_session_id,
+                "target_intent_id": validated_payload.target_intent_id,
+                "compatibility_score": validated_payload.compatibility_score,
+                "breakdown": validated_payload.breakdown.model_dump(),
+                "explanation": validated_payload.explanation,
+                "selected_schedule": item.get("selected_schedule"),
+                "session_details": None,
+                "partner_details": None,
+            }
+
+            if validated_payload.candidate_type == "SESSION":
+                sess = sessions_by_id.get(validated_payload.candidate_session_id)
+                if sess:
+                    occupied = calculate_session_occupied_capacity(sess)
+                    host_name = sess.host.full_name if getattr(sess, "host", None) else None
+                    course_title = sess.course.course_name if getattr(sess, "course", None) else None
+                    rec_item["session_details"] = {
+                        "session_id": sess.session_id,
+                        "title": sess.title,
+                        "description": sess.description,
+                        "host_id": sess.host_id,
+                        "host_name": host_name,
+                        "course_id": sess.course_id,
+                        "course_name": course_title,
+                        "learning_goal": sess.learning_goal,
+                        "collaboration_style": sess.collaboration_style,
+                        "learning_mode": sess.learning_mode,
+                        "location": sess.location,
+                        "occupied_seats": occupied,
+                        "max_group_size": sess.max_group_size,
+                    }
+            elif validated_payload.candidate_type == "PARTNER":
+                part = partners_by_intent_id.get(validated_payload.target_intent_id)
+                if part:
+                    st = getattr(part, "student", None)
+                    rec_item["partner_details"] = {
+                        "target_intent_id": part.intent_id,
+                        "student_id": part.student_id,
+                        "student_name": st.full_name if st else None,
+                        "study_program": st.study_program if st else None,
+                        "academic_year": st.academic_year if st else None,
+                        "topics": part.topics,
+                        "learning_goal": part.learning_goal,
+                        "collaboration_style": part.collaboration_style,
+                        "learning_mode": part.learning_mode,
+                        "min_group_size": part.min_group_size,
+                        "max_group_size": part.max_group_size,
+                    }
+
+            formatted_recommendations.append(rec_item)
 
     if match_type == "SESSION":
         msg = f"Ditemukan {len(formatted_recommendations)} rekomendasi Study Session yang cocok untuk dipelajari bersama."

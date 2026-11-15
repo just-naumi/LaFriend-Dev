@@ -11,6 +11,8 @@
 # ==============================================================================
 
 import hashlib
+import json
+import math
 import jwt
 from datetime import datetime, timedelta
 from typing import List, Optional
@@ -26,7 +28,7 @@ from app.schemas import (
     RecommendationRequest, RecommendationResponse, MatchResultResponse
 )
 from app.extraction import process_chat_for_study_intent
-from app.matching import run_matching_pipeline
+from app.matching import run_matching_pipeline, calculate_session_occupied_capacity
 
 # Buat router utama API v1
 api_router = APIRouter(prefix="/api/v1")
@@ -428,10 +430,160 @@ def get_recommendations_get(
     db: Session = Depends(get_db)
 ):
     """
-    Shortcut GET untuk memicu dan mengambil rekomendasi kecocokan pada suatu Study Intent.
+    Endpoint Read-Only (Idempotent) untuk membaca hasil rekomendasi yang sudah tersimpan
+    di database (tabel MatchResult) untuk suatu Study Intent.
+    TIDAK melakukan perubahan state server (tidak menghapus, menghitung ulang, atau menulis ke database).
+    Untuk menghasilkan/memperbarui rekomendasi baru, gunakan POST /matching/recommendations.
     """
-    req = RecommendationRequest(intent_id=intent_id, min_score=min_score, limit=limit)
-    return get_recommendations_post(req=req, current_student=current_student, db=db)
+    # 1. Validasi parameter input
+    if min_score is None or isinstance(min_score, bool):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="min_score harus numerik non-boolean")
+    try:
+        min_score_val = float(min_score)
+    except (ValueError, TypeError, OverflowError):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="min_score harus berupa angka numerik valid")
+    if math.isnan(min_score_val) or math.isinf(min_score_val):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="min_score harus berupa angka berhingga")
+    if not (0.0 <= min_score_val <= 100.0):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"min_score ({min_score_val}) harus dalam rentang [0.0, 100.0]")
+
+    if limit is not None:
+        if isinstance(limit, bool) or not isinstance(limit, int):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="limit harus berupa integer positif atau None")
+        if limit < 1:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"limit ({limit}) harus bernilai minimal 1")
+
+    # 2. Validasi keberadaan Study Intent
+    intent = db.query(StudyIntent).filter(StudyIntent.intent_id == intent_id).first()
+    if not intent:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Study Intent dengan ID '{intent_id}' tidak ditemukan."
+        )
+
+    # 3. Validasi kepemilikan intent (Otorisasi)
+    if intent.student_id != current_student.student_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Kamu hanya berhak melihat rekomendasi untuk Study Intent milikmu sendiri."
+        )
+
+    # 4. Validasi status akun mahasiswa peminta
+    if (current_student.account_status or "").upper() != "ACTIVE":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Akun mahasiswa kamu sedang ditangguhkan atau tidak aktif."
+        )
+    if (current_student.verification_status or "").upper() != "VERIFIED":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Akun mahasiswa kamu belum berstatus VERIFIED."
+        )
+
+    # 5. Baca data rekomendasi tersimpan secara read-only dari tabel match_results
+    query = (
+        db.query(MatchResult)
+        .filter(MatchResult.intent_id == intent_id)
+        .order_by(MatchResult.compatibility_score.desc())
+    )
+    if min_score_val > 0.0:
+        query = query.filter(MatchResult.compatibility_score >= min_score_val)
+
+    stored_matches = query.all()
+    if limit is not None and limit >= 1:
+        stored_matches = stored_matches[:limit]
+
+    formatted_recs = []
+    match_type = "NONE"
+    if stored_matches:
+        match_type = stored_matches[0].candidate_type
+
+    for idx, match in enumerate(stored_matches):
+        try:
+            breakdown_dict = json.loads(match.breakdown_json)
+        except Exception:
+            breakdown_dict = {
+                "topic_similarity": 0.0,
+                "goal_compatibility": 0.0,
+                "style_compatibility": 0.0,
+                "date_preference": 0.0,
+                "mode_compatibility": 0.0,
+            }
+
+        session_details = None
+        partner_details = None
+
+        if match.candidate_type == "SESSION" and match.candidate_session_id:
+            sess = db.query(StudySession).filter(StudySession.session_id == match.candidate_session_id).first()
+            if sess:
+                occupied = calculate_session_occupied_capacity(sess)
+                host_name = sess.host.full_name if getattr(sess, "host", None) else None
+                course_title = sess.course.course_name if getattr(sess, "course", None) else None
+                session_details = {
+                    "session_id": sess.session_id,
+                    "title": sess.title,
+                    "description": sess.description,
+                    "host_id": sess.host_id,
+                    "host_name": host_name,
+                    "course_id": sess.course_id,
+                    "course_name": course_title,
+                    "learning_goal": sess.learning_goal,
+                    "collaboration_style": sess.collaboration_style,
+                    "learning_mode": sess.learning_mode,
+                    "location": sess.location,
+                    "occupied_seats": occupied,
+                    "max_group_size": sess.max_group_size,
+                }
+        elif match.candidate_type == "PARTNER" and match.target_intent_id:
+            part = db.query(StudyIntent).filter(StudyIntent.intent_id == match.target_intent_id).first()
+            if part:
+                st = getattr(part, "student", None)
+                partner_details = {
+                    "target_intent_id": part.intent_id,
+                    "student_id": part.student_id,
+                    "student_name": st.full_name if st else None,
+                    "study_program": st.study_program if st else None,
+                    "academic_year": st.academic_year if st else None,
+                    "topics": part.topics,
+                    "learning_goal": part.learning_goal,
+                    "collaboration_style": part.collaboration_style,
+                    "learning_mode": part.learning_mode,
+                    "min_group_size": part.min_group_size,
+                    "max_group_size": part.max_group_size,
+                }
+
+        formatted_recs.append({
+            "match_id": match.match_id,
+            "rank": idx + 1,
+            "candidate_type": match.candidate_type,
+            "candidate_session_id": match.candidate_session_id,
+            "target_intent_id": match.target_intent_id,
+            "compatibility_score": round(float(match.compatibility_score), 2),
+            "breakdown": breakdown_dict,
+            "explanation": match.explanation or "",
+            "selected_schedule": None,
+            "session_details": session_details,
+            "partner_details": partner_details,
+        })
+
+    if match_type == "SESSION":
+        msg = f"Menampilkan {len(formatted_recs)} rekomendasi Study Session tersimpan."
+    elif match_type == "PARTNER":
+        msg = f"Menampilkan {len(formatted_recs)} rekomendasi Partner tersimpan."
+    else:
+        msg = "Belum ada rekomendasi tersimpan untuk Study Intent ini. Silakan jalankan POST /matching/recommendations."
+
+    course_name = intent.course.course_name if getattr(intent, "course", None) else None
+
+    return {
+        "intent_id": str(intent.intent_id),
+        "course_id": str(intent.course_id),
+        "course_name": course_name,
+        "match_type": match_type,
+        "total_candidates": len(formatted_recs),
+        "recommendations": formatted_recs,
+        "message": msg,
+    }
 
 
 @api_router.get("/matching/results/{intent_id}", response_model=List[MatchResultResponse], tags=["Matching Engine"])
