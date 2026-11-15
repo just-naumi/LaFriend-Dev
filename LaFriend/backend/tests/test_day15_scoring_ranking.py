@@ -1954,6 +1954,66 @@ def test_candidate_ranking_and_deduplication():
     except ValueError:
         report("Weight Validation: Tolak bobot menyimpang dari SCORING_WEIGHTS", True)
 
+    # 17.20 Hardening Breakdown: Tolak Inkonsistensi Kontribusi Per Komponen (Temuan Audit P1)
+    # Kasus: Total kontribusi tetap 46.82, total adjustment tetap -0.01,
+    # tetapi Topic diubah menjadi 10.80 dan Style diubah menjadi 12.93 (saling mengompensasi).
+    bad_per_comp = {k: dict(v) for k, v in scored_bench["components"].items()}
+    bad_per_comp["topic"]["contribution"] = 10.80  # Harusnya 10.79 (base 10.80 + adj -0.01)
+    bad_per_comp["style"]["contribution"] = 12.93  # Harusnya 12.94 (base 12.94 + adj 0.00)
+    cand_bad_per_comp = dict(bench_session_cand, components=bad_per_comp)
+    try:
+        rank_session_candidates([cand_bad_per_comp])
+        report("Per-Component Validation: Tolak kontribusi komponen yang tidak konsisten dengan metadatanya", False, "Harusnya raise ValueError")
+    except ValueError:
+        report("Per-Component Validation: Tolak kontribusi komponen yang tidak konsisten dengan metadatanya", True)
+
+    # 17.21 Hardening Breakdown: Rekonstruksi Aman Presisi Base Contribution (Temuan Audit P2)
+    # Edge case: raw_contribution = 10.79496 -> pembulatan 2 desimal adalah 10.79,
+    # tetapi jika dibulatkan ke 4 desimal menjadi 10.7950 yang bisa memicu double rounding ke 10.80.
+    # Dengan base_contribution = 10.79 eksplisit, rekonstruksi tetap tepat 10.79.
+    edge_comp = {k: dict(v) for k, v in scored_bench["components"].items()}
+    edge_comp["topic"] = {
+        "score": 0.3599,
+        "weight": 0.30,
+        "raw_contribution": 10.7950,
+        "base_contribution": 10.79,
+        "rounding_adjustment": 0.0,
+        # contribution sengaja tidak disertakan untuk menguji rekonstruksi dari base_contribution
+    }
+    cand_edge_recon = {
+        "intent_id": "int_user",
+        "candidate_type": "SESSION",
+        "candidate_session_id": "ses_edge_recon",
+        "total_score": 46.82,
+        "rounding_reconciliation": 0.0,
+        "components": edge_comp,
+        "selected_schedule": make_sched(),
+    }
+    ranked_edge = rank_session_candidates([cand_edge_recon])[0]
+    report("Edge-Case Recon: Rekonstruksi presisi dari base_contribution aman dari double-rounding", ranked_edge["components"]["topic"]["contribution"] == 10.79)
+
+    # 17.22 Hardening Breakdown: Tolak Metadata Adjustment Parsial (All-or-None) (Temuan Audit P2)
+    # Kasus A: 4 komponen memuat rounding_adjustment, 1 komponen (mode) tidak memuatnya
+    partial_adj_comp = {k: dict(v) for k, v in scored_bench["components"].items()}
+    del partial_adj_comp["mode"]["rounding_adjustment"]
+    cand_partial_adj = dict(bench_session_cand, components=partial_adj_comp)
+    try:
+        rank_session_candidates([cand_partial_adj])
+        report("All-or-None Validation: Tolak rounding_adjustment parsial (4/5 komponen)", False, "Harusnya raise ValueError")
+    except ValueError:
+        report("All-or-None Validation: Tolak rounding_adjustment parsial (4/5 komponen)", True)
+
+    # Kasus B: rounding_reconciliation disediakan tetapi komponen tidak memuat rounding_adjustment
+    no_adj_comp = {k: dict(v) for k, v in scored_bench["components"].items()}
+    for comp_k in no_adj_comp:
+        del no_adj_comp[comp_k]["rounding_adjustment"]
+    cand_no_adj_with_rec = dict(bench_session_cand, components=no_adj_comp, rounding_reconciliation=-0.01)
+    try:
+        rank_session_candidates([cand_no_adj_with_rec])
+        report("All-or-None Validation: Tolak rounding_reconciliation saat komponen tanpa rounding_adjustment", False, "Harusnya raise ValueError")
+    except ValueError:
+        report("All-or-None Validation: Tolak rounding_reconciliation saat komponen tanpa rounding_adjustment", True)
+
 
 def run_tests():
     print("=" * 70)
