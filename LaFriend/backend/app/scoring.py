@@ -4,7 +4,7 @@
 import re
 import math
 from datetime import datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 # ==============================================================================
@@ -1525,6 +1525,27 @@ def _validate_ranking_params(min_score: float, limit: Optional[int]) -> None:
             raise ValueError(f"limit harus berupa integer positif (> 0), diterima: {limit}")
 
 
+def _require_decimal_cent(val: Any, field_name: str) -> Decimal:
+    """
+    Validasi ketat angka desimal sen (dua desimal):
+    1. Tidak boleh None atau bertipe boolean.
+    2. Berupa angka numerik valid dan berhingga (bukan NaN atau Infinity).
+    3. Tepat dalam presisi maksimal dua desimal (tolak eksponen < -2 tanpa silent rounding).
+    Mengembalikan Decimal dengan presisi tepat 2 desimal (scaleb(-2)).
+    """
+    if val is None or isinstance(val, bool):
+        raise ValueError(f"{field_name} tidak boleh None atau boolean")
+    try:
+        d = Decimal(str(val))
+        if not d.is_finite():
+            raise ValueError(f"{field_name} harus bernilai berhingga (finite)")
+        if d.as_tuple().exponent < -2:
+            raise ValueError(f"{field_name} ({val}) memiliki presisi lebih dari 2 desimal")
+        return d.quantize(Decimal("1").scaleb(-2))
+    except (InvalidOperation, TypeError, OverflowError):
+        raise ValueError(f"{field_name} harus berupa angka numerik valid dan tidak mengalami overflow")
+
+
 def _extract_and_validate_candidate(
     candidate: Any,
     expected_type: str,
@@ -1536,6 +1557,7 @@ def _extract_and_validate_candidate(
     - Menjamin total_score berupa numerik finite [0.0, 100.0], bukan boolean, aman terhadap OverflowError.
     - Menjamin selected_schedule divalidasi ketat via _validate_common_slot (kalender valid, format waktu, durasi, prioritas).
     - Menjamin kelima komponen scoring (topic, goal, style, date, mode) tersedia dan valid.
+    - Menjamin metadata rekonsiliasi (base_contribution, rounding_adjustment, rounding_reconciliation) valid dan konsisten.
     - Menghasilkan dictionary terisolasi (immutability terhadap objek input).
     """
     if candidate is None:
@@ -1557,6 +1579,23 @@ def _extract_and_validate_candidate(
     if not intent_id or not str(intent_id).strip():
         raise ValueError("Kandidat harus memiliki 'intent_id' non-kosong")
     intent_id_clean = str(intent_id).strip()
+
+    # Validasi identitas kandidat sesuai candidate_type
+    if expected_type == "SESSION":
+        sess_id = _get_field(candidate, "candidate_session_id") or _get_field(candidate, "session_id")
+        if not sess_id or not str(sess_id).strip():
+            raise ValueError("Kandidat SESSION harus memiliki 'candidate_session_id' non-kosong")
+        cand_id = str(sess_id).strip()
+    else:  # PARTNER
+        std_id = _get_field(candidate, "student_id")
+        if not std_id or not str(std_id).strip():
+            raise ValueError("Kandidat PARTNER harus memiliki 'student_id' non-kosong")
+        student_id = str(std_id).strip()
+
+        tgt_id = _get_field(candidate, "target_intent_id") or _get_field(candidate, "intent_b_id")
+        if not tgt_id or not str(tgt_id).strip():
+            raise ValueError("Kandidat PARTNER harus memiliki 'target_intent_id' non-kosong")
+        target_intent_id = str(tgt_id).strip()
 
     # Validasi total_score
     score_raw = _get_field(candidate, "total_score")
@@ -1611,16 +1650,27 @@ def _extract_and_validate_candidate(
         if val_opt is not None:
             clean_sched[opt_k] = val_opt
 
+    # Validasi ketat rounding_reconciliation (P2)
+    rec_raw = _get_field(candidate, "rounding_reconciliation")
+    if rec_raw is None:
+        raise ValueError("Kandidat wajib memiliki field 'rounding_reconciliation' dan tidak boleh None")
+    rec_dec = _require_decimal_cent(rec_raw, "rounding_reconciliation")
+    if not (Decimal("-1.00") <= rec_dec <= Decimal("1.00")):
+        raise ValueError(f"rounding_reconciliation ({rec_dec}) harus berada dalam rentang [-1.0, 1.0]")
+
     # Rekonstruksi kamus komponen terisolasi dengan mempertahankan integritas kontribusi asli
     raw_comps = _get_field(candidate, "components")
     comps_dict = {}
 
     for comp_k in ("topic", "goal", "style", "date", "mode"):
         comp_data = _get_field(raw_comps, comp_k) if raw_comps is not None else None
+        if comp_data is None:
+            raise ValueError(f"Komponen '{comp_k}' harus berupa dictionary/objek yang valid")
+
         expected_weight = SCORING_WEIGHTS[comp_k]
 
         # Validasi ketat bobot: wajib numerik berhingga dan sesuai dengan SCORING_WEIGHTS resmi
-        orig_weight = _get_field(comp_data, "weight") if comp_data is not None else None
+        orig_weight = _get_field(comp_data, "weight")
         if orig_weight is not None:
             if isinstance(orig_weight, bool):
                 raise ValueError(f"weight komponen '{comp_k}' tidak boleh bertipe boolean")
@@ -1643,9 +1693,8 @@ def _extract_and_validate_candidate(
             "weight": comp_weight,
         }
 
-        # Pertahankan raw_contribution asli tanpa mutasi jika tersedia
-        orig_raw = _get_field(comp_data, "raw_contribution") if comp_data is not None else None
-        r_val = None
+        # Pertahankan raw_contribution asli tanpa mutasi jika tersedia (murni informasi audit)
+        orig_raw = _get_field(comp_data, "raw_contribution")
         if orig_raw is not None:
             if isinstance(orig_raw, bool):
                 raise ValueError(f"raw_contribution komponen '{comp_k}' tidak boleh bertipe boolean")
@@ -1657,116 +1706,45 @@ def _extract_and_validate_candidate(
                 raise ValueError(f"raw_contribution komponen '{comp_k}' harus berupa angka berhingga (finite)")
             comp_entry["raw_contribution"] = round(r_val, 4)
 
-        # Pertahankan base_contribution (nilai kontribusi 2 desimal sebelum rekonsiliasi)
-        orig_base = _get_field(comp_data, "base_contribution") if comp_data is not None else None
-        b_val = None
-        if orig_base is not None:
-            if isinstance(orig_base, bool):
-                raise ValueError(f"base_contribution komponen '{comp_k}' tidak boleh bertipe boolean")
-            try:
-                b_val = float(orig_base)
-            except (ValueError, TypeError, OverflowError):
-                raise ValueError(f"base_contribution komponen '{comp_k}' harus berupa angka numerik berhingga")
-            if math.isnan(b_val) or math.isinf(b_val):
-                raise ValueError(f"base_contribution komponen '{comp_k}' harus berupa angka berhingga (finite)")
-            comp_entry["base_contribution"] = round(b_val, 2)
-        elif r_val is not None:
-            base_dec = Decimal(str(r_val)).quantize(Decimal("1").scaleb(-2), rounding=ROUND_HALF_UP)
-            comp_entry["base_contribution"] = float(base_dec)
+        # Wajibkan base_contribution (P1)
+        orig_base = _get_field(comp_data, "base_contribution")
+        if orig_base is None:
+            raise ValueError(f"base_contribution komponen '{comp_k}' wajib tersedia")
+        base_dec = _require_decimal_cent(orig_base, f"base_contribution komponen '{comp_k}'")
+        comp_entry["base_contribution"] = float(base_dec)
 
-        # Pertahankan rounding_adjustment asli jika tersedia
-        orig_adj = _get_field(comp_data, "rounding_adjustment") if comp_data is not None else None
-        a_val = None
-        if orig_adj is not None:
-            if isinstance(orig_adj, bool):
-                raise ValueError(f"rounding_adjustment komponen '{comp_k}' tidak boleh bertipe boolean")
-            try:
-                a_val = float(orig_adj)
-            except (ValueError, TypeError, OverflowError):
-                raise ValueError(f"rounding_adjustment komponen '{comp_k}' harus berupa angka numerik berhingga")
-            if math.isnan(a_val) or math.isinf(a_val):
-                raise ValueError(f"rounding_adjustment komponen '{comp_k}' harus berupa angka berhingga (finite)")
-            comp_entry["rounding_adjustment"] = round(a_val, 4)
+        # Wajibkan rounding_adjustment (P1)
+        orig_adj = _get_field(comp_data, "rounding_adjustment")
+        if orig_adj is None:
+            raise ValueError(f"rounding_adjustment komponen '{comp_k}' wajib tersedia")
+        adj_dec = _require_decimal_cent(orig_adj, f"rounding_adjustment komponen '{comp_k}'")
+        comp_entry["rounding_adjustment"] = float(adj_dec)
 
-        # Pertahankan / Rekonstruksi contribution
-        orig_contrib = _get_field(comp_data, "contribution") if comp_data is not None else None
-        if orig_contrib is not None:
-            if isinstance(orig_contrib, bool):
-                raise ValueError(f"contribution komponen '{comp_k}' tidak boleh bertipe boolean")
-            try:
-                c_val = float(orig_contrib)
-            except (ValueError, TypeError, OverflowError):
-                raise ValueError(f"contribution komponen '{comp_k}' harus berupa angka numerik berhingga")
-            if math.isnan(c_val) or math.isinf(c_val):
-                raise ValueError(f"contribution komponen '{comp_k}' harus berupa angka berhingga (finite)")
-            comp_entry["contribution"] = round(c_val, 2)
-        elif "base_contribution" in comp_entry and "rounding_adjustment" in comp_entry:
-            # Rekonstruksi presisi Decimal menggunakan base_contribution dan rounding_adjustment tanpa risiko rounding drift
-            base_d = Decimal(str(comp_entry["base_contribution"])).quantize(Decimal("1").scaleb(-2))
-            adj_d = Decimal(str(comp_entry["rounding_adjustment"])).quantize(Decimal("1").scaleb(-2))
-            comp_entry["contribution"] = float(base_d + adj_d)
+        # Formula tunggal rekonstruksi & validasi kontribusi: C_i = B_i + A_i
+        expected_c = base_dec + adj_dec
+        orig_contrib = _get_field(comp_data, "contribution")
+        if orig_contrib is None:
+            contrib_dec = expected_c
+            comp_entry["contribution"] = float(contrib_dec)
         else:
-            raise ValueError(
-                f"Komponen '{comp_k}' harus memiliki 'contribution' atau pasangan metadata rekonsiliasi yang lengkap"
-            )
-
-        # Validasi konsistensi per komponen: contribution == base_contribution + rounding_adjustment (P1 & P2)
-        if "base_contribution" in comp_entry and "rounding_adjustment" in comp_entry:
-            expected_c = Decimal(str(comp_entry["base_contribution"])).quantize(Decimal("1").scaleb(-2)) + \
-                         Decimal(str(comp_entry["rounding_adjustment"])).quantize(Decimal("1").scaleb(-2))
-            actual_c = Decimal(str(comp_entry["contribution"])).quantize(Decimal("1").scaleb(-2))
-            if actual_c != expected_c:
+            contrib_dec = _require_decimal_cent(orig_contrib, f"contribution komponen '{comp_k}'")
+            if contrib_dec != expected_c:
                 raise ValueError(
-                    f"Inkonsistensi kontribusi komponen '{comp_k}': contribution ({actual_c}) "
-                    f"tidak sesuai dengan base_contribution ({comp_entry['base_contribution']}) + "
-                    f"rounding_adjustment ({comp_entry['rounding_adjustment']}) = {expected_c}"
+                    f"Inkonsistensi kontribusi komponen '{comp_k}': contribution ({contrib_dec}) "
+                    f"tidak sesuai dengan base_contribution ({base_dec}) + "
+                    f"rounding_adjustment ({adj_dec}) = {expected_c}"
                 )
+            comp_entry["contribution"] = float(contrib_dec)
 
         comps_dict[comp_k] = comp_entry
 
-    # Validasi ketat rounding_reconciliation (tidak boleh silent fallback jika input invalid)
-    rec_raw = _get_field(candidate, "rounding_reconciliation")
-    has_rec = (rec_raw is not None)
-    if not has_rec:
-        rec_val = 0.0
-    elif isinstance(rec_raw, bool):
-        raise ValueError("rounding_reconciliation tidak boleh bertipe boolean")
-    elif not isinstance(rec_raw, (int, float, Decimal, str)):
-        raise ValueError(f"rounding_reconciliation harus berupa angka numerik, diterima: {type(rec_raw).__name__}")
-    else:
-        try:
-            rec_val = float(rec_raw)
-        except (ValueError, TypeError, OverflowError):
-            raise ValueError(f"rounding_reconciliation tidak dapat dikonversi ke float atau mengalami overflow: {rec_raw}")
-        if math.isnan(rec_val) or math.isinf(rec_val):
-            raise ValueError("rounding_reconciliation harus berupa angka berhingga (finite)")
-        if not (-1.0 <= rec_val <= 1.0):
-            raise ValueError(f"rounding_reconciliation ({rec_val}) harus berada dalam rentang [-1.0, 1.0]")
-
-    # Aturan All-or-None untuk metadata rekonsiliasi (P2)
-    comp_has_adj = [("rounding_adjustment" in c) for c in comps_dict.values()]
-    num_adj = sum(comp_has_adj)
-
-    # 1. Jika rounding_reconciliation disediakan oleh kandidat, kelima komponen WAJIB memuat rounding_adjustment
-    if has_rec and num_adj < 5:
-        raise ValueError(
-            f"Metadata rekonsiliasi tidak lengkap: 'rounding_reconciliation' ({rec_val}) disediakan, "
-            f"tetapi hanya {num_adj}/5 komponen yang memuat 'rounding_adjustment'"
-        )
-
-    # 2. Metadata rounding_adjustment tidak boleh parsial (harus 5 komponen atau 0)
-    if 0 < num_adj < 5:
-        raise ValueError(
-            f"Metadata rounding_adjustment parsial tidak diizinkan: {num_adj}/5 komponen memuat penyesuaian. "
-            "Seluruh 5 komponen wajib memuat 'rounding_adjustment' atau tidak sama sekali"
-        )
-
-    # Validasi silang menggunakan aritmetika Decimal: sum(contribution) == total_score
     quantum_2 = Decimal("1").scaleb(-2)
     dec_total = Decimal(str(round(total_score, 2))).quantize(quantum_2)
+
+    # Validasi B — Agregat skor: sum(contribution) == total_score
     dec_sum_contrib = sum(
-        Decimal(str(c["contribution"])).quantize(quantum_2)
-        for c in comps_dict.values()
+        _require_decimal_cent(c["contribution"], f"contribution '{k}'")
+        for k, c in comps_dict.items()
     ).quantize(quantum_2)
 
     if dec_sum_contrib != dec_total:
@@ -1775,34 +1753,25 @@ def _extract_and_validate_candidate(
             f"tidak sama dengan total_score ({dec_total})"
         )
 
-    # Validasi konsistensi jumlah penyesuaian komponen dengan rounding_reconciliation (jika lengkap 5 komponen)
-    if num_adj == 5:
-        dec_sum_adj = sum(
-            Decimal(str(c["rounding_adjustment"])).quantize(quantum_2)
-            for c in comps_dict.values()
-        ).quantize(quantum_2)
-        if has_rec:
-            dec_rec = Decimal(str(round(rec_val, 2))).quantize(quantum_2)
-            if dec_sum_adj != dec_rec:
-                raise ValueError(
-                    f"Inkonsistensi rekonsiliasi: jumlah rounding_adjustment ({dec_sum_adj}) "
-                    f"tidak sama dengan rounding_reconciliation ({dec_rec})"
-                )
-        else:
-            rec_val = float(dec_sum_adj)
+    # Validasi C — Agregat adjustment: sum(rounding_adjustment) == rounding_reconciliation
+    dec_sum_adj = sum(
+        _require_decimal_cent(c["rounding_adjustment"], f"rounding_adjustment '{k}'")
+        for k, c in comps_dict.items()
+    ).quantize(quantum_2)
+
+    if dec_sum_adj != rec_dec:
+        raise ValueError(
+            f"Inkonsistensi rekonsiliasi: jumlah rounding_adjustment ({dec_sum_adj}) "
+            f"tidak sama dengan rounding_reconciliation ({rec_dec})"
+        )
 
     if expected_type == "SESSION":
-        sess_id = _get_field(candidate, "candidate_session_id") or _get_field(candidate, "session_id")
-        if not sess_id or not str(sess_id).strip():
-            raise ValueError("Kandidat SESSION harus memiliki 'candidate_session_id' non-kosong")
-        cand_id = str(sess_id).strip()
-
         clean_item = {
             "intent_id": intent_id_clean,
             "candidate_type": "SESSION",
             "candidate_session_id": cand_id,
             "total_score": round(total_score, 2),
-            "rounding_reconciliation": round(rec_val, 4),
+            "rounding_reconciliation": float(rec_dec),
             "components": comps_dict,
             "selected_schedule": clean_sched,
         }
@@ -1812,23 +1781,13 @@ def _extract_and_validate_candidate(
         return clean_item
 
     else:  # PARTNER
-        std_id = _get_field(candidate, "student_id")
-        if not std_id or not str(std_id).strip():
-            raise ValueError("Kandidat PARTNER harus memiliki 'student_id' non-kosong")
-        student_id = str(std_id).strip()
-
-        tgt_id = _get_field(candidate, "target_intent_id") or _get_field(candidate, "intent_b_id")
-        if not tgt_id or not str(tgt_id).strip():
-            raise ValueError("Kandidat PARTNER harus memiliki 'target_intent_id' non-kosong")
-        target_intent_id = str(tgt_id).strip()
-
         clean_item = {
             "intent_id": intent_id_clean,
             "candidate_type": "PARTNER",
             "student_id": student_id,
             "target_intent_id": target_intent_id,
             "total_score": round(total_score, 2),
-            "rounding_reconciliation": round(rec_val, 4),
+            "rounding_reconciliation": float(rec_dec),
             "components": comps_dict,
             "selected_schedule": clean_sched,
         }
