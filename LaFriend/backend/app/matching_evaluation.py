@@ -773,6 +773,12 @@ def benchmark_top_k_candidate_pool(
     full_time_ms = round((time.perf_counter() - t0) * 1000, 2)
     full_gq = float(full_res.get("group_quality_score", 0.0))
 
+    full_members = set()
+    for m in full_res.get("members", []):
+        mid = getattr(m, "intent_id", None) if not isinstance(m, dict) else m.get("intent_id")
+        if mid:
+            full_members.add(str(mid))
+
     items: List[TopKPoolBenchmarkItem] = []
 
     for k in k_values:
@@ -794,11 +800,19 @@ def benchmark_top_k_candidate_pool(
 
         # Hitung Quality Retention & Quality Loss
         if full_gq > 0.0:
-            retention = round((gq / full_gq) * 100.0, 2)
-            loss = round(((full_gq - gq) / full_gq) * 100.0, 2)
+            retention = min(100.0, max(0.0, round((gq / full_gq) * 100.0, 2)))
+            loss = min(100.0, max(0.0, round(((full_gq - gq) / full_gq) * 100.0, 2)))
         else:
             retention = 100.0
             loss = 0.0
+
+        # Cek apakah anggota kelompok identik dengan baseline Full
+        k_members = set()
+        for m in res.get("members", []):
+            mid = getattr(m, "intent_id", None) if not isinstance(m, dict) else m.get("intent_id")
+            if mid:
+                k_members.add(str(mid))
+        is_identical = (full_members == k_members) if full_members else (len(k_members) == 0)
 
         k_label = "Full" if k is None else k
 
@@ -814,6 +828,7 @@ def benchmark_top_k_candidate_pool(
             quality_loss=loss,
             quality_retention=retention,
             execution_time_ms=elapsed_ms,
+            is_identical_to_baseline=is_identical,
         ))
 
     return TopKBenchmarkResult(

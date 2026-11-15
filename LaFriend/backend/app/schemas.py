@@ -938,6 +938,7 @@ class TopKPoolBenchmarkItem(BaseModel):
     quality_loss: float  # ((GQ_full - GQ_k) / GQ_full) * 100%
     quality_retention: float  # (GQ_k / GQ_full) * 100%
     execution_time_ms: float
+    is_identical_to_baseline: bool = False
 
     model_config = ConfigDict(extra="allow")
 
