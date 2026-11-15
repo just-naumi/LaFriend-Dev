@@ -360,13 +360,16 @@ def form_study_group(
     # Batasi pada Top-K kandidat untuk masuk ke Greedy Loop (Heuristik Skalabilitas)
     if max_candidate_pool is not None and len(viable_candidates) > max_candidate_pool:
         pool_candidates = [item["candidate"] for item in viable_candidates[:max_candidate_pool]]
+        candidates_pruned_top_k = len(viable_candidates) - max_candidate_pool
     else:
         pool_candidates = [item["candidate"] for item in viable_candidates]
+        candidates_pruned_top_k = 0
 
     candidate_pruning_stats = {
         "total_candidates_examined": total_candidates_examined,
         "candidates_pruned_hard_constraints": candidates_pruned_hard_constraints,
         "candidates_pruned_min_score": candidates_pruned_min_score,
+        "candidates_pruned_top_k": candidates_pruned_top_k,
         "candidates_in_pool": len(pool_candidates),
     }
 

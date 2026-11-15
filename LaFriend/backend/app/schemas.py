@@ -776,6 +776,7 @@ class CandidatePruningStats(BaseModel):
     total_candidates_examined: int
     candidates_pruned_hard_constraints: int
     candidates_pruned_min_score: int
+    candidates_pruned_top_k: int
     candidates_in_pool: int
 
     model_config = ConfigDict(extra="allow")
