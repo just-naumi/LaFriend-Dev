@@ -1047,12 +1047,15 @@ class TestDay16MatchingPipeline(unittest.TestCase):
     # =========================================================================
     def test_migration_failure_raises_and_is_not_swallowed(self):
         """
-        Menguji bahwa ketika terjadi kegagalan tak terpulihkan pada saat migrasi
+        Menguji bahwa ketika terjadi kegagalan tak terpulihkan secara spesifik pada
+        saat SQL 'ALTER TABLE match_results ADD COLUMN selected_schedule_json' dieksekusi
         (misalnya database terkunci atau disk I/O error), exception TIDAK ditelan
-        secara diam-diam dan langsung memicu error untuk mencegah startup dalam kondisi korup.
+        secara diam-diam dan langsung memicu OperationalError ke pemanggil.
+        create_all() dan PRAGMA table_info berjalan normal sebelumnya.
         """
         from sqlalchemy import text
         from sqlalchemy.exc import OperationalError
+        from sqlalchemy.engine import Connection
 
         fail_engine = create_engine(
             "sqlite:///:memory:",
@@ -1060,15 +1063,40 @@ class TestDay16MatchingPipeline(unittest.TestCase):
             poolclass=StaticPool
         )
 
+        # Buat tabel match_results struktur lama tanpa kolom selected_schedule_json
         with fail_engine.connect() as conn:
-            conn.execute(text("CREATE TABLE match_results (match_id VARCHAR(36) PRIMARY KEY);"))
+            conn.execute(text("""
+                CREATE TABLE match_results (
+                    match_id VARCHAR(36) NOT NULL PRIMARY KEY,
+                    intent_id VARCHAR(36) NOT NULL,
+                    candidate_type VARCHAR(20) NOT NULL,
+                    compatibility_score FLOAT NOT NULL,
+                    breakdown_json TEXT NOT NULL,
+                    created_at DATETIME NOT NULL
+                );
+            """))
             conn.commit()
 
-        # Simulasi error unrecoverable saat koneksi eksekusi migrasi
-        with patch.object(fail_engine, "connect") as mock_connect:
-            mock_connect.side_effect = OperationalError("database is locked / disk I/O failure", None, None)
+        orig_execute = Connection.execute
+        alter_intercepted = []
+
+        def failing_alter_execute(conn_self, statement, *args, **kwargs):
+            sql_str = str(statement)
+            # Biarkan create_all() dan PRAGMA table_info berjalan normal,
+            # hanya simulasikan kegagalan saat baris ALTER TABLE dieksekusi
+            if "ALTER TABLE match_results ADD COLUMN selected_schedule_json" in sql_str:
+                alter_intercepted.append(sql_str)
+                raise OperationalError("database is locked / disk I/O failure", None, None)
+            return orig_execute(conn_self, statement, *args, **kwargs)
+
+        with patch.object(Connection, "execute", new=failing_alter_execute):
             with self.assertRaises(OperationalError):
                 ensure_database_schema(fail_engine)
+
+        self.assertEqual(
+            len(alter_intercepted), 1,
+            "Harus tepat mencegat dan memvalidasi kegagalan pada saat eksekusi ALTER TABLE"
+        )
 
         fail_engine.dispose()
 
