@@ -1635,6 +1635,7 @@ def test_candidate_ranking_and_deduplication():
     assert_min_score_err(float("inf"), "Tolak min_score Infinity")
     assert_min_score_err(True, "Tolak min_score boolean (True)")
     assert_min_score_err("50", "Tolak min_score non-numeric string")
+    assert_min_score_err(10**400, "Tolak min_score integer raksasa 10**400 dengan ValueError")
 
     # 17.8 Limit Slicing (limit)
     r_lim_none = rank_partner_candidates(all_partners, limit=None)
@@ -1664,7 +1665,7 @@ def test_candidate_ranking_and_deduplication():
     assert_limit_err(3.5, "Tolak limit bertipe float (3.5)")
     assert_limit_err("5", "Tolak limit bertipe string ('5')")
 
-    # 17.9 Validasi Input Objek Kandidat
+    # 17.9 Validasi Input Objek Kandidat (Temuan Audit P1, P2)
     def assert_cand_err(cands, is_partner, label):
         try:
             if is_partner:
@@ -1678,19 +1679,42 @@ def test_candidate_ranking_and_deduplication():
     assert_cand_err(None, True, "Tolak partner_scores None")
     assert_cand_err(None, False, "Tolak session_scores None")
     assert_cand_err("bukan_list", True, "Tolak partner_scores non-sequence")
-    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "total_score": 90.0, "selected_schedule": make_sched()}], False, "Tolak session tanpa candidate_session_id")
-    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "  ", "total_score": 90.0, "selected_schedule": make_sched()}], False, "Tolak session dengan candidate_session_id spasi")
-    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "target_intent_id": "i", "total_score": 90.0, "selected_schedule": make_sched()}], True, "Tolak partner tanpa student_id")
-    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "total_score": 90.0, "selected_schedule": make_sched()}], True, "Tolak partner tanpa target_intent_id")
-    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": float("nan"), "selected_schedule": make_sched()}], True, "Tolak kandidat dengan total_score NaN")
-    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": float("inf"), "selected_schedule": make_sched()}], True, "Tolak kandidat dengan total_score Infinity")
-    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": True, "selected_schedule": make_sched()}], True, "Tolak kandidat dengan total_score boolean")
-    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": 105.0, "selected_schedule": make_sched()}], True, "Tolak kandidat dengan total_score > 100")
-    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": -1.0, "selected_schedule": make_sched()}], True, "Tolak kandidat dengan total_score < 0")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "total_score": 90.0, "selected_schedule": make_sched(), "components": make_components()}], False, "Tolak session tanpa candidate_session_id")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "  ", "total_score": 90.0, "selected_schedule": make_sched(), "components": make_components()}], False, "Tolak session dengan candidate_session_id spasi")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "target_intent_id": "i", "total_score": 90.0, "selected_schedule": make_sched(), "components": make_components()}], True, "Tolak partner tanpa student_id")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "total_score": 90.0, "selected_schedule": make_sched(), "components": make_components()}], True, "Tolak partner tanpa target_intent_id")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": float("nan"), "selected_schedule": make_sched(), "components": make_components()}], True, "Tolak kandidat dengan total_score NaN")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": float("inf"), "selected_schedule": make_sched(), "components": make_components()}], True, "Tolak kandidat dengan total_score Infinity")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": True, "selected_schedule": make_sched(), "components": make_components()}], True, "Tolak kandidat dengan total_score boolean")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": 105.0, "selected_schedule": make_sched(), "components": make_components()}], True, "Tolak kandidat dengan total_score > 100")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": -1.0, "selected_schedule": make_sched(), "components": make_components()}], True, "Tolak kandidat dengan total_score < 0")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": 10**400, "selected_schedule": make_sched(), "components": make_components()}], True, "Tolak kandidat dengan total_score integer raksasa 10**400")
     assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": 90.0}], True, "Tolak kandidat tanpa selected_schedule")
-    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": 90.0, "selected_schedule": make_sched(dur=45)}], True, "Tolak kandidat dengan durasi jadwal < 60")
-    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": 90.0, "selected_schedule": make_sched(date="2026-1-6")}], True, "Tolak jadwal tanpa zero padding tanggal")
-    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "student_id": "s", "target_intent_id": "i", "total_score": 90.0, "selected_schedule": make_sched()}], True, "Tolak candidate_type tidak sesuai (SESSION pada rank_partner)")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": 90.0, "selected_schedule": make_sched(dur=45), "components": make_components()}], True, "Tolak kandidat dengan durasi jadwal < 60")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "PARTNER", "student_id": "s", "target_intent_id": "i", "total_score": 90.0, "selected_schedule": make_sched(date="2026-1-6"), "components": make_components()}], True, "Tolak jadwal tanpa zero padding tanggal")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "student_id": "s", "target_intent_id": "i", "total_score": 90.0, "selected_schedule": make_sched(), "components": make_components()}], True, "Tolak candidate_type tidak sesuai (SESSION pada rank_partner)")
+
+    # Hardening Temuan P1: Kalender riil, end_time, durasi, priority_b, intent_id
+    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s1", "total_score": 90.0, "selected_schedule": make_sched(date="2026-02-30"), "components": make_components()}], False, "Tolak tanggal kalender fiktif (2026-02-30)")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s1", "total_score": 90.0, "selected_schedule": dict(make_sched(), end_time=""), "components": make_components()}], False, "Tolak end_time kosong")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s1", "total_score": 90.0, "selected_schedule": dict(make_sched(), end_time="24:00"), "components": make_components()}], False, "Tolak end_time format invalid (24:00)")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s1", "total_score": 90.0, "selected_schedule": dict(make_sched(), end_time="09:00"), "components": make_components()}], False, "Tolak waktu selesai lebih awal dari mulai")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s1", "total_score": 90.0, "selected_schedule": dict(make_sched(), duration_minutes=90), "components": make_components()}], False, "Tolak duration_minutes tidak konsisten dengan selisih waktu")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s1", "total_score": 90.0, "selected_schedule": dict(make_sched(), priority_b=4), "components": make_components()}], False, "Tolak priority_b session di luar {1, 2, 3}")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s1", "total_score": 90.0, "selected_schedule": dict(make_sched(), priority_b=True), "components": make_components()}], False, "Tolak priority_b session bertipe boolean")
+    assert_cand_err([{"intent_id": "", "candidate_type": "SESSION", "candidate_session_id": "s1", "total_score": 90.0, "selected_schedule": make_sched(), "components": make_components()}], False, "Tolak intent_id string kosong")
+    assert_cand_err([{"intent_id": "   ", "candidate_type": "SESSION", "candidate_session_id": "s1", "total_score": 90.0, "selected_schedule": make_sched(), "components": make_components()}], False, "Tolak intent_id spasi")
+    assert_cand_err([{"intent_id": None, "candidate_type": "SESSION", "candidate_session_id": "s1", "total_score": 90.0, "selected_schedule": make_sched(), "components": make_components()}], False, "Tolak intent_id None")
+
+    # Hardening Temuan P1: Komponen scoring wajib lengkap dan valid
+    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s1", "total_score": 90.0, "selected_schedule": make_sched(), "components": {"topic": {"score": 1.0}}}], False, "Tolak kandidat dengan komponen tidak lengkap")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s1", "total_score": 90.0, "selected_schedule": make_sched(), "components": dict(make_components(), topic={"score": None})}], False, "Tolak komponen dengan score None")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s1", "total_score": 90.0, "selected_schedule": make_sched(), "components": dict(make_components(), topic={"score": True})}], False, "Tolak komponen dengan score boolean")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s1", "total_score": 90.0, "selected_schedule": make_sched(), "components": dict(make_components(), topic={"score": float("nan")})}], False, "Tolak komponen dengan score NaN")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s1", "total_score": 90.0, "selected_schedule": make_sched(), "components": dict(make_components(), topic={"score": float("inf")})}], False, "Tolak komponen dengan score Infinity")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s1", "total_score": 90.0, "selected_schedule": make_sched(), "components": dict(make_components(), topic={"score": 1.5})}], False, "Tolak komponen dengan score > 1.0")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s1", "total_score": 90.0, "selected_schedule": make_sched(), "components": dict(make_components(), topic={"score": -0.1})}], False, "Tolak komponen dengan score < 0.0")
+    assert_cand_err([{"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s1", "total_score": 90.0, "selected_schedule": make_sched(), "components": dict(make_components(), topic={"score": 10**400})}], False, "Tolak komponen dengan score integer raksasa 10**400")
 
     # 17.10 Immutability & Integritas Data Input
     orig_copy = [dict(c) for c in all_partners]
@@ -1736,6 +1760,18 @@ def test_candidate_ranking_and_deduplication():
     except ValueError:
         report("Explanation: Tolak kandidat None", True)
 
+    try:
+        generate_match_explanation({"components": {"topic": {"score": 1.0}}})
+        report("Explanation: Tolak komponen tidak lengkap", False, "Harusnya raise ValueError")
+    except ValueError:
+        report("Explanation: Tolak komponen tidak lengkap", True)
+
+    try:
+        generate_match_explanation({"components": dict(make_components(), topic={"score": float("nan")})})
+        report("Explanation: Tolak komponen NaN", False, "Harusnya raise ValueError")
+    except ValueError:
+        report("Explanation: Tolak komponen NaN", True)
+
     # 17.13 Format MatchResult Payload & Pydantic Validation (MatchResultCreate)
     # Session Payload
     sess_item = ranked_sess[0]
@@ -1757,6 +1793,25 @@ def test_candidate_ranking_and_deduplication():
     validated_partner = MatchResultCreate.model_validate(payload_partner)
     report("Payload Pydantic Validation: MatchResultCreate berhasil memvalidasi payload PARTNER", validated_partner.candidate_type == "PARTNER")
 
+    # Payload Hardening Temuan P1 & P2: Komponen wajib lengkap, bukan default 0.0, tolak 10**400
+    try:
+        format_match_result_payload(dict(partner_item, components={"topic": {"score": 1.0}}))
+        report("Payload Validation: Tolak komponen tidak lengkap", False, "Harusnya raise ValueError")
+    except ValueError:
+        report("Payload Validation: Tolak komponen tidak lengkap", True)
+
+    try:
+        format_match_result_payload(dict(partner_item, components=dict(make_components(), goal={"score": float("nan")})))
+        report("Payload Validation: Tolak komponen bernilai NaN", False, "Harusnya raise ValueError")
+    except ValueError:
+        report("Payload Validation: Tolak komponen bernilai NaN", True)
+
+    try:
+        format_match_result_payload(dict(partner_item, total_score=10**400))
+        report("Payload Validation: Tolak total_score 10**400", False, "Harusnya raise ValueError")
+    except ValueError:
+        report("Payload Validation: Tolak total_score 10**400", True)
+
     # 17.14 Generic Dispatcher (rank_candidates)
     dispatch_sess = rank_candidates([sess_cand_1, sess_cand_2])
     report("Dispatcher: Otomatis mengenali SESSION", dispatch_sess[0]["candidate_session_id"] == "ses_02")
@@ -1766,6 +1821,31 @@ def test_candidate_ranking_and_deduplication():
 
     dispatch_empty = rank_candidates([])
     report("Dispatcher: Menangani list kosong secara aman", dispatch_empty == [])
+
+    # Temuan Audit P2: Dispatcher memvalidasi parameter sekalipun list kosong
+    try:
+        rank_candidates([], min_score=-1.0)
+        report("Dispatcher Validation: Tolak min_score negatif pada list kosong", False, "Harusnya raise ValueError")
+    except ValueError:
+        report("Dispatcher Validation: Tolak min_score negatif pada list kosong", True)
+
+    try:
+        rank_candidates([], limit=0)
+        report("Dispatcher Validation: Tolak limit 0 pada list kosong", False, "Harusnya raise ValueError")
+    except ValueError:
+        report("Dispatcher Validation: Tolak limit 0 pada list kosong", True)
+
+    try:
+        rank_candidates([], min_score=float("nan"))
+        report("Dispatcher Validation: Tolak min_score NaN pada list kosong", False, "Harusnya raise ValueError")
+    except ValueError:
+        report("Dispatcher Validation: Tolak min_score NaN pada list kosong", True)
+
+    try:
+        rank_candidates([], min_score=10**400)
+        report("Dispatcher Validation: Tolak min_score 10**400 pada list kosong", False, "Harusnya raise ValueError")
+    except ValueError:
+        report("Dispatcher Validation: Tolak min_score 10**400 pada list kosong", True)
 
 
 def run_tests():

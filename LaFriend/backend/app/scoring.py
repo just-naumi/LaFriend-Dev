@@ -1359,22 +1359,66 @@ def _format_indonesian_date(date_str: str) -> str:
     return date_str.strip()
 
 
+def _extract_and_validate_component_scores(candidate: Any) -> Dict[str, float]:
+    """
+    Memvalidasi dan mengekstrak skor aktual kelima komponen (topic, goal, style, date, mode).
+    Menolak komponen yang hilang, bernilai None, boolean, NaN, Infinity, string,
+    atau di luar rentang [0.0, 1.0].
+    """
+    comps = _get_field(candidate, "components")
+    if comps is None or not isinstance(comps, (Mapping, object)):
+        raise ValueError("Kandidat harus memiliki kamus 'components' yang memuat kelima komponen")
+
+    required_components = ["topic", "goal", "style", "date", "mode"]
+    clean_scores = {}
+
+    for comp_name in required_components:
+        comp_data = _get_field(comps, comp_name)
+        if comp_data is None or not isinstance(comp_data, (Mapping, object)):
+            raise ValueError(f"Komponen '{comp_name}' harus tersedia dalam candidate['components']")
+
+        raw_score = _get_field(comp_data, "score")
+        if raw_score is None:
+            raise ValueError(f"Komponen '{comp_name}' harus memiliki field 'score'")
+        if isinstance(raw_score, bool):
+            raise ValueError(f"Score komponen '{comp_name}' tidak boleh bertipe boolean")
+        if not isinstance(raw_score, (int, float, Decimal)):
+            raise ValueError(f"Score komponen '{comp_name}' harus berupa numerik")
+
+        try:
+            val = float(raw_score)
+        except (ValueError, TypeError, OverflowError):
+            raise ValueError(f"Score komponen '{comp_name}' tidak dapat dikonversi ke float atau melampaui batas (overflow)")
+
+        if math.isnan(val) or math.isinf(val):
+            raise ValueError(f"Score komponen '{comp_name}' harus bernilai berhingga (finite)")
+        if not (0.0 <= val <= 1.0):
+            raise ValueError(
+                f"Score komponen '{comp_name}' ({val}) harus berada dalam rentang [0.0, 1.0]"
+            )
+
+        clean_scores[comp_name] = round(val, 4)
+
+    return clean_scores
+
+
 def generate_match_explanation(candidate: Mapping[str, Any]) -> str:
     """
     Menghasilkan ringkasan penjelasan rekomendasi dalam bahasa Indonesia secara rule-based
     dan deterministik berdasarkan komponen skor aktual (skala 0.0–1.0) dan jadwal bersama terbaik.
+    Memvalidasi ketersediaan dan keabsahan kelima komponen.
     """
     if candidate is None or not isinstance(candidate, (Mapping, object)):
         raise ValueError("Kandidat untuk generate_match_explanation tidak boleh None")
 
-    comps = _get_field(candidate, "components") or {}
+    # Validasi kelima komponen wajib (menolak komponen hilang, NaN, dsb.)
+    clean_scores = _extract_and_validate_component_scores(candidate)
 
-    # Ambil score komponen (skala 0.0 - 1.0)
-    topic_sc = float(_get_field(comps.get("topic", {}), "score", 0.0) or 0.0)
-    goal_sc = float(_get_field(comps.get("goal", {}), "score", 0.0) or 0.0)
-    style_sc = float(_get_field(comps.get("style", {}), "score", 0.0) or 0.0)
-    mode_sc = float(_get_field(comps.get("mode", {}), "score", 0.0) or 0.0)
-    date_sc = float(_get_field(comps.get("date", {}), "score", 0.0) or 0.0)
+    topic_sc = clean_scores["topic"]
+    goal_sc = clean_scores["goal"]
+    style_sc = clean_scores["style"]
+    mode_sc = clean_scores["mode"]
+    date_sc = clean_scores["date"]
 
     # Identifikasi frasa penilaian per komponen
     phrases = {}
@@ -1452,7 +1496,7 @@ def generate_match_explanation(candidate: Mapping[str, Any]) -> str:
 def _validate_ranking_params(min_score: float, limit: Optional[int]) -> None:
     """
     Validasi parameter ambang batas minimum dan limit ranking:
-    - min_score: float dalam rentang [0.0, 100.0], bukan bool, finite.
+    - min_score: float dalam rentang [0.0, 100.0], bukan bool, finite, aman terhadap OverflowError.
     - limit: integer positif (> 0) atau None, bukan bool.
     """
     if isinstance(min_score, bool):
@@ -1461,8 +1505,8 @@ def _validate_ranking_params(min_score: float, limit: Optional[int]) -> None:
         raise ValueError(f"min_score harus berupa angka, diterima: {type(min_score)}")
     try:
         ms = float(min_score)
-    except (ValueError, TypeError):
-        raise ValueError("min_score tidak dapat dikonversi ke float")
+    except (ValueError, TypeError, OverflowError):
+        raise ValueError("min_score tidak dapat dikonversi ke float atau melampaui batas (overflow)")
     if math.isnan(ms) or math.isinf(ms):
         raise ValueError("min_score harus bernilai berhingga (finite)")
     if ms < 0.0 or ms > 100.0:
@@ -1481,9 +1525,11 @@ def _extract_and_validate_candidate(
 ) -> Dict[str, Any]:
     """
     Mengekstrak dan memvalidasi satu kandidat scoring:
-    - Menjamin field identitas tersedia dan valid.
-    - Menjamin total_score berupa numerik finite [0.0, 100.0] dan bukan boolean.
-    - Menjamin selected_schedule tersedia dengan date, start_time, duration_minutes, priority.
+    - Menjamin intent_id non-kosong.
+    - Menjamin field identitas tersedia dan valid (candidate_session_id / student_id & target_intent_id).
+    - Menjamin total_score berupa numerik finite [0.0, 100.0], bukan boolean, aman terhadap OverflowError.
+    - Menjamin selected_schedule divalidasi ketat via _validate_common_slot (kalender valid, format waktu, durasi, prioritas).
+    - Menjamin kelima komponen scoring (topic, goal, style, date, mode) tersedia dan valid.
     - Menghasilkan dictionary terisolasi (immutability terhadap objek input).
     """
     if candidate is None:
@@ -1500,61 +1546,74 @@ def _extract_and_validate_candidate(
                 f"Kandidat memiliki candidate_type '{c_type}', diharapkan '{expected_type}'"
             )
 
+    # Validasi intent_id non-kosong
+    intent_id = _get_field(candidate, "intent_id")
+    if not intent_id or not str(intent_id).strip():
+        raise ValueError("Kandidat harus memiliki 'intent_id' non-kosong")
+    intent_id_clean = str(intent_id).strip()
+
     # Validasi total_score
     score_raw = _get_field(candidate, "total_score")
     if score_raw is None or isinstance(score_raw, bool):
         raise ValueError("Kandidat harus memiliki 'total_score' numerik non-boolean")
     try:
         total_score = float(score_raw)
-    except (ValueError, TypeError):
-        raise ValueError("total_score kandidat harus berupa numerik")
+    except (ValueError, TypeError, OverflowError):
+        raise ValueError("total_score kandidat harus berupa numerik berhingga")
     if math.isnan(total_score) or math.isinf(total_score):
         raise ValueError("total_score kandidat harus berupa angka berhingga (finite)")
     if not (0.0 <= total_score <= 100.0):
         raise ValueError(f"total_score ({total_score}) harus berada dalam rentang [0.0, 100.0]")
 
-    # Validasi selected_schedule
-    sched = _get_field(candidate, "selected_schedule")
-    if sched is None or not isinstance(sched, (Mapping, object)):
+    # Validasi selected_schedule secara ketat menggunakan _validate_common_slot
+    sched_raw = _get_field(candidate, "selected_schedule")
+    if sched_raw is None:
         raise ValueError("Kandidat harus memiliki 'selected_schedule'")
 
-    dur = _get_field(sched, "duration_minutes")
-    if isinstance(dur, bool) or not isinstance(dur, int) or dur < 60:
-        raise ValueError(f"duration_minutes pada selected_schedule harus integer >= 60, diterima: {dur}")
+    if isinstance(sched_raw, Mapping):
+        sched_dict = dict(sched_raw)
+    elif hasattr(sched_raw, "__dict__"):
+        sched_dict = {k: v for k, v in sched_raw.__dict__.items() if not k.startswith("_")}
+    else:
+        raise ValueError("selected_schedule harus berupa Mapping atau objek")
 
-    d_val = _get_field(sched, "date")
-    if not d_val or not isinstance(d_val, str) or not d_val.strip():
-        raise ValueError("Field 'date' pada selected_schedule harus berupa string non-kosong")
-    d_str = d_val.strip()
-    if not DATE_PATTERN.fullmatch(d_str):
-        raise ValueError(f"Format date pada selected_schedule invalid: '{d_val}', harus YYYY-MM-DD")
+    is_partner = (expected_type == "PARTNER")
+    # Memvalidasi date (kalender riil YYYY-MM-DD), start_time (HH:MM), end_time (HH:MM),
+    # durasi >= 60 konsisten dengan selisih waktu, dan priority_a/b
+    _validate_common_slot(sched_dict, for_partner=is_partner)
 
-    s_val = _get_field(sched, "start_time")
-    if not s_val or not isinstance(s_val, str) or not s_val.strip():
-        raise ValueError("Field 'start_time' pada selected_schedule harus berupa string non-kosong")
-    s_str = s_val.strip()
-    if not TIME_PATTERN.fullmatch(s_str):
-        raise ValueError(f"Format start_time pada selected_schedule invalid: '{s_val}', harus HH:MM")
-
-    e_val = _get_field(sched, "end_time")
-    e_str = str(e_val).strip() if e_val else ""
-
-    prio_a = _get_field(sched, "priority_a")
-    if isinstance(prio_a, bool) or not isinstance(prio_a, int) or prio_a not in (1, 2, 3):
-        raise ValueError(f"priority_a pada selected_schedule harus 1, 2, atau 3, diterima: {prio_a}")
+    # Validasi kelima komponen skor aktual
+    clean_components = _extract_and_validate_component_scores(candidate)
 
     # Salin selected_schedule ke dictionary terisolasi
+    dur = sched_dict["duration_minutes"]
+    prio_a = sched_dict["priority_a"]
+    prio_b = sched_dict.get("priority_b")
+    if not is_partner and prio_b is None:
+        prio_b = 1
+
     clean_sched = {
-        "date": d_str,
-        "start_time": s_str,
-        "end_time": e_str,
+        "date": sched_dict["date"].strip(),
+        "start_time": sched_dict["start_time"].strip(),
+        "end_time": sched_dict["end_time"].strip(),
         "duration_minutes": dur,
         "priority_a": prio_a,
+        "priority_b": prio_b,
     }
     for opt_k in ("priority_score", "duration_score", "date_score"):
-        val_opt = _get_field(sched, opt_k)
+        val_opt = sched_dict.get(opt_k)
         if val_opt is not None:
             clean_sched[opt_k] = val_opt
+
+    # Rekonstruksi kamus komponen terisolasi
+    comps_dict = {
+        comp_k: {
+            "score": clean_components[comp_k],
+            "weight": SCORING_WEIGHTS[comp_k],
+            "contribution": round(100.0 * SCORING_WEIGHTS[comp_k] * clean_components[comp_k], 2),
+        }
+        for comp_k in ("topic", "goal", "style", "date", "mode")
+    }
 
     if expected_type == "SESSION":
         sess_id = _get_field(candidate, "candidate_session_id") or _get_field(candidate, "session_id")
@@ -1562,16 +1621,13 @@ def _extract_and_validate_candidate(
             raise ValueError("Kandidat SESSION harus memiliki 'candidate_session_id' non-kosong")
         cand_id = str(sess_id).strip()
 
-        prio_b = _get_field(sched, "priority_b", 1)
-        clean_sched["priority_b"] = prio_b if prio_b in (1, 2, 3) else 1
-
         clean_item = {
-            "intent_id": str(_get_field(candidate, "intent_id", "")).strip(),
+            "intent_id": intent_id_clean,
             "candidate_type": "SESSION",
             "candidate_session_id": cand_id,
             "total_score": round(total_score, 2),
             "rounding_reconciliation": float(_get_field(candidate, "rounding_reconciliation", 0.0) or 0.0),
-            "components": _get_field(candidate, "components", {}),
+            "components": comps_dict,
             "selected_schedule": clean_sched,
         }
         exp = _get_field(candidate, "explanation")
@@ -1590,19 +1646,14 @@ def _extract_and_validate_candidate(
             raise ValueError("Kandidat PARTNER harus memiliki 'target_intent_id' non-kosong")
         target_intent_id = str(tgt_id).strip()
 
-        prio_b = _get_field(sched, "priority_b")
-        if isinstance(prio_b, bool) or not isinstance(prio_b, int) or prio_b not in (1, 2, 3):
-            raise ValueError(f"priority_b pada selected_schedule PARTNER harus 1, 2, atau 3, diterima: {prio_b}")
-        clean_sched["priority_b"] = prio_b
-
         clean_item = {
-            "intent_id": str(_get_field(candidate, "intent_id", "")).strip(),
+            "intent_id": intent_id_clean,
             "candidate_type": "PARTNER",
             "student_id": student_id,
             "target_intent_id": target_intent_id,
             "total_score": round(total_score, 2),
             "rounding_reconciliation": float(_get_field(candidate, "rounding_reconciliation", 0.0) or 0.0),
-            "components": _get_field(candidate, "components", {}),
+            "components": comps_dict,
             "selected_schedule": clean_sched,
         }
         exp = _get_field(candidate, "explanation")
@@ -1763,7 +1814,9 @@ def rank_candidates(
     Dispatcher fungsi ranking kandidat generik.
     Menerima list kandidat bertipe SESSION atau PARTNER, mendeteksi tipe kandidat
     jika candidate_type tidak ditentukan, dan mendelegasikan ke fungsi ranking spesifik.
+    Selalu memvalidasi parameter min_score dan limit terlebih dahulu meskipun candidates kosong.
     """
+    _validate_ranking_params(min_score, limit)
     if candidates is None:
         raise ValueError("candidates tidak boleh None")
     if not isinstance(candidates, Sequence):
@@ -1799,6 +1852,7 @@ def format_match_result_payload(candidate: Mapping[str, Any]) -> Dict[str, Any]:
     dictionary payload yang valid untuk skema Pydantic MatchResultCreate.
     Hanya menyertakan field resmi: intent_id, candidate_type, candidate_session_id,
     target_intent_id, compatibility_score, breakdown, explanation.
+    Memvalidasi secara ketat bahwa kelima komponen tersedia dan valid.
     """
     if candidate is None:
         raise ValueError("candidate tidak boleh None")
@@ -1821,8 +1875,8 @@ def format_match_result_payload(candidate: Mapping[str, Any]) -> Dict[str, Any]:
         raise ValueError("candidate harus memiliki 'total_score' numerik non-boolean")
     try:
         score_val = float(total_score)
-    except (ValueError, TypeError):
-        raise ValueError("total_score harus berupa angka")
+    except (ValueError, TypeError, OverflowError):
+        raise ValueError("total_score harus berupa angka berhingga")
     if math.isnan(score_val) or math.isinf(score_val):
         raise ValueError("total_score harus berupa angka berhingga (finite)")
     if not (0.0 <= score_val <= 100.0):
@@ -1841,13 +1895,14 @@ def format_match_result_payload(candidate: Mapping[str, Any]) -> Dict[str, Any]:
         target_intent_id = str(tgt_id).strip()
         cand_sess_id = None
 
-    comps = _get_field(candidate, "components") or {}
+    # Validasi ketat kelima komponen: missing / None / NaN / Inf / boolean / out-of-range ditolak
+    clean_scores = _extract_and_validate_component_scores(candidate)
     breakdown = {
-        "topic_similarity": float(_get_field(comps.get("topic", {}), "score", 0.0) or 0.0),
-        "goal_compatibility": float(_get_field(comps.get("goal", {}), "score", 0.0) or 0.0),
-        "style_compatibility": float(_get_field(comps.get("style", {}), "score", 0.0) or 0.0),
-        "date_preference": float(_get_field(comps.get("date", {}), "score", 0.0) or 0.0),
-        "mode_compatibility": float(_get_field(comps.get("mode", {}), "score", 0.0) or 0.0),
+        "topic_similarity": clean_scores["topic"],
+        "goal_compatibility": clean_scores["goal"],
+        "style_compatibility": clean_scores["style"],
+        "date_preference": clean_scores["date"],
+        "mode_compatibility": clean_scores["mode"],
     }
 
     explanation = _get_field(candidate, "explanation")
