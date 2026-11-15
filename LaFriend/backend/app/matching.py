@@ -13,12 +13,26 @@
 # 6. calculate_session_occupied_capacity: Hitung keterisian kursi sesi tanpa duplikasi
 # 7. filter_candidate_sessions: Hard constraint filter untuk Session Matching
 # 8. filter_candidate_partners: Hard constraint filter untuk Partner Matching
+# 9. run_matching_pipeline: Orchestrator pencocokan end-to-end Session-First (Day 16)
 # ==============================================================================
 
 import re
+import math
+import uuid
+import json
 from datetime import datetime, timedelta
-from typing import List, Dict, Tuple, Optional, Any
-from app.models import StudyIntent, IntentAvailability, StudySession, SessionSlot, SessionMember, Student
+from typing import List, Dict, Tuple, Optional, Any, Union, Sequence, Mapping
+from sqlalchemy.orm import Session
+from app.models import StudyIntent, IntentAvailability, StudySession, SessionSlot, SessionMember, Student, MatchResult, Course
+from app.scoring import (
+    calculate_session_score,
+    calculate_partner_score,
+    rank_session_candidates,
+    rank_partner_candidates,
+    format_match_result_payload,
+    generate_match_explanation,
+)
+from app.schemas import MatchResultCreate
 
 
 # Pemetaan nama hari bahasa Indonesia & Inggris ke indeks hari (0 = Senin, 6 = Minggu)
@@ -491,3 +505,289 @@ def filter_candidate_partners(
         qualified_partners.append((candidate, common_schedule))
 
     return qualified_partners
+
+
+# ==============================================================================
+# 9. MATCHING PIPELINE ORCHESTRATOR (Day 16)
+# ==============================================================================
+def run_matching_pipeline(
+    intent: Union[str, StudyIntent],
+    db: Optional[Session] = None,
+    min_score: float = 60.0,
+    limit: Optional[int] = 5,
+    persist: bool = True,
+) -> Dict[str, Any]:
+    """
+    Mengorkestrasi seluruh alur pencocokan Day 14 (Hard Constraint Filtering),
+    Day 15 (Compatibility Scoring, Ranking, Deduplication, Explanation), dan Day 13 (Persistensi DB).
+
+    Prinsip Utama:
+    1. Session-First Architecture: Selalu mengevaluasi StudySession terlebih dahulu.
+       Jika ditemukan sesi yang memenuhi kriteria min_score, maka rekomendasi sesi
+       dikembalikan dan pencarian rekan (Partner Matching) sama sekali TIDAK dijalankan.
+    2. Fallback to Partner Matching: Jika tidak ada sesi belajar yang lolos hard constraint
+       atau tidak ada sesi yang mencapai batas min_score, maka otomatis mengevaluasi
+       kandidat StudyIntent (Partner Matching) dengan deduplikasi per mahasiswa.
+    3. Persistensi Atomik: Menyimpan seluruh kandidat terpilih ke tabel MatchResult di database
+       dengan breakdown JSON yang tervalidasi skema Pydantic MatchResultCreate.
+    4. Validasi Keamanan & Integritas: Memastikan status intent ACTIVE, akun mahasiswa
+       terverifikasi dan tidak ditangguhkan, serta batas min_score dan limit numerik valid.
+    """
+    if intent is None:
+        raise ValueError("Parameter intent tidak boleh None")
+
+    # 1. Resolusi objek StudyIntent
+    if isinstance(intent, str):
+        intent_id_str = intent.strip()
+        if not intent_id_str:
+            raise ValueError("intent_id tidak boleh berupa string kosong")
+        if db is None:
+            raise ValueError("Database session (db) wajib disertakan saat mencari Study Intent berdasarkan ID")
+        study_intent = db.query(StudyIntent).filter(StudyIntent.intent_id == intent_id_str).first()
+        if not study_intent:
+            raise ValueError(f"Study Intent dengan ID '{intent_id_str}' tidak ditemukan")
+    else:
+        study_intent = intent
+
+    # 2. Validasi status intent
+    status_str = (getattr(study_intent, "status", "") or "").upper()
+    if status_str != "ACTIVE":
+        raise ValueError(f"Hanya Study Intent berstatus ACTIVE yang dapat dicocokkan (status saat ini: {status_str})")
+
+    # 3. Validasi profil mahasiswa pembuat intent
+    student = getattr(study_intent, "student", None)
+    if student:
+        acc_status = (getattr(student, "account_status", "") or "").upper()
+        if acc_status and acc_status != "ACTIVE":
+            raise ValueError(f"Akun mahasiswa pembuat intent sedang tidak aktif (status: {acc_status})")
+        ver_status = (getattr(student, "verification_status", "") or "").upper()
+        if ver_status and ver_status != "VERIFIED":
+            raise ValueError(f"Akun mahasiswa pembuat intent belum terverifikasi (status: {ver_status})")
+
+    # 4. Validasi min_score numerik non-boolean finite [0.0, 100.0]
+    if min_score is None or isinstance(min_score, bool):
+        raise ValueError("min_score harus berupa angka berhingga non-boolean")
+    try:
+        min_score_val = float(min_score)
+    except (ValueError, TypeError, OverflowError):
+        raise ValueError("min_score harus berupa angka numerik valid")
+    if math.isnan(min_score_val) or math.isinf(min_score_val):
+        raise ValueError("min_score harus berupa angka berhingga (finite)")
+    if not (0.0 <= min_score_val <= 100.0):
+        raise ValueError(f"min_score ({min_score_val}) harus berada dalam rentang [0.0, 100.0]")
+
+    # 5. Validasi limit positif integer non-boolean atau None
+    if limit is not None:
+        if isinstance(limit, bool) or not isinstance(limit, int):
+            raise ValueError("limit harus berupa integer positif atau None")
+        if limit < 1:
+            raise ValueError(f"limit ({limit}) harus bernilai minimal 1")
+
+    # 6. Validasi course_id
+    course_id = getattr(study_intent, "course_id", None)
+    if not course_id:
+        raise ValueError("Study Intent harus memiliki course_id yang valid")
+
+    # 7. Validasi ketersediaan jadwal pencari
+    intent_windows = resolve_availability_windows(study_intent)
+    if not intent_windows:
+        if persist and db is not None and getattr(study_intent, "intent_id", None):
+            db.query(MatchResult).filter(MatchResult.intent_id == str(study_intent.intent_id)).delete(synchronize_session=False)
+            db.commit()
+        c_name = study_intent.course.course_name if getattr(study_intent, "course", None) else None
+        return {
+            "intent_id": str(getattr(study_intent, "intent_id", "")),
+            "course_id": str(course_id),
+            "course_name": c_name,
+            "match_type": "NONE",
+            "total_candidates": 0,
+            "recommendations": [],
+            "message": "Study Intent tidak memiliki jadwal ketersediaan yang valid."
+        }
+
+    # ==========================================================================
+    # TAHAP 1: SESSION-FIRST MATCHING
+    # ==========================================================================
+    candidate_sessions = []
+    if db is not None:
+        candidate_sessions = (
+            db.query(StudySession)
+            .filter(
+                StudySession.course_id == course_id,
+                StudySession.status == "OPEN",
+                StudySession.host_id != study_intent.student_id
+            )
+            .all()
+        )
+
+    qualified_sessions = filter_candidate_sessions(study_intent, candidate_sessions, min_duration=60)
+    session_scores = []
+    sessions_by_id = {}
+
+    for session, common_slots in qualified_sessions:
+        s_id = str(getattr(session, "session_id", None) or getattr(session, "id", None))
+        sessions_by_id[s_id] = session
+        score_dict = calculate_session_score(study_intent, session, common_slots)
+        session_scores.append(score_dict)
+
+    ranked_sessions = rank_session_candidates(
+        session_scores,
+        min_score=min_score_val,
+        limit=limit
+    )
+
+    if ranked_sessions:
+        # SESI DITEMUKAN: Prinsip Session-First terpenuhi, Partner Matching dilewati
+        match_type = "SESSION"
+        ranked_candidates = ranked_sessions
+    else:
+        # ======================================================================
+        # TAHAP 2: FALLBACK TO PARTNER MATCHING
+        # ======================================================================
+        candidate_intents = []
+        if db is not None:
+            candidate_intents = (
+                db.query(StudyIntent)
+                .join(StudyIntent.student)
+                .filter(
+                    StudyIntent.course_id == course_id,
+                    StudyIntent.status == "ACTIVE",
+                    StudyIntent.student_id != study_intent.student_id,
+                    Student.account_status == "ACTIVE",
+                    Student.verification_status == "VERIFIED",
+                    Student.is_discoverable == True
+                )
+                .all()
+            )
+
+        qualified_partners = filter_candidate_partners(study_intent, candidate_intents, min_duration=60)
+        partner_scores = []
+        partners_by_intent_id = {}
+
+        for cand_intent, common_slots in qualified_partners:
+            p_id = str(getattr(cand_intent, "intent_id", None) or getattr(cand_intent, "id", None))
+            partners_by_intent_id[p_id] = cand_intent
+            score_dict = calculate_partner_score(study_intent, cand_intent, common_slots)
+            partner_scores.append(score_dict)
+
+        ranked_partners = rank_partner_candidates(
+            partner_scores,
+            min_score=min_score_val,
+            limit=limit
+        )
+
+        if ranked_partners:
+            match_type = "PARTNER"
+            ranked_candidates = ranked_partners
+        else:
+            match_type = "NONE"
+            ranked_candidates = []
+
+    # ==========================================================================
+    # TAHAP 3: FORMAT PAYLOAD, DETAIL ENRICHMENT & PERSISTENSI
+    # ==========================================================================
+    if persist and db is not None and getattr(study_intent, "intent_id", None):
+        # Bersihkan hasil rekomendasi sebelumnya untuk intent ini
+        db.query(MatchResult).filter(MatchResult.intent_id == str(study_intent.intent_id)).delete(synchronize_session=False)
+
+    formatted_recommendations = []
+    for item in ranked_candidates:
+        payload = format_match_result_payload(item)
+        validated_payload = MatchResultCreate.model_validate(payload)
+
+        match_id = str(uuid.uuid4())
+        if persist and db is not None:
+            match_record = MatchResult(
+                match_id=match_id,
+                intent_id=validated_payload.intent_id,
+                candidate_type=validated_payload.candidate_type,
+                candidate_session_id=validated_payload.candidate_session_id,
+                target_intent_id=validated_payload.target_intent_id,
+                compatibility_score=validated_payload.compatibility_score,
+                breakdown_json=json.dumps(validated_payload.breakdown.model_dump()),
+                explanation=validated_payload.explanation,
+                created_at=datetime.utcnow()
+            )
+            db.add(match_record)
+
+        rec_item = {
+            "match_id": match_id,
+            "rank": item.get("rank", 1),
+            "candidate_type": validated_payload.candidate_type,
+            "candidate_session_id": validated_payload.candidate_session_id,
+            "target_intent_id": validated_payload.target_intent_id,
+            "compatibility_score": validated_payload.compatibility_score,
+            "breakdown": validated_payload.breakdown.model_dump(),
+            "explanation": validated_payload.explanation,
+            "selected_schedule": item.get("selected_schedule"),
+            "session_details": None,
+            "partner_details": None,
+        }
+
+        if validated_payload.candidate_type == "SESSION":
+            sess = sessions_by_id.get(validated_payload.candidate_session_id)
+            if sess:
+                occupied = calculate_session_occupied_capacity(sess)
+                host_name = sess.host.full_name if getattr(sess, "host", None) else None
+                course_title = sess.course.course_name if getattr(sess, "course", None) else None
+                rec_item["session_details"] = {
+                    "session_id": sess.session_id,
+                    "title": sess.title,
+                    "description": sess.description,
+                    "host_id": sess.host_id,
+                    "host_name": host_name,
+                    "course_id": sess.course_id,
+                    "course_name": course_title,
+                    "learning_goal": sess.learning_goal,
+                    "collaboration_style": sess.collaboration_style,
+                    "learning_mode": sess.learning_mode,
+                    "location": sess.location,
+                    "occupied_seats": occupied,
+                    "max_group_size": sess.max_group_size,
+                }
+        elif validated_payload.candidate_type == "PARTNER":
+            part = partners_by_intent_id.get(validated_payload.target_intent_id)
+            if part:
+                st = getattr(part, "student", None)
+                rec_item["partner_details"] = {
+                    "target_intent_id": part.intent_id,
+                    "student_id": part.student_id,
+                    "student_name": st.full_name if st else None,
+                    "study_program": st.study_program if st else None,
+                    "academic_year": st.academic_year if st else None,
+                    "topics": part.topics,
+                    "learning_goal": part.learning_goal,
+                    "collaboration_style": part.collaboration_style,
+                    "learning_mode": part.learning_mode,
+                    "min_group_size": part.min_group_size,
+                    "max_group_size": part.max_group_size,
+                }
+
+        formatted_recommendations.append(rec_item)
+
+    if persist and db is not None:
+        try:
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            raise exc
+
+    if match_type == "SESSION":
+        msg = f"Ditemukan {len(formatted_recommendations)} rekomendasi Study Session yang cocok untuk dipelajari bersama."
+    elif match_type == "PARTNER":
+        msg = f"Tidak ada sesi aktif yang cocok. Menampilkan {len(formatted_recommendations)} rekomendasi rekan belajar (Partner) sebagai alternatif."
+    else:
+        msg = "Belum ditemukan sesi belajar maupun rekan belajar yang memenuhi kriteria untuk Study Intent ini."
+
+    course_name = study_intent.course.course_name if getattr(study_intent, "course", None) else None
+
+    return {
+        "intent_id": str(getattr(study_intent, "intent_id", "")),
+        "course_id": str(course_id),
+        "course_name": course_name,
+        "match_type": match_type,
+        "total_candidates": len(formatted_recommendations),
+        "recommendations": formatted_recommendations,
+        "message": msg,
+    }
+

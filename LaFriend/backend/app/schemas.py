@@ -9,8 +9,9 @@
 # ==============================================================================
 
 import re
+import math
 from datetime import datetime
-from typing import List, Optional, Any, Union
+from typing import List, Optional, Any, Union, Dict
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 
@@ -593,5 +594,73 @@ class MatchResultResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# --- F. SKEMA REKOMENDASI MATCHING PIPELINE (Day 16) ---
+class RecommendationRequest(BaseModel):
+    intent_id: str
+    min_score: Optional[float] = 60.0
+    limit: Optional[int] = 5
+
+    @field_validator("intent_id")
+    @classmethod
+    def validate_intent_id(cls, v: str) -> str:
+        clean = (v or "").strip()
+        if not clean:
+            raise ValueError("intent_id tidak boleh kosong")
+        return clean
+
+    @field_validator("min_score", mode="before")
+    @classmethod
+    def validate_min_score(cls, v: Any) -> float:
+        if v is None:
+            return 60.0
+        if isinstance(v, bool):
+            raise ValueError("min_score tidak boleh berupa boolean")
+        try:
+            val = float(v)
+        except (ValueError, TypeError, OverflowError):
+            raise ValueError("min_score harus berupa angka")
+        if math.isnan(val) or math.isinf(val):
+            raise ValueError("min_score harus berupa angka berhingga")
+        if not (0.0 <= val <= 100.0):
+            raise ValueError(f"min_score ({val}) harus dalam rentang [0.0, 100.0]")
+        return val
+
+    @field_validator("limit", mode="before")
+    @classmethod
+    def validate_limit(cls, v: Any) -> Optional[int]:
+        if v is None:
+            return None
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise ValueError("limit harus berupa integer atau None")
+        if v < 1:
+            raise ValueError(f"limit ({v}) harus bernilai minimal 1")
+        return v
+
+
+class RecommendationItem(BaseModel):
+    match_id: Optional[str] = None
+    rank: int
+    candidate_type: str       # SESSION, PARTNER
+    candidate_session_id: Optional[str] = None
+    target_intent_id: Optional[str] = None
+    compatibility_score: float
+    breakdown: MatchBreakdown
+    explanation: str
+    selected_schedule: Optional[Dict[str, Any]] = None
+    session_details: Optional[Dict[str, Any]] = None
+    partner_details: Optional[Dict[str, Any]] = None
+
+
+class RecommendationResponse(BaseModel):
+    intent_id: str
+    course_id: str
+    course_name: Optional[str] = None
+    match_type: str           # SESSION, PARTNER, NONE
+    total_candidates: int
+    recommendations: List[RecommendationItem]
+    message: Optional[str] = None
+
 
 

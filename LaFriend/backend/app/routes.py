@@ -13,18 +13,20 @@
 import hashlib
 import jwt
 from datetime import datetime, timedelta
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Header, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Student, Course, StudyIntent, IntentAvailability
+from app.models import Student, Course, StudyIntent, IntentAvailability, MatchResult, StudySession
 from app.schemas import (
     StudentRegister, StudentLogin, StudentResponse, TokenResponse,
     CourseResponse, StudyIntentCreate, StudyIntentResponse,
-    ChatExtractionRequest, ChatExtractionResponse
+    ChatExtractionRequest, ChatExtractionResponse,
+    RecommendationRequest, RecommendationResponse, MatchResultResponse
 )
 from app.extraction import process_chat_for_study_intent
+from app.matching import run_matching_pipeline
 
 # Buat router utama API v1
 api_router = APIRouter(prefix="/api/v1")
@@ -338,4 +340,131 @@ def extract_study_intent_from_chat(
     formulir Study Intent, sehingga mahasiswa tinggal memverifikasi ulang.
     """
     return process_chat_for_study_intent(data.raw_text, db)
+
+
+# ==============================================================================
+# 6. ENDPOINT MATCHING & RECOMMENDATIONS (DAY 16)
+# ==============================================================================
+
+@api_router.post("/matching/recommendations", response_model=RecommendationResponse, tags=["Matching Engine"])
+def get_recommendations_post(
+    req: RecommendationRequest,
+    current_student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db)
+):
+    """
+    Menjalankan Matching Pipeline Orchestrator (Day 16) untuk menemukan rekomendasi
+    sesi belajar (StudySession) atau rekan belajar (StudyIntent).
+
+    Prinsip Session-First:
+    1. Memprioritaskan Study Session terlebih dahulu.
+    2. Jika ditemukan sesi yang lolos filter dan memenuhi min_score, rekomendasi sesi
+       dikembalikan (Partner Matching tidak dieksekusi).
+    3. Jika tidak ada sesi yang memenuhi syarat, otomatis fallback ke Partner Matching.
+    4. Seluruh kandidat rekomendasi disimpan secara atomik ke tabel MatchResult.
+    """
+    # 1. Validasi keberadaan Study Intent
+    intent = db.query(StudyIntent).filter(StudyIntent.intent_id == req.intent_id).first()
+    if not intent:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Study Intent dengan ID '{req.intent_id}' tidak ditemukan."
+        )
+
+    # 2. Validasi kepemilikan intent (Otorisasi)
+    if intent.student_id != current_student.student_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Kamu hanya berhak meminta rekomendasi untuk Study Intent milikmu sendiri."
+        )
+
+    # 3. Validasi status akun mahasiswa peminta
+    if (current_student.account_status or "").upper() != "ACTIVE":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Akun mahasiswa kamu sedang ditangguhkan atau tidak aktif."
+        )
+    if (current_student.verification_status or "").upper() != "VERIFIED":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Akun mahasiswa kamu belum berstatus VERIFIED."
+        )
+
+    # 4. Validasi status siklus hidup Study Intent
+    if (intent.status or "").upper() != "ACTIVE":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Study Intent tidak aktif (status saat ini: {intent.status}). Hanya intent berstatus ACTIVE yang dapat dicocokkan."
+        )
+
+    # 5. Eksekusi Matching Pipeline Orchestrator
+    try:
+        pipeline_output = run_matching_pipeline(
+            intent=intent,
+            db=db,
+            min_score=req.min_score,
+            limit=req.limit,
+            persist=True
+        )
+        return pipeline_output
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Terjadi kesalahan saat memproses rekomendasi: {str(e)}"
+        )
+
+
+@api_router.get("/study-intents/{intent_id}/recommendations", response_model=RecommendationResponse, tags=["Matching Engine"])
+def get_recommendations_get(
+    intent_id: str,
+    min_score: float = 60.0,
+    limit: Optional[int] = 5,
+    current_student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db)
+):
+    """
+    Shortcut GET untuk memicu dan mengambil rekomendasi kecocokan pada suatu Study Intent.
+    """
+    req = RecommendationRequest(intent_id=intent_id, min_score=min_score, limit=limit)
+    return get_recommendations_post(req=req, current_student=current_student, db=db)
+
+
+@api_router.get("/matching/results/{intent_id}", response_model=List[MatchResultResponse], tags=["Matching Engine"])
+def get_persisted_match_results(
+    intent_id: str,
+    current_student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db)
+):
+    """
+    Mengambil daftar hasil pencocokan (MatchResult) yang tersimpan di database
+    untuk Study Intent yang dimiliki mahasiswa.
+    """
+    # 1. Validasi keberadaan Study Intent
+    intent = db.query(StudyIntent).filter(StudyIntent.intent_id == intent_id).first()
+    if not intent:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Study Intent dengan ID '{intent_id}' tidak ditemukan."
+        )
+
+    # 2. Validasi otorisasi kepemilikan
+    if intent.student_id != current_student.student_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Kamu hanya berhak melihat hasil pencocokan untuk Study Intent milikmu sendiri."
+        )
+
+    results = (
+        db.query(MatchResult)
+        .filter(MatchResult.intent_id == intent_id)
+        .order_by(MatchResult.compatibility_score.desc())
+        .all()
+    )
+    return results
+
 
