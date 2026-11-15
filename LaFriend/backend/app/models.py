@@ -354,6 +354,10 @@ class MatchResult(Base):
     # explanation: Kalimat penjelasan alasan rekomendasi yang mudah dipahami mahasiswa
     explanation = Column(Text, nullable=True)
 
+    # selected_schedule_json: Jadwal terbaik yang disepakati/ditemukan dalam format JSON string
+    # {"date": "2026-11-20", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, ...}
+    selected_schedule_json = Column(Text, nullable=True)
+
     # created_at: Waktu komputasi skor dilakukan
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 

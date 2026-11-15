@@ -552,6 +552,13 @@ def get_recommendations_get(
                     "max_group_size": part.max_group_size,
                 }
 
+        selected_schedule = None
+        if getattr(match, "selected_schedule_json", None):
+            try:
+                selected_schedule = json.loads(match.selected_schedule_json)
+            except Exception:
+                selected_schedule = None
+
         formatted_recs.append({
             "match_id": match.match_id,
             "rank": idx + 1,
@@ -561,7 +568,7 @@ def get_recommendations_get(
             "compatibility_score": round(float(match.compatibility_score), 2),
             "breakdown": breakdown_dict,
             "explanation": match.explanation or "",
-            "selected_schedule": None,
+            "selected_schedule": selected_schedule,
             "session_details": session_details,
             "partner_details": partner_details,
         })
@@ -609,6 +616,18 @@ def get_persisted_match_results(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Kamu hanya berhak melihat hasil pencocokan untuk Study Intent milikmu sendiri."
+        )
+
+    # 3. Validasi status akun dan status verifikasi mahasiswa
+    if current_student.account_status != "ACTIVE":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Akun mahasiswa kamu sedang dinonaktifkan atau ditangguhkan."
+        )
+    if current_student.verification_status != "VERIFIED":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Akun mahasiswa kamu belum berstatus VERIFIED."
         )
 
     results = (

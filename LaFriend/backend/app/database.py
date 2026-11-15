@@ -59,3 +59,24 @@ def get_db():
         yield db  # Kirim session database ke fungsi router
     finally:
         db.close()  # Pastikan koneksi selalu ditutup agar tidak bocor memory
+
+
+# 7. Fungsi Migrasi Aman SQLite (Schema Migration)
+def ensure_database_schema(target_engine=None):
+    """
+    Memastikan seluruh tabel dibuat dan kolom-kolom baru (seperti selected_schedule_json)
+    pada tabel match_results termigrasi secara otomatis jika belum ada (SQLite safe migration).
+    """
+    from sqlalchemy import text
+    eng = target_engine or engine
+    Base.metadata.create_all(bind=eng)
+    try:
+        with eng.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(match_results)"))
+            columns = [row[1] for row in result.fetchall()]
+            if columns and "selected_schedule_json" not in columns:
+                conn.execute(text("ALTER TABLE match_results ADD COLUMN selected_schedule_json TEXT"))
+                conn.commit()
+    except Exception:
+        pass
+

@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 # Import koneksi database, Base, dan tabel models
-from app.database import engine, Base, SessionLocal
+from app.database import engine, Base, SessionLocal, ensure_database_schema
 from app.models import Student, Course
 from app.routes import api_router, hash_password
 from app.extraction import get_gliner_model
@@ -131,8 +131,8 @@ def seed_data_awal(db):
 # ==============================================================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 1. Otomatis buat seluruh tabel di file database/lafriend.db jika belum ada
-    Base.metadata.create_all(bind=engine)
+    # 1. Otomatis buat seluruh tabel dan lakukan migrasi skema SQLite jika ada penambahan kolom
+    ensure_database_schema(engine)
 
     # 2. Jalankan pengisian data awal (seeder)
     db = SessionLocal()

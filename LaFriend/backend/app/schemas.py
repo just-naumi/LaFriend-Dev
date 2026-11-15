@@ -591,6 +591,7 @@ class MatchResultResponse(BaseModel):
     compatibility_score: float
     breakdown_json: str
     explanation: Optional[str] = None
+    selected_schedule_json: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

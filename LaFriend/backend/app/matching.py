@@ -703,6 +703,9 @@ def run_matching_pipeline(
                 validated_payload = MatchResultCreate.model_validate(payload)
 
                 match_id = str(uuid.uuid4())
+                sched = item.get("selected_schedule")
+                sched_json = json.dumps(sched) if sched else None
+
                 match_record = MatchResult(
                     match_id=match_id,
                     intent_id=validated_payload.intent_id,
@@ -712,6 +715,7 @@ def run_matching_pipeline(
                     compatibility_score=validated_payload.compatibility_score,
                     breakdown_json=json.dumps(validated_payload.breakdown.model_dump()),
                     explanation=validated_payload.explanation,
+                    selected_schedule_json=sched_json,
                     created_at=datetime.utcnow()
                 )
                 db.add(match_record)
