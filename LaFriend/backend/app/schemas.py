@@ -801,4 +801,153 @@ class GroupProposalPreviewResponse(BaseModel):
     message: str
 
 
+# ==============================================================================
+# 9. SKEMA EVALUASI KUALITAS & VALIDASI ENGINE (DAY 19)
+# ==============================================================================
+
+class PairwiseScoreDistribution(BaseModel):
+    """Statistik distribusi skor pairwise antar seluruh pasangan dalam kelompok."""
+    count: int
+    mean: float
+    median: float
+    std_dev: float
+    variance: float
+    min_score: float
+    max_score: float
+    score_spread: float
+
+    model_config = ConfigDict(extra="allow")
+
+
+class WeakestLinkDetail(BaseModel):
+    """Rincian pasangan terlemah (Minimum Pairwise Score) dalam kelompok."""
+    student_a_id: Optional[str] = None
+    student_b_id: Optional[str] = None
+    intent_a_id: Optional[str] = None
+    intent_b_id: Optional[str] = None
+    score: float
+    explanation: Optional[str] = None
+    breakdown: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class StrongestLinkDetail(BaseModel):
+    """Rincian pasangan terkuat (Maximum Pairwise Score) dalam kelompok."""
+    student_a_id: Optional[str] = None
+    student_b_id: Optional[str] = None
+    intent_a_id: Optional[str] = None
+    intent_b_id: Optional[str] = None
+    score: float
+    explanation: Optional[str] = None
+    breakdown: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class FormulaConsistencyCheck(BaseModel):
+    """Verifikasi konsistensi matematis formula GQ = 0.70 * APS + 0.30 * MPS."""
+    is_valid: bool
+    expected_gq: float
+    actual_gq: float
+    discrepancy: float
+    formula_expression: str
+    aps: float
+    mps: float
+
+    model_config = ConfigDict(extra="allow")
+
+
+class GroupQualityEvaluationResult(BaseModel):
+    """Hasil evaluasi komprehensif kualitas kelompok belajar (Day 19.1)."""
+    group_quality_score: float
+    average_pair_score: float
+    minimum_pair_score: float
+    maximum_pair_score: float
+    distribution: PairwiseScoreDistribution
+    weakest_link: Optional[WeakestLinkDetail] = None
+    strongest_link: Optional[StrongestLinkDetail] = None
+    formula_consistency: FormulaConsistencyCheck
+    all_pairwise_scores: List[float]
+    quality_tier: str  # EXCELLENT, GOOD, SATISFACTORY, NEEDS_IMPROVEMENT
+    evaluation_notes: List[str]
+
+    model_config = ConfigDict(extra="allow")
+
+
+class OrderPermutationRun(BaseModel):
+    """Catatan eksekusi satu permutasi urutan input (Day 19.2)."""
+    permutation_index: int
+    input_order_intent_ids: List[str]
+    selected_member_intent_ids: List[str]
+    group_quality_score: float
+    selected_schedule_key: Optional[str] = None
+    matches_baseline: bool
+
+    model_config = ConfigDict(extra="allow")
+
+
+class MatchingStabilityResult(BaseModel):
+    """Hasil evaluasi stabilitas dan order invariance matching engine (Day 19.2)."""
+    num_permutations: int
+    is_order_invariant: bool
+    determinism_rate: float  # Target: 100.0%
+    distinct_group_signatures: int
+    baseline_signature: str
+    permutations: List[OrderPermutationRun]
+
+    model_config = ConfigDict(extra="allow")
+
+
+class RobustnessScenarioResult(BaseModel):
+    """Hasil pengujian satu skenario data tidak ideal (Day 19.3)."""
+    scenario_name: str
+    description: str
+    expected_status: str
+    actual_status: str
+    is_violation: bool
+    message: str
+
+    model_config = ConfigDict(extra="allow")
+
+
+class RobustnessEvaluationResult(BaseModel):
+    """Hasil evaluasi ketahanan sistem terhadap data sparse/adversarial (Day 19.3)."""
+    total_scenarios_tested: int
+    passed_scenarios: int
+    failed_scenarios: int
+    constraint_violation_rate: float  # Target: 0.0%
+    all_constraints_preserved: bool
+    scenario_results: List[RobustnessScenarioResult]
+
+    model_config = ConfigDict(extra="allow")
+
+
+class TopKPoolBenchmarkItem(BaseModel):
+    """Hasil benchmark satu konfigurasi Top-K pool (Day 19.4)."""
+    k_value: Union[int, str]
+    candidates_in_pool: int
+    candidates_examined: int
+    formation_status: str
+    group_size: int
+    group_quality_score: float
+    average_pair_score: float
+    minimum_pair_score: float
+    quality_loss: float  # ((GQ_full - GQ_k) / GQ_full) * 100%
+    quality_retention: float  # (GQ_k / GQ_full) * 100%
+    execution_time_ms: float
+
+    model_config = ConfigDict(extra="allow")
+
+
+class TopKBenchmarkResult(BaseModel):
+    """Hasil evaluasi trade-off optimasi Top-K vs kualitas kelompok (Day 19.4)."""
+    total_candidates: int
+    baseline_k: Union[int, str]
+    benchmarks: List[TopKPoolBenchmarkItem]
+
+    model_config = ConfigDict(extra="allow")
+
+
+
 
