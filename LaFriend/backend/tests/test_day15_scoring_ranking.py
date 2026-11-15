@@ -1444,14 +1444,16 @@ def test_candidate_ranking_and_deduplication():
             "date_score": 0.895,
         }
 
-    def make_components(topic=1.0, goal=0.85, style=0.85, date=0.895, mode=0.85):
-        return {
-            "topic": {"score": topic, "weight": 0.30, "contribution": topic * 30.0},
-            "goal": {"score": goal, "weight": 0.25, "contribution": goal * 25.0},
-            "style": {"score": style, "weight": 0.15, "contribution": style * 15.0},
-            "date": {"score": date, "weight": 0.15, "contribution": date * 15.0},
-            "mode": {"score": mode, "weight": 0.15, "contribution": mode * 15.0},
-        }
+    def make_components(total_score=90.0, topic=None, goal=None, style=None, date=None, mode=None):
+        if any(x is not None for x in (topic, goal, style, date, mode)):
+            t = topic if topic is not None else 1.0
+            g = goal if goal is not None else 0.85
+            st = style if style is not None else 0.85
+            d = date if date is not None else 0.895
+            m = mode if mode is not None else 0.85
+            return calculate_compatibility_breakdown(t, g, st, d, m)["components"]
+        ts = float(total_score) / 100.0
+        return calculate_compatibility_breakdown(ts, ts, ts, ts, ts)["components"]
 
     # 17.1 Session Ranking: Pengurutan Total Score & Penomoran Rank
     sess_cand_1 = {
@@ -1460,7 +1462,7 @@ def test_candidate_ranking_and_deduplication():
         "candidate_session_id": "ses_01",
         "total_score": 85.00,
         "selected_schedule": make_sched(),
-        "components": make_components(),
+        "components": make_components(85.00),
     }
     sess_cand_2 = {
         "intent_id": "int_user",
@@ -1468,7 +1470,7 @@ def test_candidate_ranking_and_deduplication():
         "candidate_session_id": "ses_02",
         "total_score": 95.00,
         "selected_schedule": make_sched(),
-        "components": make_components(),
+        "components": make_components(95.00),
     }
     sess_cand_3 = {
         "intent_id": "int_user",
@@ -1476,7 +1478,7 @@ def test_candidate_ranking_and_deduplication():
         "candidate_session_id": "ses_03",
         "total_score": 75.00,
         "selected_schedule": make_sched(),
-        "components": make_components(),
+        "components": make_components(75.00),
     }
 
     ranked_sess = rank_session_candidates([sess_cand_1, sess_cand_2, sess_cand_3])
@@ -1492,7 +1494,7 @@ def test_candidate_ranking_and_deduplication():
         "candidate_session_id": "ses_dup",
         "total_score": 70.00,
         "selected_schedule": make_sched(),
-        "components": make_components(),
+        "components": make_components(70.00),
     }
     sess_dup_high = {
         "intent_id": "int_user",
@@ -1500,7 +1502,7 @@ def test_candidate_ranking_and_deduplication():
         "candidate_session_id": "ses_dup",
         "total_score": 92.50,
         "selected_schedule": make_sched(),
-        "components": make_components(),
+        "components": make_components(92.50),
     }
     ranked_sess_dup = rank_session_candidates([sess_dup_low, sess_dup_high])
     report("Session Deduplication: Hanya 1 entri untuk ses_dup", len(ranked_sess_dup) == 1)
@@ -1508,44 +1510,44 @@ def test_candidate_ranking_and_deduplication():
 
     # 17.3 Session Tie-Breakers (Tier 1 s.d Tier 5)
     # Tier 2: Durasi terpanjang menang (180 vs 120 menit)
-    s_t2_a = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t2_120", "total_score": 90.0, "selected_schedule": make_sched(dur=120), "components": make_components()}
-    s_t2_b = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t2_180", "total_score": 90.0, "selected_schedule": make_sched(dur=180, end="13:00"), "components": make_components()}
+    s_t2_a = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t2_120", "total_score": 90.0, "selected_schedule": make_sched(dur=120), "components": make_components(90.0)}
+    s_t2_b = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t2_180", "total_score": 90.0, "selected_schedule": make_sched(dur=180, end="13:00"), "components": make_components(90.0)}
     res_s_t2 = rank_session_candidates([s_t2_a, s_t2_b])
     report("Session Tie-Breaker Tier 2: Durasi terpanjang menang (180 vs 120)", res_s_t2[0]["candidate_session_id"] == "s_t2_180")
 
     # Tier 3: priority_a terkecil menang (1 vs 2)
-    s_t3_a = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t3_prio2", "total_score": 90.0, "selected_schedule": make_sched(dur=120, pa=2), "components": make_components()}
-    s_t3_b = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t3_prio1", "total_score": 90.0, "selected_schedule": make_sched(dur=120, pa=1), "components": make_components()}
+    s_t3_a = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t3_prio2", "total_score": 90.0, "selected_schedule": make_sched(dur=120, pa=2), "components": make_components(90.0)}
+    s_t3_b = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t3_prio1", "total_score": 90.0, "selected_schedule": make_sched(dur=120, pa=1), "components": make_components(90.0)}
     res_s_t3 = rank_session_candidates([s_t3_a, s_t3_b])
     report("Session Tie-Breaker Tier 3: priority_a terkecil menang (1 vs 2)", res_s_t3[0]["candidate_session_id"] == "s_t3_prio1")
 
     # Tier 4: Tanggal paling awal menang (16 vs 20)
-    s_t4_a = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t4_d20", "total_score": 90.0, "selected_schedule": make_sched(date="2026-11-20"), "components": make_components()}
-    s_t4_b = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t4_d16", "total_score": 90.0, "selected_schedule": make_sched(date="2026-11-16"), "components": make_components()}
+    s_t4_a = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t4_d20", "total_score": 90.0, "selected_schedule": make_sched(date="2026-11-20"), "components": make_components(90.0)}
+    s_t4_b = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t4_d16", "total_score": 90.0, "selected_schedule": make_sched(date="2026-11-16"), "components": make_components(90.0)}
     res_s_t4 = rank_session_candidates([s_t4_a, s_t4_b])
     report("Session Tie-Breaker Tier 4: Tanggal lebih awal menang (16 vs 20)", res_s_t4[0]["candidate_session_id"] == "s_t4_d16")
 
     # Tier 4b: Jam mulai lebih awal menang (09:00 vs 14:00)
-    s_t4b_a = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t4_1400", "total_score": 90.0, "selected_schedule": make_sched(start="14:00", end="16:00"), "components": make_components()}
-    s_t4b_b = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t4_0900", "total_score": 90.0, "selected_schedule": make_sched(start="09:00", end="11:00"), "components": make_components()}
+    s_t4b_a = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t4_1400", "total_score": 90.0, "selected_schedule": make_sched(start="14:00", end="16:00"), "components": make_components(90.0)}
+    s_t4b_b = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "s_t4_0900", "total_score": 90.0, "selected_schedule": make_sched(start="09:00", end="11:00"), "components": make_components(90.0)}
     res_s_t4b = rank_session_candidates([s_t4b_a, s_t4b_b])
     report("Session Tie-Breaker Tier 4b: Jam mulai lebih awal menang (09:00 vs 14:00)", res_s_t4b[0]["candidate_session_id"] == "s_t4_0900")
 
     # Tier 5: candidate_session_id alfabetis menang
-    s_t5_a = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "ses_zeta", "total_score": 90.0, "selected_schedule": make_sched(), "components": make_components()}
-    s_t5_b = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "ses_alpha", "total_score": 90.0, "selected_schedule": make_sched(), "components": make_components()}
+    s_t5_a = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "ses_zeta", "total_score": 90.0, "selected_schedule": make_sched(), "components": make_components(90.0)}
+    s_t5_b = {"intent_id": "u", "candidate_type": "SESSION", "candidate_session_id": "ses_alpha", "total_score": 90.0, "selected_schedule": make_sched(), "components": make_components(90.0)}
     res_s_t5 = rank_session_candidates([s_t5_a, s_t5_b])
     report("Session Tie-Breaker Tier 5: ID alfabetis menang (ses_alpha vs ses_zeta)", res_s_t5[0]["candidate_session_id"] == "ses_alpha")
 
     # 17.4 Partner Ranking & Student Deduplication: Multi-Intent Per Student
     # Budi (3 intents: 75.0, 94.5, 85.3), Citra (91.2), Deni (88.7), Eka (82.6), Fajar (79.5)
-    p_budi_1 = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "std_budi", "target_intent_id": "int_budi_1", "total_score": 75.00, "selected_schedule": make_sched(), "components": make_components()}
-    p_budi_2 = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "std_budi", "target_intent_id": "int_budi_2", "total_score": 94.50, "selected_schedule": make_sched(), "components": make_components()}
-    p_budi_3 = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "std_budi", "target_intent_id": "int_budi_3", "total_score": 85.30, "selected_schedule": make_sched(), "components": make_components()}
-    p_citra = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "std_citra", "target_intent_id": "int_citra_1", "total_score": 91.20, "selected_schedule": make_sched(), "components": make_components()}
-    p_deni = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "std_deni", "target_intent_id": "int_deni_1", "total_score": 88.70, "selected_schedule": make_sched(), "components": make_components()}
-    p_eka = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "std_eka", "target_intent_id": "int_eka_1", "total_score": 82.60, "selected_schedule": make_sched(), "components": make_components()}
-    p_fajar = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "std_fajar", "target_intent_id": "int_fajar_1", "total_score": 79.50, "selected_schedule": make_sched(), "components": make_components()}
+    p_budi_1 = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "std_budi", "target_intent_id": "int_budi_1", "total_score": 75.00, "selected_schedule": make_sched(), "components": make_components(75.00)}
+    p_budi_2 = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "std_budi", "target_intent_id": "int_budi_2", "total_score": 94.50, "selected_schedule": make_sched(), "components": make_components(94.50)}
+    p_budi_3 = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "std_budi", "target_intent_id": "int_budi_3", "total_score": 85.30, "selected_schedule": make_sched(), "components": make_components(85.30)}
+    p_citra = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "std_citra", "target_intent_id": "int_citra_1", "total_score": 91.20, "selected_schedule": make_sched(), "components": make_components(91.20)}
+    p_deni = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "std_deni", "target_intent_id": "int_deni_1", "total_score": 88.70, "selected_schedule": make_sched(), "components": make_components(88.70)}
+    p_eka = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "std_eka", "target_intent_id": "int_eka_1", "total_score": 82.60, "selected_schedule": make_sched(), "components": make_components(82.60)}
+    p_fajar = {"intent_id": "u", "candidate_type": "PARTNER", "student_id": "std_fajar", "target_intent_id": "int_fajar_1", "total_score": 79.50, "selected_schedule": make_sched(), "components": make_components(79.50)}
 
     all_partners = [p_budi_1, p_budi_2, p_budi_3, p_citra, p_deni, p_eka, p_fajar]
     ranked_partners = rank_partner_candidates(all_partners)
@@ -1725,22 +1727,22 @@ def test_candidate_ranking_and_deduplication():
     # 17.11 Dukungan Objek ORM dan Pydantic
     orm_cand_1 = DummyORMCandidate(
         intent_id="u", candidate_type="SESSION", candidate_session_id="s_orm_1",
-        total_score=95.0, selected_schedule=make_sched(), components=make_components()
+        total_score=95.0, selected_schedule=make_sched(), components=make_components(95.0)
     )
     orm_cand_2 = DummyORMCandidate(
         intent_id="u", candidate_type="SESSION", candidate_session_id="s_orm_2",
-        total_score=85.0, selected_schedule=make_sched(), components=make_components()
+        total_score=85.0, selected_schedule=make_sched(), components=make_components(85.0)
     )
     r_orm = rank_session_candidates([orm_cand_1, orm_cand_2])
     report("Object Support: ORM candidate dapat diranking", len(r_orm) == 2 and r_orm[0]["candidate_session_id"] == "s_orm_1")
 
     pyd_cand_1 = DummyPydanticCandidate(
         intent_id="u", candidate_type="PARTNER", student_id="s_pyd_1", target_intent_id="i_pyd_1",
-        total_score=95.0, selected_schedule=make_sched(), components=make_components()
+        total_score=95.0, selected_schedule=make_sched(), components=make_components(95.0)
     )
     pyd_cand_2 = DummyPydanticCandidate(
         intent_id="u", candidate_type="PARTNER", student_id="s_pyd_2", target_intent_id="i_pyd_2",
-        total_score=85.0, selected_schedule=make_sched(), components=make_components()
+        total_score=85.0, selected_schedule=make_sched(), components=make_components(85.0)
     )
     r_pyd = rank_partner_candidates([pyd_cand_1, pyd_cand_2])
     report("Object Support: Pydantic candidate dapat diranking", len(r_pyd) == 2 and r_pyd[0]["student_id"] == "s_pyd_1")
@@ -1891,6 +1893,66 @@ def test_candidate_ranking_and_deduplication():
     report("Breakdown Preservation Partner: Topic rounding_adjustment -0.01 dipertahankan", ranked_bench_part["components"]["topic"]["rounding_adjustment"] == -0.01)
     report("Breakdown Preservation Partner: Topic raw_contribution 10.7973 dipertahankan", ranked_bench_part["components"]["topic"]["raw_contribution"] == 10.7973)
     report("Breakdown Preservation Partner: Objek input asli tidak dimutasi", bench_partner_cand["components"]["topic"]["contribution"] == 10.79 and "rank" not in bench_partner_cand)
+
+    # 17.16 Hardening Breakdown: Rekonstruksi Decimal ketika contribution Hilang (Target 1)
+    comp_recon = {k: dict(v) for k, v in scored_bench["components"].items()}
+    # Hapus contribution Topic (10.79), tapi pertahankan raw_contribution (10.7973) dan rounding_adjustment (-0.01)
+    del comp_recon["topic"]["contribution"]
+    cand_recon = {
+        "intent_id": "int_user",
+        "candidate_type": "SESSION",
+        "candidate_session_id": "ses_recon_topic",
+        "total_score": 46.82,
+        "rounding_reconciliation": -0.01,
+        "components": comp_recon,
+        "selected_schedule": make_sched(),
+    }
+    ranked_recon = rank_session_candidates([cand_recon])[0]
+    report("Breakdown Recon: Topic contribution direkonstruksi tepat 10.79", ranked_recon["components"]["topic"]["contribution"] == 10.79)
+    sum_recon = round(sum(c["contribution"] for c in ranked_recon["components"].values()), 2)
+    report("Breakdown Recon: sum(contribution) tetap tepat 46.82 tanpa rounding drift", sum_recon == 46.82)
+
+    # 17.17 Hardening Breakdown: Tolak Inkonsistensi sum(contribution) vs total_score (Target 2)
+    cand_mismatch = {
+        "intent_id": "int_user",
+        "candidate_type": "SESSION",
+        "candidate_session_id": "ses_mismatch",
+        "total_score": 46.83,  # Sengaja diubah 46.83 padahal sum adalah 46.82
+        "rounding_reconciliation": -0.01,
+        "components": scored_bench["components"],
+        "selected_schedule": make_sched(),
+    }
+    try:
+        rank_session_candidates([cand_mismatch])
+        report("Cross-Validation: Tolak total_score tidak sama dengan sum(contribution)", False, "Harusnya raise ValueError")
+    except ValueError:
+        report("Cross-Validation: Tolak total_score tidak sama dengan sum(contribution)", True)
+
+    # 17.18 Hardening Breakdown: Tolak rounding_reconciliation Invalid (Target 3)
+    for bad_rec, rec_lbl in [
+        ("invalid", "string invalid"),
+        (float("nan"), "NaN"),
+        (float("inf"), "Infinity"),
+        (True, "boolean"),
+        (10**400, "10**400"),
+        (5.0, "di luar rentang [-1.0, 1.0]"),
+    ]:
+        cand_bad_rec = dict(bench_session_cand, rounding_reconciliation=bad_rec)
+        try:
+            rank_session_candidates([cand_bad_rec])
+            report(f"Rec Validation: Tolak rounding_reconciliation {rec_lbl}", False, "Harusnya raise ValueError")
+        except ValueError:
+            report(f"Rec Validation: Tolak rounding_reconciliation {rec_lbl}", True)
+
+    # 17.19 Hardening Breakdown: Tolak Bobot Komponen Menyimpang dari SCORING_WEIGHTS Resmi (Target 4)
+    bad_weight_comps = {k: dict(v) for k, v in scored_bench["components"].items()}
+    bad_weight_comps["topic"]["weight"] = 0.50  # SCORING_WEIGHTS resmi untuk topic adalah 0.30
+    cand_bad_weight = dict(bench_session_cand, components=bad_weight_comps)
+    try:
+        rank_session_candidates([cand_bad_weight])
+        report("Weight Validation: Tolak bobot menyimpang dari SCORING_WEIGHTS", False, "Harusnya raise ValueError")
+    except ValueError:
+        report("Weight Validation: Tolak bobot menyimpang dari SCORING_WEIGHTS", True)
 
 
 def run_tests():
