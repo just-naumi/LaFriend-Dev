@@ -10,6 +10,9 @@ from pathlib import Path
 backend_dir = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(backend_dir))
 
+from typing import Any, Dict, List, Optional
+from pydantic import BaseModel
+
 from app.scoring import (
     CANONICAL_LEARNING_GOALS,
     CANONICAL_COLLABORATION_STYLES,
@@ -47,6 +50,14 @@ from app.scoring import (
     validate_component_score,
     calculate_compatibility_score,
     calculate_compatibility_breakdown,
+    # Tahap 15.5
+    _get_field,
+    priority_pair_key,
+    _validate_common_slot,
+    select_best_session_schedule,
+    select_best_partner_schedule,
+    calculate_session_score,
+    calculate_partner_score,
 )
 
 passed_count = 0
@@ -817,9 +828,515 @@ def test_compatibility_breakdown():
         report("Breakdown: Tolak integer raksasa 10**400 dengan ValueError", False, "Memicu unhandled OverflowError")
 
 
+# ==============================================================================
+# DUMMY MODELS FOR TESTING ORM & PYDANTIC COMPATIBILITY
+# ==============================================================================
+
+class DummyORMIntent:
+    def __init__(self, intent_id, student_id, topics, learning_goal, collaboration_style, learning_mode):
+        self.intent_id = intent_id
+        self.student_id = student_id
+        self.topics = topics
+        self.learning_goal = learning_goal
+        self.collaboration_style = collaboration_style
+        self.learning_mode = learning_mode
+
+
+class DummyORMSession:
+    def __init__(self, session_id, title, description, learning_goal, collaboration_style, learning_mode):
+        self.session_id = session_id
+        self.title = title
+        self.description = description
+        self.learning_goal = learning_goal
+        self.collaboration_style = collaboration_style
+        self.learning_mode = learning_mode
+
+
+class DummyPydanticIntent(BaseModel):
+    intent_id: str
+    student_id: str
+    topics: str
+    learning_goal: str
+    collaboration_style: str
+    learning_mode: str
+
+
+class DummyPydanticSession(BaseModel):
+    session_id: str
+    title: str
+    description: Optional[str] = None
+    learning_goal: str
+    collaboration_style: str
+    learning_mode: str
+
+
+# ==============================================================================
+# SUITE 15: SESSION SCORING ENGINE (TAHAP 15.5)
+# ==============================================================================
+
+def test_session_scoring():
+    print("\n--- SUITE 15: Session Scoring Engine (Tahap 15.5) ---")
+
+    # 15.1 Skor Sempurna 100
+    intent_perf = {
+        "intent_id": "int_perf",
+        "student_id": "std_andi",
+        "topics": "Struktur Data Pohon Biner",
+        "learning_goal": "PRACTICE",
+        "collaboration_style": "PRACTICE",
+        "learning_mode": "ONLINE",
+    }
+    session_perf = {
+        "session_id": "ses_perf",
+        "title": "Struktur Data Pohon Biner",
+        "description": "",
+        "learning_goal": "PRACTICE",
+        "collaboration_style": "PRACTICE",
+        "learning_mode": "ONLINE",
+    }
+    slot_perf = [{
+        "date": "2026-11-16",
+        "start_time": "10:00",
+        "end_time": "12:00",
+        "duration_minutes": 120,
+        "priority_a": 1,
+        "priority_b": 1,
+    }]
+    res_perf = calculate_session_score(intent_perf, session_perf, slot_perf)
+    report("Session Score: Skor sempurna 100.00", math.isclose(res_perf["total_score"], 100.00))
+    report("Session Score: candidate_type == 'SESSION'", res_perf["candidate_type"] == "SESSION")
+    report("Session Score: candidate_session_id sesuai", res_perf["candidate_session_id"] == "ses_perf")
+    report("Session Score: rounding_reconciliation 0.0", math.isclose(res_perf["rounding_reconciliation"], 0.0))
+    report("Session Score: 5 komponen sempurna bernilai 1.0", all(
+        math.isclose(res_perf["components"][k]["score"], 1.0)
+        for k in ["topic", "goal", "style", "date", "mode"]
+    ))
+
+    # 15.2 Benchmark 99.10 (Andi & Sesi A)
+    # T=1.0, G=1.0, S=1.0, D=0.94 (90m, prio 1), M=1.0 -> 99.10
+    intent_andi = {
+        "intent_id": "intent-andi",
+        "student_id": "student-andi",
+        "topics": "Kalkulus Lanjut Integral",
+        "learning_goal": "UNDERSTAND",
+        "collaboration_style": "DISCUSSION",
+        "learning_mode": "HYBRID",
+    }
+    session_a = {
+        "session_id": "session-123",
+        "title": "Kalkulus Lanjut Integral",
+        "description": None,
+        "learning_goal": "UNDERSTAND",
+        "collaboration_style": "DISCUSSION",
+        "learning_mode": "HYBRID",
+    }
+    slots_a = [{
+        "date": "2026-11-16",
+        "start_time": "10:00",
+        "end_time": "11:30",
+        "duration_minutes": 90,
+        "priority_a": 1,
+        "priority_b": 1,
+    }]
+    res_a = calculate_session_score(intent_andi, session_a, slots_a)
+    report("Session Benchmark: Total score tepat 99.10", math.isclose(res_a["total_score"], 99.10))
+    report("Session Benchmark: rounding_reconciliation tepat 0.0", math.isclose(res_a["rounding_reconciliation"], 0.0))
+    sched_a = res_a["selected_schedule"]
+    report("Session Benchmark: selected_schedule durasi 90 menit", sched_a["duration_minutes"] == 90)
+    report("Session Benchmark: selected_schedule priority_score 1.0", math.isclose(sched_a["priority_score"], 1.0))
+    report("Session Benchmark: selected_schedule duration_score 0.8", math.isclose(sched_a["duration_score"], 0.8))
+    report("Session Benchmark: selected_schedule date_score 0.94", math.isclose(sched_a["date_score"], 0.94))
+
+    # 15.3 Topic dengan vs tanpa Description
+    # Kasus A: Tanpa description -> title saja
+    ses_no_desc = {
+        "session_id": "ses_nodesc",
+        "title": "Fisika Dasar Gelombang",
+        "description": "",
+        "learning_goal": "UNDERSTAND",
+        "collaboration_style": "DISCUSSION",
+        "learning_mode": "ONLINE",
+    }
+    # Kasus B: Dengan description -> title. description
+    ses_with_desc = {
+        "session_id": "ses_desc",
+        "title": "Fisika Dasar Gelombang",
+        "description": "Interferensi dan Difraksi Cahaya",
+        "learning_goal": "UNDERSTAND",
+        "collaboration_style": "DISCUSSION",
+        "learning_mode": "ONLINE",
+    }
+    intent_detailed = {
+        "intent_id": "int_det",
+        "student_id": "std_1",
+        "topics": "Interferensi dan Difraksi Cahaya",
+        "learning_goal": "UNDERSTAND",
+        "collaboration_style": "DISCUSSION",
+        "learning_mode": "ONLINE",
+    }
+    slot_std = [{
+        "date": "2026-11-16", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1
+    }]
+    res_no_desc = calculate_session_score(intent_detailed, ses_no_desc, slot_std)
+    res_with_desc = calculate_session_score(intent_detailed, ses_with_desc, slot_std)
+    report("Session Topic: Deskripsi memperluas konteks pencocokan topik", res_with_desc["total_score"] > res_no_desc["total_score"])
+    report("Session Topic: Nilai topic similarity lebih tinggi dengan deskripsi", (
+        res_with_desc["components"]["topic"]["score"] > res_no_desc["components"]["topic"]["score"]
+    ))
+
+    # 15.4 Integrasi Matriks Goal, Style, dan Mode (termasuk Alias)
+    intent_alias = {
+        "intent_id": "int_alias",
+        "student_id": "std_1",
+        "topics": "Kalkulus Lanjut Integral",
+        "learning_goal": "CONCEPT",        # Alias UNDERSTAND
+        "collaboration_style": "TEACHING", # Alias PEER_TUTORING
+        "learning_mode": "CAMPURAN",       # Alias HYBRID
+    }
+    ses_alias = {
+        "session_id": "ses_alias",
+        "title": "Kalkulus Lanjut Integral",
+        "description": "",
+        "learning_goal": "EXAM_PREP",      # Alias EXAM_PREPARATION
+        "collaboration_style": "DISCUSSION",
+        "learning_mode": "LURING",         # Alias OFFLINE
+    }
+    res_alias = calculate_session_score(intent_alias, ses_alias, slot_std)
+    # UNDERSTAND x EXAM_PREPARATION = 0.80
+    report("Session Matrices: Goal UNDERSTAND x EXAM_PREP == 0.80", math.isclose(res_alias["components"]["goal"]["score"], 0.80))
+    # PEER_TUTORING x DISCUSSION = 0.85
+    report("Session Matrices: Style PEER_TUTORING x DISCUSSION == 0.85", math.isclose(res_alias["components"]["style"]["score"], 0.85))
+    # HYBRID x OFFLINE = 0.85
+    report("Session Matrices: Mode HYBRID x OFFLINE == 0.85", math.isclose(res_alias["components"]["mode"]["score"], 0.85))
+
+    # 15.5 Prioritas Sesi (priority_b default 1 atau nilai spesifik)
+    slot_no_priob = [{
+        "date": "2026-11-16", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1
+    }]
+    res_no_pb = calculate_session_score(intent_perf, session_perf, slot_no_priob)
+    report("Session Priority: priority_b default ke 1 jika tidak disediakan", res_no_pb["selected_schedule"]["priority_b"] == 1)
+
+    slot_with_pb = [{
+        "date": "2026-11-16", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1, "priority_b": 2
+    }]
+    res_with_pb = calculate_session_score(intent_perf, session_perf, slot_with_pb)
+    report("Session Priority: priority_b dipertahankan jika disediakan", res_with_pb["selected_schedule"]["priority_b"] == 2)
+
+    # 15.6 Multi-Slot Schedule Selection & 4-Tier Deterministic Tie-Breaker
+    # Kasus A: Tier 1 - Date Score tertinggi
+    slots_tier1 = [
+        {"date": "2026-11-16", "start_time": "10:00", "end_time": "11:00", "duration_minutes": 60, "priority_a": 1},  # D=0.85
+        {"date": "2026-11-16", "start_time": "14:00", "end_time": "16:00", "duration_minutes": 120, "priority_a": 1}, # D=1.00
+    ]
+    res_t1 = calculate_session_score(intent_perf, session_perf, slots_tier1)
+    report("Session Tie-Breaker: Tier 1 Date Score tertinggi dipilih", res_t1["selected_schedule"]["duration_minutes"] == 120)
+
+    # Kasus B: Tier 3 - Priority_a terbaik saat durasi sama (prio 1 > prio 2)
+    slots_tier3 = [
+        {"date": "2026-11-16", "start_time": "10:00", "end_time": "11:30", "duration_minutes": 90, "priority_a": 2}, # prio 2 (D=0.73)
+        {"date": "2026-11-16", "start_time": "14:00", "end_time": "15:30", "duration_minutes": 90, "priority_a": 1}, # prio 1 (D=0.94)
+    ]
+    res_t3 = calculate_session_score(intent_perf, session_perf, slots_tier3)
+    report("Session Tie-Breaker: Tier 3 Priority_a terbaik (1 vs 2) dipilih", res_t3["selected_schedule"]["priority_a"] == 1)
+
+    # Kasus C: Tier 4 - Tanggal lebih awal saat date_score, durasi, dan priority sama
+    slots_tier4_date = [
+        {"date": "2026-11-20", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1},
+        {"date": "2026-11-16", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1},
+    ]
+    res_t4d = calculate_session_score(intent_perf, session_perf, slots_tier4_date)
+    report("Session Tie-Breaker: Tier 4 Tanggal paling awal (16 vs 20) dipilih", res_t4d["selected_schedule"]["date"] == "2026-11-16")
+
+    # Kasus D: Tier 4 - Jam mulai lebih awal pada tanggal yang sama
+    slots_tier4_time = [
+        {"date": "2026-11-16", "start_time": "14:00", "end_time": "16:00", "duration_minutes": 120, "priority_a": 1},
+        {"date": "2026-11-16", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120, "priority_a": 1},
+    ]
+    res_t4t = calculate_session_score(intent_perf, session_perf, slots_tier4_time)
+    report("Session Tie-Breaker: Tier 4 Jam mulai paling awal (09:00 vs 14:00) dipilih", res_t4t["selected_schedule"]["start_time"] == "09:00")
+
+    # 15.7 Common Slots Kosong & Format Invalid Ditolak (ValueError)
+    def assert_session_error(slots, label):
+        try:
+            calculate_session_score(intent_perf, session_perf, slots)
+            report(f"Session Validation: {label}", False, "Harusnya raise ValueError")
+        except ValueError:
+            report(f"Session Validation: {label}", True)
+
+    assert_session_error([], "Tolak common_slots kosong")
+    assert_session_error(["bukan dict"], "Tolak slot bukan Mapping")
+    assert_session_error([{"date": "2026-11-16"}], "Tolak slot tanpa field wajib")
+    assert_session_error([{"date": "2026-13-40", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1}], "Tolak format tanggal invalid")
+    assert_session_error([{"date": "2026-11-16", "start_time": "25:00", "end_time": "26:00", "duration_minutes": 60, "priority_a": 1}], "Tolak format jam invalid")
+    assert_session_error([{"date": "2026-11-16", "start_time": "14:00", "end_time": "10:00", "duration_minutes": 60, "priority_a": 1}], "Tolak waktu selesai lebih awal dari mulai")
+    assert_session_error([{"date": "2026-11-16", "start_time": "10:00", "end_time": "10:59", "duration_minutes": 59, "priority_a": 1}], "Tolak durasi < 60 menit")
+    assert_session_error([{"date": "2026-11-16", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 90, "priority_a": 1}], "Tolak duration_minutes tidak konsisten dengan selisih waktu")
+    assert_session_error([{"date": "2026-11-16", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 4}], "Tolak priority_a di luar {1, 2, 3}")
+    assert_session_error([{"date": "2026-11-16", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": True}], "Tolak priority_a bertipe boolean")
+    assert_session_error([{"date": "2026-11-16", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1, "priority_b": 0}], "Tolak priority_b di luar {1, 2, 3}")
+
+    # 15.8 Dukungan Format Objek ORM, Dict, dan Pydantic
+    orm_intent = DummyORMIntent("int_orm", "std_1", "Struktur Data Pohon Biner", "PRACTICE", "PRACTICE", "ONLINE")
+    orm_session = DummyORMSession("ses_orm", "Struktur Data Pohon Biner", "", "PRACTICE", "PRACTICE", "ONLINE")
+    res_orm = calculate_session_score(orm_intent, orm_session, slot_perf)
+    report("Session Object Support: ORM model menghasilkan skor 100", math.isclose(res_orm["total_score"], 100.00))
+
+    pyd_intent = DummyPydanticIntent(
+        intent_id="int_pyd", student_id="std_1", topics="Struktur Data Pohon Biner",
+        learning_goal="PRACTICE", collaboration_style="PRACTICE", learning_mode="ONLINE"
+    )
+    pyd_session = DummyPydanticSession(
+        session_id="ses_pyd", title="Struktur Data Pohon Biner", description="",
+        learning_goal="PRACTICE", collaboration_style="PRACTICE", learning_mode="ONLINE"
+    )
+    res_pyd = calculate_session_score(pyd_intent, pyd_session, slot_perf)
+    report("Session Object Support: Pydantic model menghasilkan skor 100", math.isclose(res_pyd["total_score"], 100.00))
+    report("Session Object Support: ORM, Dict, dan Pydantic identik", res_perf["total_score"] == res_orm["total_score"] == res_pyd["total_score"])
+
+    # 15.9 Penolakan Mandatory Objek & Field Kosong
+    def assert_obj_error(i, s, label):
+        try:
+            calculate_session_score(i, s, slot_perf)
+            report(f"Session Mandatory: {label}", False, "Harusnya raise ValueError")
+        except ValueError:
+            report(f"Session Mandatory: {label}", True)
+
+    assert_obj_error(None, session_perf, "Tolak intent None")
+    assert_obj_error(intent_perf, None, "Tolak session None")
+    assert_obj_error(dict(intent_perf, topics=""), session_perf, "Tolak intent topics kosong")
+    assert_obj_error(intent_perf, dict(session_perf, title=""), "Tolak session title kosong")
+    assert_obj_error(dict(intent_perf, learning_goal=None), session_perf, "Tolak intent tanpa goal")
+    assert_obj_error(intent_perf, dict(session_perf, learning_goal=None), "Tolak session tanpa goal")
+    assert_obj_error(dict(intent_perf, collaboration_style=None), session_perf, "Tolak intent tanpa style")
+    assert_obj_error(intent_perf, dict(session_perf, collaboration_style=None), "Tolak session tanpa style")
+    assert_obj_error(dict(intent_perf, learning_mode=None), session_perf, "Tolak intent tanpa mode")
+    assert_obj_error(intent_perf, dict(session_perf, learning_mode=None), "Tolak session tanpa mode")
+
+    # 15.10 Konsistensi Breakdown
+    sum_contrib = sum(comp["contribution"] for comp in res_a["components"].values())
+    report("Session Breakdown: sum(contributions) tepat sama dengan total_score (99.10)", math.isclose(sum_contrib, res_a["total_score"]))
+
+
+# ==============================================================================
+# SUITE 16: PARTNER SCORING ENGINE (TAHAP 15.5)
+# ==============================================================================
+
+def test_partner_scoring():
+    print("\n--- SUITE 16: Partner Scoring Engine (Tahap 15.5) ---")
+
+    # 16.1 Skor Sempurna 100
+    intent_perf_a = {
+        "intent_id": "int_perf_a",
+        "student_id": "std_andi",
+        "topics": "Pemrograman Web React",
+        "learning_goal": "PRACTICE",
+        "collaboration_style": "PRACTICE",
+        "learning_mode": "ONLINE",
+    }
+    intent_perf_b = {
+        "intent_id": "int_perf_b",
+        "student_id": "std_budi",
+        "topics": "Pemrograman Web React",
+        "learning_goal": "PRACTICE",
+        "collaboration_style": "PRACTICE",
+        "learning_mode": "ONLINE",
+    }
+    slot_perf_p = [{
+        "date": "2026-11-16",
+        "start_time": "10:00",
+        "end_time": "12:00",
+        "duration_minutes": 120,
+        "priority_a": 1,
+        "priority_b": 1,
+    }]
+    res_perf = calculate_partner_score(intent_perf_a, intent_perf_b, slot_perf_p)
+    report("Partner Score: Skor sempurna 100.00", math.isclose(res_perf["total_score"], 100.00))
+    report("Partner Score: candidate_type == 'PARTNER'", res_perf["candidate_type"] == "PARTNER")
+    report("Partner Score: target_intent_id == 'int_perf_b'", res_perf["target_intent_id"] == "int_perf_b")
+    report("Partner Score: student_id == 'std_budi'", res_perf["student_id"] == "std_budi")
+    report("Partner Score: rounding_reconciliation 0.0", math.isclose(res_perf["rounding_reconciliation"], 0.0))
+    report("Partner Score: 5 komponen sempurna bernilai 1.0", all(
+        math.isclose(res_perf["components"][k]["score"], 1.0)
+        for k in ["topic", "goal", "style", "date", "mode"]
+    ))
+
+    # 16.2 Benchmark 90.18 (Andi & Budi) dengan Nilai Komponen Eksplisit
+    # T=1.00, G=0.85 (UNDERSTAND x PRACTICE), S=0.85 (DISCUSSION x PEER_TUTORING),
+    # D=0.895 (120m, prio 1x2 -> 0.70*0.85 + 0.30*1.0), M=0.85 (HYBRID x OFFLINE)
+    # Total = 100 * (0.30*1.0 + 0.25*0.85 + 0.15*0.85 + 0.15*0.895 + 0.15*0.85) = 90.175 -> 90.18
+    intent_andi = {
+        "intent_id": "intent-andi",
+        "student_id": "student-andi",
+        "topics": "Kalkulus Lanjut Integral",
+        "learning_goal": "UNDERSTAND",
+        "collaboration_style": "DISCUSSION",
+        "learning_mode": "HYBRID",
+    }
+    intent_budi = {
+        "intent_id": "intent-budi",
+        "student_id": "student-budi",
+        "topics": "Kalkulus Lanjut Integral",
+        "learning_goal": "PRACTICE",
+        "collaboration_style": "PEER_TUTORING",
+        "learning_mode": "OFFLINE",
+    }
+    slots_budi = [{
+        "date": "2026-11-16",
+        "start_time": "10:00",
+        "end_time": "12:00",
+        "duration_minutes": 120,
+        "priority_a": 1,
+        "priority_b": 2,
+    }]
+    res_budi = calculate_partner_score(intent_andi, intent_budi, slots_budi)
+    report("Partner Benchmark: Total score tepat 90.18", math.isclose(res_budi["total_score"], 90.18))
+    report("Partner Benchmark: rounding_reconciliation tepat 0.0", math.isclose(res_budi["rounding_reconciliation"], 0.0))
+    report("Partner Benchmark: Topic score tepat 1.00", math.isclose(res_budi["components"]["topic"]["score"], 1.00))
+    report("Partner Benchmark: Goal score tepat 0.85", math.isclose(res_budi["components"]["goal"]["score"], 0.85))
+    report("Partner Benchmark: Style score tepat 0.85", math.isclose(res_budi["components"]["style"]["score"], 0.85))
+    report("Partner Benchmark: Date score tepat 0.895", math.isclose(res_budi["components"]["date"]["score"], 0.895))
+    report("Partner Benchmark: Mode score tepat 0.85", math.isclose(res_budi["components"]["mode"]["score"], 0.85))
+    report("Partner Benchmark: Date contribution terekonsiliasi tepat 13.43", math.isclose(res_budi["components"]["date"]["contribution"], 13.43))
+    sum_budi = sum(comp["contribution"] for comp in res_budi["components"].values())
+    report("Partner Benchmark: Jumlah kontribusi tepat 90.18", math.isclose(sum_budi, 90.18))
+
+    # 16.3 Prioritas Pasangan & priority_pair_key (Minimax)
+    # Slot 1: prio_a=1, prio_b=3 -> minimax=3, priority_score = 0.55
+    # Slot 2: prio_a=2, prio_b=2 -> minimax=2, priority_score = 0.70
+    slots_minimax = [
+        {"date": "2026-11-16", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1, "priority_b": 3},
+        {"date": "2026-11-16", "start_time": "14:00", "end_time": "16:00", "duration_minutes": 120, "priority_a": 2, "priority_b": 2},
+    ]
+    res_mm = calculate_partner_score(intent_perf_a, intent_perf_b, slots_minimax)
+    report("Partner Minimax: Slot dengan minimax lebih baik (2, 2) dipilih dibanding (1, 3)", (
+        res_mm["selected_schedule"]["priority_a"] == 2 and res_mm["selected_schedule"]["priority_b"] == 2
+    ))
+
+    # 16.4 Multi-Slot Schedule Selection & 4-Tier Tie-Breaker
+    # Tier 3: priority_pair_key pemecah seri (1, 2) vs (2, 1) -> (1, 2) menang karena prio_a lebih kecil
+    slots_tie_prio = [
+        {"date": "2026-11-16", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 2, "priority_b": 1},
+        {"date": "2026-11-16", "start_time": "14:00", "end_time": "16:00", "duration_minutes": 120, "priority_a": 1, "priority_b": 2},
+    ]
+    res_tp = calculate_partner_score(intent_perf_a, intent_perf_b, slots_tie_prio)
+    report("Partner Tie-Breaker: priority_pair_key memilih (1, 2) dibanding (2, 1)", (
+        res_tp["selected_schedule"]["priority_a"] == 1 and res_tp["selected_schedule"]["priority_b"] == 2
+    ))
+
+    # Tier 4: Tanggal paling awal saat Date Score, durasi, dan pasangan prioritas identik
+    slots_tie_date = [
+        {"date": "2026-11-20", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1, "priority_b": 1},
+        {"date": "2026-11-16", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1, "priority_b": 1},
+    ]
+    res_td = calculate_partner_score(intent_perf_a, intent_perf_b, slots_tie_date)
+    report("Partner Tie-Breaker: Tanggal paling awal (16 vs 20) dipilih", res_td["selected_schedule"]["date"] == "2026-11-16")
+
+    # 16.5 Penilaian Terpisah 2 Intent dari Mahasiswa yang Sama
+    cand_budi_intent1 = {
+        "intent_id": "int_budi_1",
+        "student_id": "std_budi",
+        "topics": "Kalkulus Lanjut Integral",
+        "learning_goal": "PRACTICE",
+        "collaboration_style": "PEER_TUTORING",
+        "learning_mode": "OFFLINE",
+    }
+    cand_budi_intent2 = {
+        "intent_id": "int_budi_2",
+        "student_id": "std_budi",
+        "topics": "Fisika Dasar Termodinamika",
+        "learning_goal": "PROJECT",
+        "collaboration_style": "FOCUS_STUDY",
+        "learning_mode": "OFFLINE",
+    }
+    res_b1 = calculate_partner_score(intent_andi, cand_budi_intent1, slots_budi)
+    res_b2 = calculate_partner_score(intent_andi, cand_budi_intent2, slots_budi)
+    report("Partner Multi-Intent: Kedua intent dinilai secara independen", res_b1["target_intent_id"] != res_b2["target_intent_id"])
+    report("Partner Multi-Intent: Kedua hasil memiliki student_id yang sama", res_b1["student_id"] == res_b2["student_id"] == "std_budi")
+    report("Partner Multi-Intent: Intent relevan menghasilkan skor lebih tinggi (90.18 vs <50)", res_b1["total_score"] > res_b2["total_score"])
+    report("Partner Multi-Intent: Skor intent 1 tepat 90.18", math.isclose(res_b1["total_score"], 90.18))
+
+    # 16.6 Validasi Input & Penolakan Mandatory (ValueError)
+    def assert_partner_error(ia, ib, slots, label):
+        try:
+            calculate_partner_score(ia, ib, slots)
+            report(f"Partner Validation: {label}", False, "Harusnya raise ValueError")
+        except ValueError:
+            report(f"Partner Validation: {label}", True)
+
+    assert_partner_error(None, intent_perf_b, slot_perf_p, "Tolak intent_a None")
+    assert_partner_error(intent_perf_a, None, slot_perf_p, "Tolak intent_b None")
+    assert_partner_error(intent_perf_a, intent_perf_b, [], "Tolak common_slots kosong")
+    assert_partner_error(
+        intent_perf_a, intent_perf_b,
+        [{"date": "2026-11-16", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1}],
+        "Tolak slot tanpa priority_b untuk partner"
+    )
+    assert_partner_error(
+        intent_perf_a, intent_perf_b,
+        [{"date": "2026-11-16", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120, "priority_a": 1, "priority_b": 4}],
+        "Tolak priority_b di luar {1, 2, 3}"
+    )
+    assert_partner_error(
+        intent_perf_a, dict(intent_perf_b, student_id=None), slot_perf_p, "Tolak intent_b tanpa student_id"
+    )
+    assert_partner_error(
+        dict(intent_perf_a, topics=""), intent_perf_b, slot_perf_p, "Tolak intent_a topics kosong"
+    )
+    assert_partner_error(
+        intent_perf_a, dict(intent_perf_b, topics=""), slot_perf_p, "Tolak intent_b topics kosong"
+    )
+    assert_partner_error(
+        dict(intent_perf_a, learning_goal=None), intent_perf_b, slot_perf_p, "Tolak intent_a tanpa goal"
+    )
+    assert_partner_error(
+        intent_perf_a, dict(intent_perf_b, learning_goal=None), slot_perf_p, "Tolak intent_b tanpa goal"
+    )
+    assert_partner_error(
+        dict(intent_perf_a, collaboration_style=None), intent_perf_b, slot_perf_p, "Tolak intent_a tanpa style"
+    )
+    assert_partner_error(
+        intent_perf_a, dict(intent_perf_b, collaboration_style=None), slot_perf_p, "Tolak intent_b tanpa style"
+    )
+    assert_partner_error(
+        dict(intent_perf_a, learning_mode=None), intent_perf_b, slot_perf_p, "Tolak intent_a tanpa mode"
+    )
+    assert_partner_error(
+        intent_perf_a, dict(intent_perf_b, learning_mode=None), slot_perf_p, "Tolak intent_b tanpa mode"
+    )
+
+    # 16.7 Dukungan Format ORM, Dict, dan Pydantic
+    orm_ia = DummyORMIntent("int_orm_a", "std_andi", "Pemrograman Web React", "PRACTICE", "PRACTICE", "ONLINE")
+    orm_ib = DummyORMIntent("int_orm_b", "std_budi", "Pemrograman Web React", "PRACTICE", "PRACTICE", "ONLINE")
+    res_orm_p = calculate_partner_score(orm_ia, orm_ib, slot_perf_p)
+    report("Partner Object Support: ORM model menghasilkan skor 100", math.isclose(res_orm_p["total_score"], 100.00))
+
+    pyd_ia = DummyPydanticIntent(
+        intent_id="int_pyd_a", student_id="std_andi", topics="Pemrograman Web React",
+        learning_goal="PRACTICE", collaboration_style="PRACTICE", learning_mode="ONLINE"
+    )
+    pyd_ib = DummyPydanticIntent(
+        intent_id="int_pyd_b", student_id="std_budi", topics="Pemrograman Web React",
+        learning_goal="PRACTICE", collaboration_style="PRACTICE", learning_mode="ONLINE"
+    )
+    res_pyd_p = calculate_partner_score(pyd_ia, pyd_ib, slot_perf_p)
+    report("Partner Object Support: Pydantic model menghasilkan skor 100", math.isclose(res_pyd_p["total_score"], 100.00))
+    report("Partner Object Support: ORM, Dict, dan Pydantic identik", res_perf["total_score"] == res_orm_p["total_score"] == res_pyd_p["total_score"])
+
+    # 16.8 Invariansi Bobot & Formula Tahap 15.4
+    report("Partner Invariance: Bobot Topic == 0.30", math.isclose(WEIGHT_TOPIC, 0.30))
+    report("Partner Invariance: Bobot Goal == 0.25", math.isclose(WEIGHT_GOAL, 0.25))
+    report("Partner Invariance: Bobot Style == 0.15", math.isclose(WEIGHT_STYLE, 0.15))
+    report("Partner Invariance: Bobot Date == 0.15", math.isclose(WEIGHT_DATE, 0.15))
+    report("Partner Invariance: Bobot Mode == 0.15", math.isclose(WEIGHT_MODE, 0.15))
+
+    # 16.9 Konsistensi Breakdown
+    sum_contrib_p = sum(comp["contribution"] for comp in res_budi["components"].values())
+    report("Partner Breakdown: sum(contributions) tepat sama dengan total_score (90.18)", math.isclose(sum_contrib_p, res_budi["total_score"]))
+
+
 def run_tests():
     print("=" * 70)
-    print("RUNNING DAY 15: SOFT CONSTRAINT SCORING TEST SUITE (TAHAP 15.1 - 15.4)")
+    print("RUNNING DAY 15: SOFT CONSTRAINT SCORING TEST SUITE (TAHAP 15.1 - 15.5)")
     print("=" * 70)
 
     test_canonicalizers()
@@ -839,6 +1356,8 @@ def run_tests():
     test_learning_mode_compatibility()
     test_weighted_compatibility_score()
     test_compatibility_breakdown()
+    test_session_scoring()
+    test_partner_scoring()
 
     print("\n" + "=" * 70)
     print(f"TEST RESULT SUMMARY: {passed_count}/{total_count} TESTS PASSED (100% SUCCESS)")

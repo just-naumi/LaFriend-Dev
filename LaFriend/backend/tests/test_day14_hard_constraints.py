@@ -572,7 +572,7 @@ def run_tests():
     except ValidationError:
         report("Schema: Tolak priority_rank=0", True)
 
-    # 7.5 Deduplikasi kandidat partner (1 mahasiswa hanya muncul 1 kali)
+    # 7.5 Deduplikasi kandidat partner (Intent lolos per intent_id, deduplikasi duplikat intent_id)
     cand_budi_intent1 = FullDummyCandidateIntent(
         iid="int_budi_1",
         student=std_budi,
@@ -591,8 +591,13 @@ def run_tests():
         latest="2026-11-25",
         slots=[DummySlot("Rabu", "10:00", "12:00")]
     )
-    res_dedup_partners = filter_candidate_partners(intent_andi, [cand_budi_intent1, cand_budi_intent2])
-    report("Partner: 1 mahasiswa dengan 2 intent hanya muncul 1 kali", len(res_dedup_partners) == 1)
+    # Dua intent berbeda dari mahasiswa yang sama lolos filter Day 14 agar dapat diskor terpisah di Day 15.5
+    res_distinct_partners = filter_candidate_partners(intent_andi, [cand_budi_intent1, cand_budi_intent2])
+    report("Partner: 2 intent berbeda dari mahasiswa yang sama lolos Day 14 untuk scoring Day 15", len(res_distinct_partners) == 2)
+
+    # Duplikasi intent_id yang identik tetap dideduplikasi pada Day 14
+    res_dedup_partners = filter_candidate_partners(intent_andi, [cand_budi_intent1, cand_budi_intent1])
+    report("Partner: Intent dengan intent_id identik hanya muncul 1 kali pada Day 14", len(res_dedup_partners) == 1)
 
     # 7.6 Pertahankan prioritas terbaik saat deduplikasi slot
     w_prio1 = [{"date": "2026-11-20", "start_time": "10:00", "end_time": "12:00", "priority": 3}]

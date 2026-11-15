@@ -3,7 +3,9 @@
 
 import re
 import math
-from typing import Any, Dict, List, Optional, Tuple, Union
+from datetime import datetime
+from decimal import Decimal, ROUND_HALF_UP
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 # ==============================================================================
 # 1. ENUM KANONIS & CANONICALIZER
@@ -759,6 +761,13 @@ def validate_component_score(score: Any, name: str) -> float:
     return float_val
 
 
+def _round_half_up(val: float, decimals: int = 2) -> float:
+    """Pembulatan presisi desimal standar (ROUND_HALF_UP) untuk mengatasi artefak biner IEEE 754."""
+    s_val = f"{val:.8f}"
+    d = Decimal(s_val).quantize(Decimal("10") ** -decimals, rounding=ROUND_HALF_UP)
+    return float(d)
+
+
 def calculate_compatibility_score(
     topic_score: Any,
     goal_score: Any,
@@ -773,7 +782,7 @@ def calculate_compatibility_score(
     Aturan Day 15:
     - Seluruh 5 komponen (T, G, S, D, M) wajib tersedia dalam rentang [0.0, 1.0].
     - Tidak boleh ada normalisasi ulang bobot jika ada komponen yang hilang/None (wajib raise ValueError).
-    - Skor dibatasi pada rentang [0.0, 100.0] dan dibulatkan 2 desimal (round(score, 2)).
+    - Skor dibatasi pada rentang [0.0, 100.0] dan dibulatkan 2 desimal (round half-up).
     """
     t = validate_component_score(topic_score, "topic")
     g = validate_component_score(goal_score, "goal")
@@ -789,7 +798,7 @@ def calculate_compatibility_score(
         WEIGHT_MODE * m
     )
     clamped = max(0.0, min(100.0, raw_score))
-    return round(clamped, 2)
+    return _round_half_up(clamped, 2)
 
 
 def calculate_compatibility_breakdown(
@@ -827,8 +836,8 @@ def calculate_compatibility_breakdown(
 
     total_score = calculate_compatibility_score(t, g, s, d, m)
 
-    # Pembulatan awal 2 desimal
-    rounded_contribs = {k: round(v, 2) for k, v in raw_contribs.items()}
+    # Pembulatan awal 2 desimal dengan ROUND_HALF_UP
+    rounded_contribs = {k: _round_half_up(v, 2) for k, v in raw_contribs.items()}
     adjustments = {k: 0.0 for k in raw_contribs}
 
     diff = round(total_score - sum(rounded_contribs.values()), 2)
@@ -893,6 +902,410 @@ def calculate_compatibility_breakdown(
                 "rounding_adjustment": adjustments["mode"],
             },
         },
+    }
+
+
+# ==============================================================================
+# 5. TAHAP 15.5: SESSION SCORING & PARTNER SCORING ENGINE
+# ==============================================================================
+
+def _get_field(obj: Any, field: str, default: Any = None) -> Any:
+    """
+    Membaca nilai field secara seragam dari objek SQLAlchemy ORM, Pydantic Schema, atau Mapping/dict.
+    Tidak melakukan query database dan aman terhadap objek None.
+    """
+    if obj is None:
+        return default
+    if isinstance(obj, Mapping):
+        val = obj.get(field, default)
+        return val if val is not None else default
+    val = getattr(obj, field, default)
+    return val if val is not None else default
+
+
+def priority_pair_key(priority_a: int, priority_b: int) -> Tuple[int, int, int, int]:
+    """
+    Kriteria pemilihan pasangan prioritas jadwal terbaik secara holistik (bukan independen):
+    1. Minimalkan nilai prioritas terburuk (minimax: max(prio_a, prio_b)).
+    2. Minimalkan total prioritas (prio_a + prio_b).
+    3. Pemecah seri prioritas A, lalu prioritas B.
+    Peringkat angka lebih kecil = prioritas lebih tinggi (1 = Utama, 2 = Cadangan, 3 = Fleksibel).
+    """
+    return (
+        max(priority_a, priority_b),
+        priority_a + priority_b,
+        priority_a,
+        priority_b,
+    )
+
+
+def _validate_common_slot(slot: Mapping[str, Any], for_partner: bool = False) -> None:
+    """
+    Memvalidasi integritas struktur dan nilai dari satu slot jadwal (common slot).
+    Menolak slot dengan field tidak lengkap, format salah, durasi < 60 menit,
+    atau prioritas tidak valid.
+    """
+    if not isinstance(slot, Mapping):
+        raise ValueError("Setiap slot dalam common_slots harus berupa Mapping/dict")
+
+    required_keys = ["date", "start_time", "end_time", "duration_minutes", "priority_a"]
+    if for_partner:
+        required_keys.append("priority_b")
+
+    for key in required_keys:
+        if key not in slot or slot[key] is None:
+            raise ValueError(f"Slot jadwal tidak memiliki field wajib '{key}'")
+
+    # Validasi format tanggal YYYY-MM-DD
+    date_val = slot["date"]
+    if not isinstance(date_val, str) or not date_val.strip():
+        raise ValueError("Field 'date' pada slot harus berupa string non-kosong")
+    try:
+        datetime.strptime(date_val.strip(), "%Y-%m-%d")
+    except (ValueError, TypeError):
+        raise ValueError(f"Format tanggal invalid: '{date_val}', harus YYYY-MM-DD")
+
+    # Validasi format waktu HH:MM
+    start_str = slot["start_time"]
+    end_str = slot["end_time"]
+    if not isinstance(start_str, str) or not isinstance(end_str, str):
+        raise ValueError("Field 'start_time' dan 'end_time' harus berupa string")
+
+    try:
+        s_parts = start_str.strip().split(":")
+        e_parts = end_str.strip().split(":")
+        if len(s_parts) != 2 or len(e_parts) != 2:
+            raise ValueError
+        sh, sm = int(s_parts[0]), int(s_parts[1])
+        eh, em = int(e_parts[0]), int(e_parts[1])
+        if not (0 <= sh <= 23 and 0 <= sm <= 59 and 0 <= eh <= 23 and 0 <= em <= 59):
+            raise ValueError
+    except Exception:
+        raise ValueError(f"Format waktu invalid: '{start_str}' atau '{end_str}', harus HH:MM")
+
+    start_mins = sh * 60 + sm
+    end_mins = eh * 60 + em
+    calc_dur = end_mins - start_mins
+    if calc_dur <= 0:
+        raise ValueError(f"Waktu selesai '{end_str}' harus lebih besar dari waktu mulai '{start_str}'")
+
+    # Validasi duration_minutes
+    dur = slot["duration_minutes"]
+    if isinstance(dur, bool) or not isinstance(dur, int):
+        raise ValueError("Field 'duration_minutes' harus bertipe integer")
+    if dur < 60:
+        raise ValueError(f"Durasi irisan jadwal minimal 60 menit, diterima {dur} menit")
+    if dur != calc_dur:
+        raise ValueError(
+            f"Field 'duration_minutes' ({dur}) tidak konsisten dengan selisih waktu ({calc_dur} menit)"
+        )
+
+    # Validasi priority_a
+    prio_a = slot["priority_a"]
+    if isinstance(prio_a, bool) or not isinstance(prio_a, int) or prio_a not in (1, 2, 3):
+        raise ValueError(f"Nilai priority_a harus 1, 2, atau 3, diterima: {prio_a}")
+
+    # Validasi priority_b
+    prio_b = slot.get("priority_b")
+    if for_partner:
+        if isinstance(prio_b, bool) or not isinstance(prio_b, int) or prio_b not in (1, 2, 3):
+            raise ValueError(f"Nilai priority_b harus 1, 2, atau 3 untuk partner slot, diterima: {prio_b}")
+    else:
+        if prio_b is not None:
+            if isinstance(prio_b, bool) or not isinstance(prio_b, int) or prio_b not in (1, 2, 3):
+                raise ValueError(f"Nilai priority_b harus 1, 2, atau 3 jika disediakan, diterima: {prio_b}")
+
+
+def select_best_session_schedule(
+    common_slots: Sequence[Mapping[str, Any]]
+) -> Tuple[Dict[str, Any], float]:
+    """
+    Memilih jadwal terbaik untuk Study Session berdasarkan 4 tingkat penentu (tie-breaker):
+    1. Date Score tertinggi.
+    2. Durasi irisan terpanjang (duration_minutes lebih besar).
+    3. Prioritas terbaik (priority_a terkecil: 1 > 2 > 3).
+    4. Waktu paling awal (tanggal paling awal, jam mulai paling awal).
+    """
+    if not common_slots:
+        raise ValueError("common_slots untuk Session tidak boleh kosong")
+
+    evaluated_slots = []
+    for slot in common_slots:
+        _validate_common_slot(slot, for_partner=False)
+        dur = slot["duration_minutes"]
+        prio_a = slot["priority_a"]
+        prio_b = slot.get("priority_b", 1)
+        if prio_b is None:
+            prio_b = 1
+
+        p_score = calculate_session_priority_score(prio_a)
+        l_score = calculate_duration_score(dur)
+        d_score = calculate_date_score(p_score, l_score)
+
+        sched_info = {
+            "date": str(slot["date"]).strip(),
+            "start_time": str(slot["start_time"]).strip(),
+            "end_time": str(slot["end_time"]).strip(),
+            "duration_minutes": dur,
+            "priority_a": prio_a,
+            "priority_b": prio_b,
+            "priority_score": round(p_score, 4),
+            "duration_score": round(l_score, 4),
+            "date_score": round(d_score, 4),
+        }
+        # Sort key: (-d_score, -dur, prio_a, date, start_time)
+        sort_key = (
+            -d_score,
+            -dur,
+            prio_a,
+            sched_info["date"],
+            sched_info["start_time"],
+        )
+        evaluated_slots.append((sort_key, sched_info, d_score))
+
+    evaluated_slots.sort(key=lambda item: item[0])
+    best = evaluated_slots[0]
+    return best[1], best[2]
+
+
+def select_best_partner_schedule(
+    common_slots: Sequence[Mapping[str, Any]]
+) -> Tuple[Dict[str, Any], float]:
+    """
+    Memilih jadwal terbaik untuk Study Partner berdasarkan 4 tingkat penentu (tie-breaker):
+    1. Date Score tertinggi.
+    2. Durasi irisan terpanjang (duration_minutes lebih besar).
+    3. Prioritas pasangan terbaik via priority_pair_key (minimax, sum, prio_a, prio_b).
+    4. Waktu paling awal (tanggal paling awal, jam mulai paling awal).
+    """
+    if not common_slots:
+        raise ValueError("common_slots untuk Partner tidak boleh kosong")
+
+    evaluated_slots = []
+    for slot in common_slots:
+        _validate_common_slot(slot, for_partner=True)
+        dur = slot["duration_minutes"]
+        prio_a = slot["priority_a"]
+        prio_b = slot["priority_b"]
+
+        p_score = calculate_priority_score(prio_a, prio_b)
+        l_score = calculate_duration_score(dur)
+        d_score = calculate_date_score(p_score, l_score)
+
+        sched_info = {
+            "date": str(slot["date"]).strip(),
+            "start_time": str(slot["start_time"]).strip(),
+            "end_time": str(slot["end_time"]).strip(),
+            "duration_minutes": dur,
+            "priority_a": prio_a,
+            "priority_b": prio_b,
+            "priority_score": round(p_score, 4),
+            "duration_score": round(l_score, 4),
+            "date_score": round(d_score, 4),
+        }
+        # Sort key: (-d_score, -dur, priority_pair_key(prio_a, prio_b), date, start_time)
+        sort_key = (
+            -d_score,
+            -dur,
+            priority_pair_key(prio_a, prio_b),
+            sched_info["date"],
+            sched_info["start_time"],
+        )
+        evaluated_slots.append((sort_key, sched_info, d_score))
+
+    evaluated_slots.sort(key=lambda item: item[0])
+    best = evaluated_slots[0]
+    return best[1], best[2]
+
+
+def calculate_session_score(
+    intent: Any,
+    session: Any,
+    common_slots: Sequence[Mapping[str, Any]],
+    embedding_service: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """
+    Menghitung skor kompatibilitas antara StudyIntent pengguna dengan kandidat StudySession.
+    Memadukan lima dimensi penilaian: Topic, Goal, Style, Date (jadwal terbaik), dan Mode.
+    Mengembalikan dictionary hasil penilaian kompatibel dengan schema MatchResult.
+    """
+    if intent is None:
+        raise ValueError("Objek intent tidak boleh None")
+    if session is None:
+        raise ValueError("Objek session tidak boleh None")
+
+    intent_id = _get_field(intent, "intent_id") or _get_field(intent, "id")
+    if not intent_id:
+        raise ValueError("Objek intent harus memiliki 'intent_id' atau 'id'")
+
+    session_id = _get_field(session, "session_id") or _get_field(session, "id")
+    if not session_id:
+        raise ValueError("Objek session harus memiliki 'session_id' atau 'id'")
+
+    # 1. Topic Similarity: intent.topics vs session.title (+ description)
+    intent_topics = _get_field(intent, "topics")
+    if not intent_topics or not str(intent_topics).strip():
+        raise ValueError("StudyIntent harus memiliki 'topics' yang tidak kosong")
+    intent_topic_text = str(intent_topics).strip()
+
+    session_title = _get_field(session, "title")
+    if not session_title or not str(session_title).strip():
+        raise ValueError("StudySession harus memiliki 'title' yang tidak kosong")
+    title_text = str(session_title).strip()
+
+    session_desc = _get_field(session, "description")
+    desc_text = str(session_desc).strip() if session_desc else ""
+    session_topic_text = f"{title_text}. {desc_text}" if desc_text else title_text
+
+    topic_score = calculate_topic_similarity(
+        intent_topic_text, session_topic_text, embedding_service=embedding_service
+    )
+
+    # 2. Learning Goal Compatibility
+    intent_goal = _get_field(intent, "learning_goal")
+    session_goal = _get_field(session, "learning_goal")
+    if not intent_goal:
+        raise ValueError("StudyIntent harus memiliki 'learning_goal'")
+    if not session_goal:
+        raise ValueError("StudySession harus memiliki 'learning_goal'")
+    goal_score = calculate_goal_compatibility(intent_goal, session_goal)
+
+    # 3. Collaboration Style Compatibility
+    intent_style = _get_field(intent, "collaboration_style")
+    session_style = _get_field(session, "collaboration_style")
+    if not intent_style:
+        raise ValueError("StudyIntent harus memiliki 'collaboration_style'")
+    if not session_style:
+        raise ValueError("StudySession harus memiliki 'collaboration_style'")
+    style_score = calculate_style_compatibility(intent_style, session_style)
+
+    # 4. Learning Mode Compatibility
+    intent_mode = _get_field(intent, "learning_mode")
+    session_mode = _get_field(session, "learning_mode")
+    if not intent_mode:
+        raise ValueError("StudyIntent harus memiliki 'learning_mode'")
+    if not session_mode:
+        raise ValueError("StudySession harus memiliki 'learning_mode'")
+    mode_score = calculate_mode_compatibility(intent_mode, session_mode)
+
+    # 5. Date & Schedule Compatibility (Best Schedule Selection)
+    selected_sched, date_score = select_best_session_schedule(common_slots)
+
+    # 6. Compatibility Breakdown & Total Score
+    breakdown = calculate_compatibility_breakdown(
+        topic_score=topic_score,
+        goal_score=goal_score,
+        style_score=style_score,
+        date_score=date_score,
+        mode_score=mode_score,
+    )
+
+    return {
+        "intent_id": str(intent_id),
+        "candidate_type": "SESSION",
+        "candidate_session_id": str(session_id),
+        "total_score": breakdown["total_score"],
+        "rounding_reconciliation": breakdown["rounding_reconciliation"],
+        "components": breakdown["components"],
+        "selected_schedule": selected_sched,
+    }
+
+
+def calculate_partner_score(
+    intent_a: Any,
+    intent_b: Any,
+    common_slots: Sequence[Mapping[str, Any]],
+    embedding_service: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """
+    Menghitung skor kompatibilitas antara dua StudyIntent (pengguna dan kandidat partner).
+    Memadukan lima dimensi penilaian: Topic, Goal, Style, Date (jadwal terbaik pasangan), dan Mode.
+    Mengembalikan dictionary hasil penilaian kompatibel dengan schema MatchResult.
+    """
+    if intent_a is None:
+        raise ValueError("Objek intent_a tidak boleh None")
+    if intent_b is None:
+        raise ValueError("Objek intent_b tidak boleh None")
+
+    intent_a_id = _get_field(intent_a, "intent_id") or _get_field(intent_a, "id")
+    if not intent_a_id:
+        raise ValueError("Objek intent_a harus memiliki 'intent_id' atau 'id'")
+
+    intent_b_id = _get_field(intent_b, "intent_id") or _get_field(intent_b, "id")
+    if not intent_b_id:
+        raise ValueError("Objek intent_b harus memiliki 'intent_id' atau 'id'")
+
+    student_b_id = _get_field(intent_b, "student_id")
+    if not student_b_id:
+        cand_student = _get_field(intent_b, "student")
+        if cand_student:
+            student_b_id = _get_field(cand_student, "student_id") or _get_field(cand_student, "id")
+    if not student_b_id:
+        raise ValueError("Kandidat partner intent_b harus memiliki 'student_id'")
+
+    # 1. Topic Similarity: intent_a.topics vs intent_b.topics
+    topic_a = _get_field(intent_a, "topics")
+    if not topic_a or not str(topic_a).strip():
+        raise ValueError("StudyIntent intent_a harus memiliki 'topics' yang tidak kosong")
+    topic_a_text = str(topic_a).strip()
+
+    topic_b = _get_field(intent_b, "topics")
+    if not topic_b or not str(topic_b).strip():
+        raise ValueError("StudyIntent intent_b harus memiliki 'topics' yang tidak kosong")
+    topic_b_text = str(topic_b).strip()
+
+    topic_score = calculate_topic_similarity(
+        topic_a_text, topic_b_text, embedding_service=embedding_service
+    )
+
+    # 2. Learning Goal Compatibility
+    goal_a = _get_field(intent_a, "learning_goal")
+    goal_b = _get_field(intent_b, "learning_goal")
+    if not goal_a:
+        raise ValueError("StudyIntent intent_a harus memiliki 'learning_goal'")
+    if not goal_b:
+        raise ValueError("StudyIntent intent_b harus memiliki 'learning_goal'")
+    goal_score = calculate_goal_compatibility(goal_a, goal_b)
+
+    # 3. Collaboration Style Compatibility
+    style_a = _get_field(intent_a, "collaboration_style")
+    style_b = _get_field(intent_b, "collaboration_style")
+    if not style_a:
+        raise ValueError("StudyIntent intent_a harus memiliki 'collaboration_style'")
+    if not style_b:
+        raise ValueError("StudyIntent intent_b harus memiliki 'collaboration_style'")
+    style_score = calculate_style_compatibility(style_a, style_b)
+
+    # 4. Learning Mode Compatibility
+    mode_a = _get_field(intent_a, "learning_mode")
+    mode_b = _get_field(intent_b, "learning_mode")
+    if not mode_a:
+        raise ValueError("StudyIntent intent_a harus memiliki 'learning_mode'")
+    if not mode_b:
+        raise ValueError("StudyIntent intent_b harus memiliki 'learning_mode'")
+    mode_score = calculate_mode_compatibility(mode_a, mode_b)
+
+    # 5. Date & Schedule Compatibility (Best Schedule Selection)
+    selected_sched, date_score = select_best_partner_schedule(common_slots)
+
+    # 6. Compatibility Breakdown & Total Score
+    breakdown = calculate_compatibility_breakdown(
+        topic_score=topic_score,
+        goal_score=goal_score,
+        style_score=style_score,
+        date_score=date_score,
+        mode_score=mode_score,
+    )
+
+    return {
+        "intent_id": str(intent_a_id),
+        "candidate_type": "PARTNER",
+        "target_intent_id": str(intent_b_id),
+        "student_id": str(student_b_id),
+        "total_score": breakdown["total_score"],
+        "rounding_reconciliation": breakdown["rounding_reconciliation"],
+        "components": breakdown["components"],
+        "selected_schedule": selected_sched,
     }
 
 

@@ -433,7 +433,7 @@ def filter_candidate_partners(
 
     effective_min_duration = max(60, int(min_duration))
     qualified_partners: List[Tuple[StudyIntent, List[Dict[str, Any]]]] = []
-    seen_student_ids = set()
+    seen_intent_ids = set()
 
     for candidate in candidate_intents:
         # Constraint 1: Status intent kandidat harus ACTIVE
@@ -444,8 +444,9 @@ def filter_candidate_partners(
         if candidate.student_id == intent.student_id:
             continue
 
-        # Constraint 2b: Deduplikasi mahasiswa (1 mahasiswa hanya direkomendasikan satu kali)
-        if candidate.student_id in seen_student_ids:
+        # Constraint 2b: Deduplikasi intent kandidat yang identik (berdasarkan intent_id / id)
+        cand_id = getattr(candidate, "intent_id", None) or getattr(candidate, "id", None)
+        if cand_id and cand_id in seen_intent_ids:
             continue
 
         # Constraint 3: Profil mahasiswa kandidat harus valid
@@ -485,7 +486,8 @@ def filter_candidate_partners(
         if not common_schedule:
             continue
 
-        seen_student_ids.add(candidate.student_id)
+        if cand_id:
+            seen_intent_ids.add(cand_id)
         qualified_partners.append((candidate, common_schedule))
 
     return qualified_partners
