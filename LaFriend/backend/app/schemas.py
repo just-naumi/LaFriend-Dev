@@ -720,13 +720,34 @@ class GroupMemberItem(BaseModel):
     max_group_size: int
 
 
+class PairwiseComponentDetail(BaseModel):
+    score: float
+    weight: float
+    contribution: float
+    raw_contribution: Optional[float] = None
+    base_contribution: Optional[float] = None
+    rounding_adjustment: Optional[float] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class PairwiseBreakdown(BaseModel):
+    topic: PairwiseComponentDetail
+    goal: PairwiseComponentDetail
+    style: PairwiseComponentDetail
+    date: PairwiseComponentDetail
+    mode: PairwiseComponentDetail
+
+    model_config = ConfigDict(extra="allow")
+
+
 class PairwiseScoreItem(BaseModel):
     student_a_id: str
     student_b_id: str
     intent_a_id: str
     intent_b_id: str
     compatibility_score: float
-    breakdown: Dict[str, float]
+    breakdown: PairwiseBreakdown
     explanation: str
 
 

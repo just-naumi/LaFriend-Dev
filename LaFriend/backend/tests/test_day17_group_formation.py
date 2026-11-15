@@ -45,7 +45,8 @@ from app.models import (
 )
 from app.schemas import (
     GroupProposalPreviewRequest, GroupProposalPreviewResponse,
-    GroupMemberItem, PairwiseScoreItem, GroupScheduleOption
+    GroupMemberItem, PairwiseScoreItem, GroupScheduleOption,
+    PairwiseComponentDetail, PairwiseBreakdown
 )
 from app.group_formation import (
     intersect_two_window_lists,
@@ -106,6 +107,13 @@ class TestDay17GroupFormation(unittest.TestCase):
             self.assertEqual(res["members"][0]["role"], "HOST")
             self.assertEqual(res["members"][1]["role"], "MEMBER")
             self.assertEqual(len(res["pairwise_scores"]), 1)
+            pair_0 = res["pairwise_scores"][0]
+            self.assertTrue(len(pair_0["explanation"]) > 0, "Explanation tidak boleh kosong")
+            self.assertIn("breakdown", pair_0)
+            for c_name in ["topic", "goal", "style", "date", "mode"]:
+                self.assertIn(c_name, pair_0["breakdown"])
+                self.assertIn("score", pair_0["breakdown"][c_name])
+                self.assertIn("contribution", pair_0["breakdown"][c_name])
             self.assertGreater(res["group_quality_score"], 80.0)
             self.assertGreaterEqual(len(res["schedule_options"]), 1)
         finally:
@@ -140,6 +148,12 @@ class TestDay17GroupFormation(unittest.TestCase):
             self.assertEqual(res["group_size"], 3)
             # N_pair = 3 * 2 / 2 = 3
             self.assertEqual(len(res["pairwise_scores"]), 3)
+            for pair in res["pairwise_scores"]:
+                self.assertTrue(len(pair["explanation"]) > 0, "Setiap pasangan harus memiliki explanation yang tidak kosong")
+                for c_name in ["topic", "goal", "style", "date", "mode"]:
+                    self.assertIn(c_name, pair["breakdown"])
+                    self.assertIn("score", pair["breakdown"][c_name])
+                    self.assertIn("contribution", pair["breakdown"][c_name])
             # Seluruh 3 anggota ada dalam members
             member_ids = {m["student_id"] for m in res["members"]}
             self.assertEqual(member_ids, {"s1", "s2", "s3"})
@@ -746,13 +760,110 @@ class TestDay17GroupFormation(unittest.TestCase):
             db.close()
             engine.dispose()
 
+    # =========================================================================
+    # 19. INTEGRITAS BREAKDOWN & EXPLANATION PADA SETIAP PASANGAN (DAY 17.2)
+    # =========================================================================
+    def test_19_pairwise_breakdown_and_explanation_integrity(self):
+        engine, TestingSession = create_test_db()
+        db = TestingSession()
+        original_overrides = dict(app.dependency_overrides)
+
+        try:
+            c = Course(course_id="c1", course_code="ACK2AAB3", course_name="Struktur Data", study_program="S1")
+            andi = Student(student_id="s1", full_name="Andi", email="a@t.ac", student_number="1", password_hash=hash_password("p"), account_status="ACTIVE", verification_status="VERIFIED", is_discoverable=True)
+            budi = Student(student_id="s2", full_name="Budi", email="b@t.ac", student_number="2", password_hash=hash_password("p"), account_status="ACTIVE", verification_status="VERIFIED", is_discoverable=True)
+            citra = Student(student_id="s3", full_name="Citra", email="c@t.ac", student_number="3", password_hash=hash_password("p"), account_status="ACTIVE", verification_status="VERIFIED", is_discoverable=True)
+            db.add_all([c, andi, budi, citra])
+            db.commit()
+
+            ia = StudyIntent(intent_id="ia", student_id=andi.student_id, course_id=c.course_id, topics="Tree", learning_goal="PRACTICE", collaboration_style="DISCUSSION", learning_mode="OFFLINE", earliest_date="2026-11-20", latest_date="2026-11-25", status="ACTIVE")
+            sa = IntentAvailability(availability_id="sa", intent_id=ia.intent_id, day_or_date="2026-11-22", start_time="09:00", end_time="12:00", priority_rank=1)
+            ib = StudyIntent(intent_id="ib", student_id=budi.student_id, course_id=c.course_id, topics="Tree", learning_goal="PRACTICE", collaboration_style="DISCUSSION", learning_mode="OFFLINE", earliest_date="2026-11-20", latest_date="2026-11-25", status="ACTIVE")
+            sb = IntentAvailability(availability_id="sb", intent_id=ib.intent_id, day_or_date="2026-11-22", start_time="09:00", end_time="12:00", priority_rank=1)
+            ic = StudyIntent(intent_id="ic", student_id=citra.student_id, course_id=c.course_id, topics="Tree", learning_goal="PRACTICE", collaboration_style="DISCUSSION", learning_mode="OFFLINE", earliest_date="2026-11-20", latest_date="2026-11-25", status="ACTIVE")
+            sc = IntentAvailability(availability_id="sc", intent_id=ic.intent_id, day_or_date="2026-11-22", start_time="09:00", end_time="12:00", priority_rank=1)
+            db.add_all([ia, sa, ib, sb, ic, sc])
+            db.commit()
+
+            # 1. Uji 2 mahasiswa (1 pasangan)
+            res_2 = form_study_group(host_intent=ia, candidate_intents=[ib], min_score=60.0)
+            self.assertEqual(len(res_2["pairwise_scores"]), 1)
+            p1 = res_2["pairwise_scores"][0]
+
+            # Verifikasi penjelasan tidak kosong & merupakan teks bahasa Indonesia deterministik
+            self.assertIsInstance(p1["explanation"], str)
+            self.assertTrue(len(p1["explanation"]) > 10, "Explanation harus berupa kalimat deskriptif")
+            self.assertIn("Topik belajar", p1["explanation"])
+
+            # Verifikasi kelima komponen Day 15 wajib ada
+            b1 = p1["breakdown"]
+            self.assertEqual(set(b1.keys()), {"topic", "goal", "style", "date", "mode"})
+            expected_weights = {"topic": 0.30, "goal": 0.25, "style": 0.15, "date": 0.15, "mode": 0.15}
+            sum_contrib = 0.0
+            for comp_name, comp_weight in expected_weights.items():
+                comp_data = b1[comp_name]
+                self.assertIn("score", comp_data)
+                self.assertIn("weight", comp_data)
+                self.assertIn("contribution", comp_data)
+                self.assertAlmostEqual(comp_data["weight"], comp_weight, places=2)
+                self.assertTrue(0.0 <= comp_data["score"] <= 1.0)
+                sum_contrib += comp_data["contribution"]
+
+            # Verifikasi sum of contributions konsisten dengan compatibility_score
+            self.assertAlmostEqual(sum_contrib, p1["compatibility_score"], places=2)
+
+            # 2. Uji 3 mahasiswa (3 pasangan)
+            res_3 = form_study_group(host_intent=ia, candidate_intents=[ib, ic], min_score=60.0)
+            self.assertEqual(len(res_3["pairwise_scores"]), 3)
+            for pair in res_3["pairwise_scores"]:
+                self.assertTrue(len(pair["explanation"]) > 10)
+                self.assertEqual(set(pair["breakdown"].keys()), {"topic", "goal", "style", "date", "mode"})
+                pair_sum = sum(pair["breakdown"][k]["contribution"] for k in expected_weights)
+                self.assertAlmostEqual(pair_sum, pair["compatibility_score"], places=2)
+
+            # 3. Uji integrasi HTTP response Pydantic validation via TestClient
+            token_andi = create_token(andi.student_id, andi.email)
+            headers_andi = {"Authorization": f"Bearer {token_andi}"}
+
+            def override_get_db():
+                session = TestingSession()
+                try:
+                    yield session
+                finally:
+                    session.close()
+
+            app.dependency_overrides[get_db] = override_get_db
+            client = TestClient(app)
+
+            r = client.post(
+                "/api/v1/matching/group-proposals/preview",
+                json={"host_intent_id": ia.intent_id, "min_score": 60.0},
+                headers=headers_andi
+            )
+            self.assertEqual(r.status_code, 200)
+            data = r.json()
+
+            # Validasi Pydantic Schema penuh (GroupProposalPreviewResponse)
+            validated_obj = GroupProposalPreviewResponse.model_validate(data)
+            self.assertEqual(len(validated_obj.pairwise_scores), 3)
+
+            # Verifikasi bahwa objek breakdown bertingkat dapat diakses dengan tipe kuat
+            first_pair = validated_obj.pairwise_scores[0]
+            self.assertEqual(first_pair.breakdown.topic.weight, 0.30)
+            self.assertGreater(first_pair.breakdown.topic.contribution, 0.0)
+            self.assertTrue(len(first_pair.explanation) > 0)
+        finally:
+            app.dependency_overrides = original_overrides
+            db.close()
+            engine.dispose()
+
 
 # =============================================================================
 # Standalone CLI Test Runner
 # =============================================================================
 def run_tests():
     print("=" * 80)
-    print("RUNNING DAY 17.1: GROUP FORMATION HARDENING TEST SUITE (18 SCENARIOS)")
+    print("RUNNING DAY 17.2: GROUP FORMATION EXPLAINABILITY & HARDENING TEST SUITE (19 SCENARIOS)")
     print("=" * 80)
 
     suite = unittest.TestLoader().loadTestsFromTestCase(TestDay17GroupFormation)
@@ -765,7 +876,7 @@ def run_tests():
     passed = total - failures - errors
 
     print("=" * 80)
-    print(f"DAY 17.1 TEST SUITE RESULT: {passed} / {total} TESTS PASSED (100% SUCCESS)")
+    print(f"DAY 17.2 TEST SUITE RESULT: {passed} / {total} TESTS PASSED (100% SUCCESS)")
     print("=" * 80)
     return passed, total
 

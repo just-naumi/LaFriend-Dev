@@ -32,7 +32,7 @@ from app.matching import (
     find_common_schedule,
     is_learning_mode_compatible
 )
-from app.scoring import calculate_partner_score
+from app.scoring import calculate_partner_score, generate_match_explanation
 
 
 # ==============================================================================
@@ -415,9 +415,8 @@ def form_study_group(
         if ps:
             score_val = ps["total_score"]
             all_final_scores.append(score_val)
-            st1 = getattr(m1, "student", None)
-            st2 = getattr(m2, "student", None)
-            breakdown_dict = ps.get("breakdown") or {}
+            breakdown_dict = ps["components"]
+            explanation_text = generate_match_explanation(ps)
             pairwise_score_items.append({
                 "student_a_id": str(m1.student_id),
                 "student_b_id": str(m2.student_id),
@@ -425,7 +424,7 @@ def form_study_group(
                 "intent_b_id": str(m2.intent_id),
                 "compatibility_score": round(float(score_val), 2),
                 "breakdown": breakdown_dict,
-                "explanation": ps.get("explanation") or "",
+                "explanation": explanation_text,
             })
 
     # Hitung GQ, APS, MPS akhir
