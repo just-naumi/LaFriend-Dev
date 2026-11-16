@@ -955,12 +955,14 @@ class TopKBenchmarkResult(BaseModel):
 
 
 class ComprehensiveEvaluationSummary(BaseModel):
-    """Ringkasan evaluasi komprehensif matching engine (Day 19.5)."""
+    """Ringkasan evaluasi komprehensif matching engine (Day 19.5 & Day 19.6.1)."""
     overall_status: str  # "PASSED", "WARNING", "FAILED"
-    quality_score_mean: float
+    group_quality_score: float  # GQ hasil matching (Day 19.6.1)
+    average_pair_score: float  # APS mean skor pairwise (Day 19.6.1)
+    quality_score_mean: float  # Backwards-compatible alias setara dengan group_quality_score
     order_determinism_rate: float  # Target: 100.0%
     constraint_violation_rate: float  # Target: 0.0%
-    topk_quality_retention: float  # Target: >= 95.0%
+    topk_quality_retention: float  # Target: >= 90.0% ambang operasional
     total_evaluation_time_ms: float
     recommendation: str
 

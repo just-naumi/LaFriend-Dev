@@ -25,6 +25,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Dict, Any, Optional, Sequence, Tuple, Union
 
 from app.group_formation import calculate_group_quality_score, form_study_group
+from app.matching import resolve_availability_windows, parse_time_minutes
 from app.models import StudyIntent
 from app.schemas import (
     PairwiseScoreDistribution,
@@ -861,20 +862,35 @@ def benchmark_top_k_candidate_pool(
 def check_hard_constraint_violations(
     host_intent: StudyIntent,
     formation_result: Dict[str, Any],
-    candidate_lookup: Optional[Dict[str, StudyIntent]] = None
+    candidate_lookup: Optional[Dict[str, StudyIntent]] = None,
+    min_score: float = 60.0
 ) -> List[str]:
     """
     Memeriksa secara independen apakah hasil pembentukan kelompok melanggar
     satu pun aturan Hard Constraints dari Day 14 atau aturan multi-way Day 17/18.
+    (Day 19.6.1 Hardened Specification)
 
-    Aturan yang diperiksa:
-    1. Status konsistensi ukuran: jika READY, maka group_size >= 2 dan min_bound <= group_size <= max_bound.
-    2. Mata kuliah identik: seluruh anggota harus memiliki course_id yang sama persis dengan host.
-    3. Akun valid: seluruh anggota harus berstatus ACTIVE, VERIFIED, dan is_discoverable.
-    4. Transitive Learning Mode: tidak boleh ada kelompok yang memuat anggota ONLINE dan OFFLINE sekaligus.
-    5. Kapasitas beririsan: min_bound <= max_bound dan ukuran kelompok memenuhi kapasitas setiap anggota.
-    6. Irisan jadwal: jika READY, selected_schedule harus ada dengan durasi >= 60 menit.
-    7. Deduplikasi mahasiswa: seluruh anggota harus memiliki student_id unik (tidak ada duplikasi akun).
+    Empat Kelompok Pemeriksaan Utama:
+    1. Formation Integrity:
+       - READY: 2 <= group_size, min_bound <= group_size <= max_bound, min_bound <= max_bound.
+       - INSUFFICIENT_MEMBERS: 2 <= group_size < min_bound (bukan violation!).
+       - NO_COMPATIBLE_GROUP: group_size == 1 (jika group_size >= 2 maka violation!).
+       - Unknown status: ditandai sebagai hasil tidak valid.
+       - Konsistensi jumlah elemen members == group_size.
+    2. Candidate Integrity:
+       - Anggota non-host wajib ada di candidate_lookup (jika candidate_lookup diberikan).
+       - Status StudyIntent anggota wajib ACTIVE.
+       - course_id anggota harus sama persis dengan host.
+       - Akun mahasiswa: account_status == ACTIVE, verification_status == VERIFIED, is_discoverable == True.
+       - Deduplikasi mahasiswa: tidak ada student_id ganda.
+       - Transitive Learning Mode: tidak ada kombinasi ONLINE dan OFFLINE sekaligus.
+    3. Pairwise Integrity (khusus status READY):
+       - Jumlah pairwise_scores wajib tepat N*(N-1)/2.
+       - Setiap pasangan CS_ij >= min_score.
+    4. Schedule Integrity (khusus status READY):
+       - selected_schedule wajib ada, durasi >= 60 menit, format waktu valid.
+       - Selected schedule benar-benar beririsan dan tercakup dalam jendela ketersediaan
+         seluruh anggota kelompok (host + kandidat).
     """
     violations = []
     status = formation_result.get("formation_status", "UNKNOWN")
@@ -884,60 +900,150 @@ def check_hard_constraint_violations(
     min_bound = int(formation_result.get("min_group_size_bound", 2))
     max_bound = int(formation_result.get("max_group_size_bound", 10))
 
-    # 1. Pengecekan status READY
+    # =========================================================================
+    # 1. FORMATION INTEGRITY
+    # =========================================================================
     if status == "READY":
         if group_size < 2:
             violations.append(f"Ukuran kelompok READY ({group_size}) kurang dari batas minimum absolut (2)")
-        if group_size < min_bound:
-            violations.append(f"Ukuran kelompok READY ({group_size}) kurang dari min_group_size_bound ({min_bound})")
-        if group_size > max_bound:
-            violations.append(f"Ukuran kelompok READY ({group_size}) melebihi max_group_size_bound ({max_bound})")
+        if min_bound > max_bound:
+            violations.append(f"Kelompok READY memiliki rentang kapasitas tidak valid: min_bound ({min_bound}) > max_bound ({max_bound})")
+        if group_size < min_bound or group_size > max_bound:
+            violations.append(f"Kelompok READY memiliki group_size ({group_size}) di luar batas kapasitas [{min_bound}, {max_bound}]")
         if not selected_sched:
             violations.append("Kelompok berstatus READY tetapi tidak memiliki selected_schedule")
-        elif selected_sched.get("duration_minutes", 0) < 60:
-            violations.append(f"Durasi selected_schedule ({selected_sched.get('duration_minutes')}m) kurang dari 60 menit")
+    elif status == "INSUFFICIENT_MEMBERS":
+        # Kelompok memiliki setidaknya 2 anggota yang cocok, namun belum mencapai min_group_size_bound
+        if group_size < 2:
+            violations.append(f"Status INSUFFICIENT_MEMBERS tetapi group_size ({group_size}) < 2")
+        if group_size >= min_bound:
+            violations.append(f"Status INSUFFICIENT_MEMBERS tetapi group_size ({group_size}) >= min_bound ({min_bound})")
+    elif status == "NO_COMPATIBLE_GROUP":
+        # Hanya host sendiri (group_size == 1)
+        if group_size != 1:
+            violations.append(f"Status NO_COMPATIBLE_GROUP tetapi group_size ({group_size}) != 1")
+    else:
+        violations.append(f"Status pembentukan kelompok tidak dikenal atau tidak valid: '{status}'")
 
-    # 2. Pengecekan anggota jika ada lookup kandidat
-    if candidate_lookup:
+    # Konsistensi jumlah anggota aktual
+    if len(members) != group_size:
+        violations.append(f"Jumlah anggota aktual ({len(members)}) tidak sesuai dengan group_size ({group_size})")
+
+    # =========================================================================
+    # 2. CANDIDATE INTEGRITY
+    # =========================================================================
+    all_member_intents: List[StudyIntent] = [host_intent]
+    if candidate_lookup is not None:
         student_ids = []
         modes = []
-        # Tambahkan host ke daftar pengecekan
+
         host_student = getattr(host_intent, "student", None)
         if host_student:
-            student_ids.append(host_student.student_id)
+            student_ids.append(str(host_student.student_id))
         modes.append(getattr(host_intent, "learning_mode", "HYBRID"))
 
         for m in members:
-            iid = m.get("intent_id")
-            if str(iid) == str(host_intent.intent_id):
+            mid = m.get("intent_id") if isinstance(m, dict) else getattr(m, "intent_id", None)
+            if str(mid) == str(host_intent.intent_id):
                 continue
-            intent_obj = candidate_lookup.get(iid)
-            if intent_obj:
-                # Cek Course
-                if str(intent_obj.course_id) != str(host_intent.course_id):
-                    violations.append(f"Anggota {iid} memiliki course_id berbeda ({intent_obj.course_id} != {host_intent.course_id})")
 
-                # Cek Student status
-                st = getattr(intent_obj, "student", None)
-                if st:
-                    if getattr(st, "account_status", None) != "ACTIVE":
-                        violations.append(f"Anggota {iid} memiliki akun tidak aktif ({getattr(st, 'account_status', None)})")
-                    if getattr(st, "verification_status", None) != "VERIFIED":
-                        violations.append(f"Anggota {iid} belum terverifikasi ({getattr(st, 'verification_status', None)})")
-                    if not getattr(st, "is_discoverable", True):
-                        violations.append(f"Anggota {iid} memiliki is_discoverable=False")
-                    student_ids.append(st.student_id)
+            # Anggota non-host wajib ditemukan pada candidate_lookup
+            if str(mid) not in candidate_lookup:
+                violations.append(f"Anggota {mid} tidak ditemukan pada candidate_lookup sehingga tidak dapat diverifikasi")
+                continue
 
-                # Mode
-                modes.append(getattr(intent_obj, "learning_mode", "HYBRID"))
+            intent_obj = candidate_lookup[str(mid)]
+            all_member_intents.append(intent_obj)
 
-        # Cek Deduplikasi Mahasiswa
+            # Cek status StudyIntent harus ACTIVE
+            if getattr(intent_obj, "status", None) != "ACTIVE":
+                violations.append(f"Anggota {mid} memiliki status intent tidak aktif ('{getattr(intent_obj, 'status', None)}')")
+
+            # Cek Course ID harus sama persis dengan host
+            if str(intent_obj.course_id) != str(host_intent.course_id):
+                violations.append(f"Anggota {mid} memiliki course_id berbeda ({intent_obj.course_id} != {host_intent.course_id})")
+
+            # Cek Akun Mahasiswa
+            st = getattr(intent_obj, "student", None)
+            if st:
+                if getattr(st, "account_status", None) != "ACTIVE":
+                    violations.append(f"Anggota {mid} memiliki akun mahasiswa tidak aktif ({getattr(st, 'account_status', None)})")
+                if getattr(st, "verification_status", None) != "VERIFIED":
+                    violations.append(f"Anggota {mid} belum terverifikasi ({getattr(st, 'verification_status', None)})")
+                if not getattr(st, "is_discoverable", True):
+                    violations.append(f"Anggota {mid} memiliki is_discoverable=False")
+                student_ids.append(str(st.student_id))
+
+            # Mode belajar
+            modes.append(getattr(intent_obj, "learning_mode", "HYBRID"))
+
+        # Deduplikasi mahasiswa
         if len(student_ids) != len(set(student_ids)):
             violations.append("Terdapat duplikasi mahasiswa (student_id sama) dalam kelompok yang sama")
 
-        # Cek Mode Transitive
+        # Multi-way Mode Konsistensi Transitif
         if "ONLINE" in modes and "OFFLINE" in modes:
             violations.append("Kelompok memuat mahasiswa ONLINE dan OFFLINE sekaligus (inkompatibel)")
+
+    # =========================================================================
+    # 3. PAIRWISE INTEGRITY (Khusus Status READY)
+    # =========================================================================
+    if status == "READY":
+        n = group_size
+        expected_n_pairs = (n * (n - 1)) // 2
+        pairwise_scores = formation_result.get("pairwise_scores", [])
+        if len(pairwise_scores) != expected_n_pairs:
+            violations.append(f"Jumlah pairwise_scores ({len(pairwise_scores)}) tidak sesuai dengan formula N*(N-1)/2 ({expected_n_pairs}) untuk n={n}")
+
+        min_score_val = float(min_score)
+        for pw in pairwise_scores:
+            cs = float(pw.get("compatibility_score", 0.0))
+            if cs < min_score_val:
+                violations.append(f"Pasangan ({pw.get('intent_a_id')} - {pw.get('intent_b_id')}) memiliki Compatibility Score ({cs}) < min_score ({min_score_val})")
+
+    # =========================================================================
+    # 4. SCHEDULE INTEGRITY (Khusus Status READY)
+    # =========================================================================
+    if status == "READY" and selected_sched:
+        sched_date = str(selected_sched.get("date", "")).strip()
+        sched_start_str = str(selected_sched.get("start_time", "")).strip()
+        sched_end_str = str(selected_sched.get("end_time", "")).strip()
+        reported_dur = int(selected_sched.get("duration_minutes", 0))
+
+        if reported_dur < 60:
+            violations.append(f"Durasi selected_schedule ({reported_dur}m) kurang dari 60 menit")
+
+        s_min, e_min = None, None
+        if sched_start_str and sched_end_str:
+            try:
+                s_min = parse_time_minutes(sched_start_str)
+                e_min = parse_time_minutes(sched_end_str)
+                dur = e_min - s_min
+                if dur < 60 and f"Durasi selected_schedule ({dur}m) kurang dari 60 menit" not in violations:
+                    violations.append(f"Durasi selected_schedule ({dur}m) kurang dari 60 menit")
+                if reported_dur != dur and reported_dur >= 60:
+                    violations.append(f"Field duration_minutes ({reported_dur}m) tidak sesuai selisih waktu ({dur}m)")
+            except Exception as ve:
+                violations.append(f"Format waktu selected_schedule tidak valid: {ve}")
+
+        # Verifikasi independen ketersediaan jadwal seluruh anggota
+        if s_min is not None and e_min is not None and sched_date:
+            for member_intent in all_member_intents:
+                mem_id = getattr(member_intent, "intent_id", "?")
+                mem_windows = resolve_availability_windows(member_intent)
+                mem_covers = False
+                for w in mem_windows:
+                    if str(w.get("date", "")) == sched_date:
+                        try:
+                            w_start = parse_time_minutes(str(w.get("start_time", "00:00")))
+                            w_end = parse_time_minutes(str(w.get("end_time", "00:00")))
+                            if w_start <= s_min and w_end >= e_min:
+                                mem_covers = True
+                                break
+                        except Exception:
+                            continue
+                if not mem_covers:
+                    violations.append(f"Selected schedule ({sched_date} {sched_start_str}-{sched_end_str}) tidak tercakup dalam ketersediaan anggota {mem_id}")
 
     return violations
 
@@ -981,7 +1087,7 @@ def evaluate_matching_robustness(
                 target_group_size=target_size
             )
             actual_status = res.get("formation_status", "UNKNOWN")
-            violations = check_hard_constraint_violations(host_intent, res, cand_lookup)
+            violations = check_hard_constraint_violations(host_intent, res, cand_lookup, min_score=min_score)
         except Exception as e:
             # Jika skenario memang dirancang untuk melempar error input (misal host intent None/inaktif)
             actual_status = "ERROR_RAISED"
@@ -1175,35 +1281,46 @@ def generate_comprehensive_evaluation_report(
         min_score=min_score
     )
 
-    # 6. Agregasi Metrik Ringkasan (Day 19.5)
+    # 6. Agregasi Metrik Ringkasan (Day 19.5 & Day 19.6.1)
     total_elapsed_ms = round((time.perf_counter() - t_start) * 1000, 2)
-    gq_mean = round(quality_res.group_quality_score, 2)
+    gq_val = round(quality_res.group_quality_score, 2)
+    aps_val = round(quality_res.average_pair_score, 2)
     dr_rate = round(stability_res.determinism_rate, 2)
     cvr_rate = round(robustness_res.constraint_violation_rate, 2)
 
-    # Ambil retensi Top-20 atau K terbesar yang diuji di bawah Full
+    # Ambil retensi Top-K secara konsisten (Day 19.6.1):
+    # Prioritaskan K=20. Jika tidak ada, ambil K numerik terbesar yang diuji (k_value != "Full")
     topk_retention = 100.0
+    numeric_benchmarks = []
     for b in topk_res.benchmarks:
-        if b.k_value == 20:
-            topk_retention = b.quality_retention
-            break
-        elif b.k_value != "Full":
-            topk_retention = b.quality_retention
+        if isinstance(b.k_value, int):
+            numeric_benchmarks.append((b.k_value, b.quality_retention))
+        elif isinstance(b.k_value, str) and b.k_value.isdigit():
+            numeric_benchmarks.append((int(b.k_value), b.quality_retention))
 
-    # Penentuan overall status & rekomendasi
+    if numeric_benchmarks:
+        b_20 = [ret for k_val, ret in numeric_benchmarks if k_val == 20]
+        if b_20:
+            topk_retention = b_20[0]
+        else:
+            numeric_benchmarks.sort(key=lambda item: item[0], reverse=True)
+            topk_retention = numeric_benchmarks[0][1]
+
+    # Penentuan overall status & rekomendasi (Day 19.6.1)
     is_stable = (dr_rate == 100.0)
     is_robust = (cvr_rate == 0.0 and robustness_res.all_constraints_preserved)
     is_breakdown_valid = quality_res.is_breakdown_consistent
+    is_topk_satisfactory = (topk_retention >= 90.0)
 
-    if is_stable and is_robust and is_breakdown_valid:
+    if is_stable and is_robust and is_breakdown_valid and is_topk_satisfactory:
         overall_status = "PASSED"
         recommendation = (
             f"Matching Engine LaFriend LOLOS pengujian komprehensif Day 19. "
-            f"Kualitas grup optimal (GQ: {gq_mean}), stabilitas 100% invarian urutan (DR: 100%), "
+            f"Kualitas grup optimal (GQ: {gq_val}), stabilitas 100% invarian urutan (DR: 100%), "
             f"integritas hard constraints terlindungi sempurna (CVR: 0.0%), "
-            f"dan retensi kualitas Top-K tinggi ({topk_retention}%)."
+            f"dan retensi kualitas Top-K memenuhi ambang operasional ({topk_retention}% >= 90.0%)."
         )
-    elif cvr_rate > 0.0:
+    elif cvr_rate > 0.0 or not robustness_res.all_constraints_preserved:
         overall_status = "FAILED"
         recommendation = (
             f"Ditemukan pelanggaran hard constraints (CVR: {cvr_rate}%). "
@@ -1211,14 +1328,23 @@ def generate_comprehensive_evaluation_report(
         )
     else:
         overall_status = "WARNING"
+        warning_reasons = []
+        if not is_stable:
+            warning_reasons.append(f"DR {dr_rate}% < 100%")
+        if not is_breakdown_valid:
+            warning_reasons.append("Breakdown pairwise tidak valid")
+        if not is_topk_satisfactory:
+            warning_reasons.append(f"Top-K retention {topk_retention}% < 90.0%")
         recommendation = (
-            f"Pengujian menghasilkan status peringatan (DR: {dr_rate}%, CVR: {cvr_rate}%). "
-            f"Harap tinjau catatan kualitas dan variansi skor."
+            f"Pengujian menghasilkan status peringatan ({', '.join(warning_reasons)}). "
+            f"Harap tinjau catatan kualitas dan parameter tuning engine."
         )
 
     summary = ComprehensiveEvaluationSummary(
         overall_status=overall_status,
-        quality_score_mean=gq_mean,
+        group_quality_score=gq_val,
+        average_pair_score=aps_val,
+        quality_score_mean=gq_val,
         order_determinism_rate=dr_rate,
         constraint_violation_rate=cvr_rate,
         topk_quality_retention=topk_retention,
