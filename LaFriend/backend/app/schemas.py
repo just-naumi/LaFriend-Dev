@@ -962,7 +962,7 @@ class ComprehensiveEvaluationSummary(BaseModel):
     quality_score_mean: float  # Backwards-compatible alias setara dengan group_quality_score
     order_determinism_rate: float  # Target: 100.0%
     constraint_violation_rate: float  # Target: 0.0%
-    topk_quality_retention: float  # Target: >= 90.0% ambang operasional
+    topk_quality_retention: Optional[float] = None  # None jika benchmark Top-K numerik tidak dijalankan
     total_evaluation_time_ms: float
     recommendation: str
 

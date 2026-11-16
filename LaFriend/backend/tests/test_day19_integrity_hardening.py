@@ -1,23 +1,22 @@
 # ==============================================================================
 # tests/test_day19_integrity_hardening.py
 # ==============================================================================
-# Test Suite Khusus Day 19.6.1 - Evaluation Integrity Hardening
+# Test Suite Khusus Day 19.6.1 & 19.6.2 - Evaluation Integrity Hardening &
+# Independent Evaluator Closure
 #
-# Memvalidasi secara ketat 10 skenario pengujian audit:
-# 1. Status INSUFFICIENT_MEMBERS (size=3, min_bound=4) TIDAK dianggap violation.
-# 2. Status NO_COMPATIBLE_GROUP dengan group_size >= 2 dianggap VIOLATION.
-# 3. Kandidat dalam kelompok memiliki StudyIntent.status != 'ACTIVE' dianggap VIOLATION.
-# 4. Batas kapasitas kelompok READY tidak valid (min_bound > max_bound atau out of bounds) dianggap VIOLATION.
-# 5. Pasangan dengan Compatibility Score di bawah min_score dianggap VIOLATION.
-# 6. Jumlah pairwise_scores tidak sesuai formula N*(N-1)/2 dianggap VIOLATION.
-# 7. Selected schedule tidak beririsan/tercakup dalam ketersediaan seluruh anggota dianggap VIOLATION.
-# 8. Ketiga metrik laporan komprehensif (group_quality_score, average_pair_score, quality_score_mean) konsisten.
-# 9. Top-K retention di bawah 90% menghasilkan status WARNING.
-# 10. Top-K retention >= 90% lolos tanpa terkena penalti ambang Top-K.
+# Memvalidasi secara ketat temuan audit D19.6.1-01 s/d D19.6.1-05:
+# 1. D19.6.1-01: Candidate & Host Integrity (status aktif, profil student, candidate_lookup wajib jika non-host).
+# 2. D19.6.1-02: Pairwise Identity & Completeness (himpunan pasangan unordered, no duplicate/missing/foreign, numeric & finite score).
+# 3. D19.6.1-03: Schedule Integrity Fail-Open Closure (tahan error malformed duration/date, end > start, durasi valid).
+# 4. D19.6.1-04: Top-K Benchmark Availability Sentinel (None jika benchmark numerik tidak dijalankan -> status WARNING).
+# 5. D19.6.1-05: Direct Testing of Production Functions (pengujian langsung generate_comprehensive_evaluation_report).
 # ==============================================================================
 
+import math
 import unittest
+from unittest.mock import patch
 from typing import List, Dict, Any
+from decimal import Decimal
 
 from app.models import Student, Course, StudyIntent, IntentAvailability
 from app.matching_evaluation import (
@@ -32,17 +31,24 @@ from app.schemas import (
 )
 
 
-def make_student(student_id: str, name: str, email: str, acct: str = "ACTIVE", verif: str = "VERIFIED") -> Student:
+def make_student(
+    student_id: str,
+    name: str,
+    email: str,
+    acct: str = "ACTIVE",
+    verif: str = "VERIFIED",
+    discoverable: bool = True
+) -> Student:
     return Student(
         student_id=student_id,
         full_name=name,
         email=email,
-        student_number=f"120125{hash(student_id) % 9000 + 1000}",
+        student_number=f"120125{abs(hash(student_id)) % 9000 + 1000}",
         study_program="S1 Teknik Komputer",
         academic_year=2025,
         verification_status=verif,
         account_status=acct,
-        is_discoverable=True
+        is_discoverable=discoverable
     )
 
 
@@ -91,7 +97,7 @@ def make_availability(
 
 
 class TestDay19IntegrityHardening(unittest.TestCase):
-    """Test suite Day 19.6.1 - Evaluation Integrity Hardening."""
+    """Test suite Day 19.6.1 & 19.6.2 - Evaluation Integrity Hardening & Evaluator Closure."""
 
     def setUp(self):
         self.course_a = Course(
@@ -105,6 +111,10 @@ class TestDay19IntegrityHardening(unittest.TestCase):
         self.host_intent.availabilities = [make_availability("ih_hard", "2026-11-25", "09:00", "13:00")]
         self.host_intent.student = self.host_student
         self.host_intent.course = self.course_a
+
+    # =========================================================================
+    # 1. Formation & Hard Constraint Integrity
+    # =========================================================================
 
     def test_01_insufficient_members_valid_state_is_not_violation(self):
         """
@@ -247,7 +257,7 @@ class TestDay19IntegrityHardening(unittest.TestCase):
             "members": [{"intent_id": "ih_hard"}, {"intent_id": "i_low"}],
             "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120},
             "pairwise_scores": [
-                {"intent_a_id": "ih_hard", "intent_b_id": "i_low", "compatibility_score": 55.0}  # Di bawah min_score 60.0
+                {"intent_a_id": "ih_hard", "intent_b_id": "i_low", "compatibility_score": 55.0}
             ]
         }
         violations = check_hard_constraint_violations(self.host_intent, res, lookup, min_score=60.0)
@@ -280,7 +290,6 @@ class TestDay19IntegrityHardening(unittest.TestCase):
             "members": [{"intent_id": "ih_hard"}, {"intent_id": "i_m1"}, {"intent_id": "i_m2"}],
             "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120},
             "pairwise_scores": [
-                # Hanya 2 pasangan, harusnya 3 pasangan!
                 {"intent_a_id": "ih_hard", "intent_b_id": "i_m1", "compatibility_score": 80.0},
                 {"intent_a_id": "ih_hard", "intent_b_id": "i_m2", "compatibility_score": 85.0}
             ]
@@ -299,7 +308,6 @@ class TestDay19IntegrityHardening(unittest.TestCase):
         st_disjoint = make_student("s_disj", "Disjoint Cand", "disj@t.ac.id")
         c_disjoint = make_intent("i_disj", "s_disj", "c_hard_a")
         c_disjoint.student = st_disjoint
-        # Hanya tersedia jam 14:00-17:00
         c_disjoint.availabilities = [make_availability("i_disj", "2026-11-25", "14:00", "17:00")]
 
         lookup = {"i_disj": c_disjoint, "ih_hard": self.host_intent}
@@ -352,67 +360,478 @@ class TestDay19IntegrityHardening(unittest.TestCase):
         self.assertEqual(sum_obj.average_pair_score, qual_obj.average_pair_score)
         self.assertEqual(sum_obj.quality_score_mean, qual_obj.group_quality_score)
 
-    def test_09_top_k_retention_below_90_percent_yields_warning(self):
+    # =========================================================================
+    # 2. D19.6.1-01: Candidate & Host Integrity
+    # =========================================================================
+
+    def test_09_host_integrity_inactive_or_unverified_or_none_student_is_violation(self):
         """
-        Skenario 9: Jika topk_quality_retention < 90.0% (misal 85%), status harus WARNING.
-        Ekspektasi: overall_status == "WARNING" dan recommendation menyebutkan retensi Top-K.
+        D19.6.1-01: Validasi independen terhadap integritas Host Intent & Profil Mahasiswa.
+        Ekspektasi: Pelanggaran dicatat jika intent inaktif, profil None, akun non-aktif,
+        belum terverifikasi, atau is_discoverable=False.
         """
-        # Kita uji skenario ini dengan mengevaluasi summary status logic secara presisi
+        # A. Host intent status inaktif
+        bad_host_intent = make_intent("ih_bad", "sh_hard", "c_hard_a", status="CANCELLED")
+        bad_host_intent.student = self.host_student
+        res_ok = {
+            "formation_status": "NO_COMPATIBLE_GROUP",
+            "group_size": 1,
+            "members": [{"intent_id": "ih_bad"}]
+        }
+        v_a = check_hard_constraint_violations(bad_host_intent, res_ok)
+        self.assertTrue(any("status intent tidak aktif" in msg for msg in v_a))
+
+        # B. Host student profile None
+        no_st_host = make_intent("ih_nost", "sh_hard", "c_hard_a")
+        no_st_host.student = None
+        v_b = check_hard_constraint_violations(no_st_host, res_ok)
+        self.assertTrue(any("Data profil mahasiswa untuk host" in msg for msg in v_b))
+
+        # C. Host student account suspended / unverified / hidden
+        st_unverif = make_student("sh_unv", "Unv", "unv@t.ac.id", acct="SUSPENDED", verif="UNVERIFIED", discoverable=False)
+        host_unverif = make_intent("ih_unv", "sh_unv", "c_hard_a")
+        host_unverif.student = st_unverif
+        v_c = check_hard_constraint_violations(host_unverif, res_ok)
+        self.assertTrue(any("akun mahasiswa tidak aktif" in msg for msg in v_c))
+        self.assertTrue(any("belum terverifikasi" in msg for msg in v_c))
+        self.assertTrue(any("is_discoverable=False" in msg for msg in v_c))
+
+    def test_10_non_host_members_without_candidate_lookup_is_violation(self):
+        """
+        D19.6.1-01: Jika kelompok memiliki anggota non-host tetapi candidate_lookup = None,
+        evaluator independen WAJIB menandai violation.
+        """
+        res_ready = {
+            "formation_status": "READY",
+            "group_size": 2,
+            "min_group_size_bound": 2,
+            "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "i_cand_1"}],
+            "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120},
+            "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i_cand_1", "compatibility_score": 80.0}]
+        }
+
+        # Jalankan tanpa candidate_lookup (None)
+        v = check_hard_constraint_violations(self.host_intent, res_ready, candidate_lookup=None)
+        self.assertTrue(any("candidate_lookup wajib disediakan" in msg for msg in v))
+
+    def test_11_candidate_profile_missing_or_unverified_or_course_mismatch_is_violation(self):
+        """
+        D19.6.1-01: Validasi terhadap anggota non-host: profil None, akun suspend, course beda,
+        duplikasi student, atau konflik mode ONLINE vs OFFLINE.
+        """
+        # A. Candidate profile None
+        c_no_prof = make_intent("i_noprof", "s_noprof", "c_hard_a")
+        c_no_prof.student = None
+        c_no_prof.availabilities = [make_availability("i_noprof")]
+
+        # B. Candidate course mismatch
+        c_diff_course = make_intent("i_diff", "s_diff", "c_other_course")
+        c_diff_course.student = make_student("s_diff", "Diff", "diff@t.ac.id")
+        c_diff_course.availabilities = [make_availability("i_diff")]
+
+        # C. Mode konflik ONLINE vs OFFLINE (Host OFFLINE)
+        c_online = make_intent("i_onl", "s_onl", "c_hard_a", learning_mode="ONLINE")
+        c_online.student = make_student("s_onl", "Onl", "onl@t.ac.id")
+        c_online.availabilities = [make_availability("i_onl")]
+
+        # D. Duplikasi student_id (Student ID sama dengan Host)
+        c_dup_st = make_intent("i_dup", "sh_hard", "c_hard_a")
+        c_dup_st.student = self.host_student
+        c_dup_st.availabilities = [make_availability("i_dup")]
+
+        lookup = {
+            "i_noprof": c_no_prof,
+            "i_diff": c_diff_course,
+            "i_onl": c_online,
+            "i_dup": c_dup_st,
+            "ih_hard": self.host_intent
+        }
+
+        # Test A
+        res_a = {
+            "formation_status": "READY", "group_size": 2, "min_group_size_bound": 2, "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "i_noprof"}],
+            "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120},
+            "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i_noprof", "compatibility_score": 80.0}]
+        }
+        v_a = check_hard_constraint_violations(self.host_intent, res_a, lookup)
+        self.assertTrue(any("Data profil mahasiswa untuk intent i_noprof tidak tersedia" in msg for msg in v_a))
+
+        # Test B
+        res_b = {
+            "formation_status": "READY", "group_size": 2, "min_group_size_bound": 2, "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "i_diff"}],
+            "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120},
+            "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i_diff", "compatibility_score": 80.0}]
+        }
+        v_b = check_hard_constraint_violations(self.host_intent, res_b, lookup)
+        self.assertTrue(any("course_id berbeda" in msg for msg in v_b))
+
+        # Test C
+        res_c = {
+            "formation_status": "READY", "group_size": 2, "min_group_size_bound": 2, "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "i_onl"}],
+            "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120},
+            "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i_onl", "compatibility_score": 80.0}]
+        }
+        v_c = check_hard_constraint_violations(self.host_intent, res_c, lookup)
+        self.assertTrue(any("ONLINE dan OFFLINE sekaligus" in msg for msg in v_c))
+
+        # Test D
+        res_d = {
+            "formation_status": "READY", "group_size": 2, "min_group_size_bound": 2, "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "i_dup"}],
+            "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120},
+            "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i_dup", "compatibility_score": 80.0}]
+        }
+        v_d = check_hard_constraint_violations(self.host_intent, res_d, lookup)
+        self.assertTrue(any("duplikasi mahasiswa" in msg for msg in v_d))
+
+    # =========================================================================
+    # 3. D19.6.1-02: Pairwise Identity & Completeness
+    # =========================================================================
+
+    def test_12_pairwise_identity_duplicate_missing_extraneous_pairs_is_violation(self):
+        """
+        D19.6.1-02: Verifikasi pasangan unordered pair:
+        - Pasangan duplikat terdeteksi meskipun total jumlah elemen sama.
+        - Pasangan yang hilang terdeteksi.
+        - Pasangan asing (foreign intent) terdeteksi.
+        """
+        st1 = make_student("s12_1", "S12 1", "s121@t.ac.id")
+        c1 = make_intent("i12_1", "s12_1", "c_hard_a")
+        c1.student = st1
+        c1.availabilities = [make_availability("i12_1")]
+
+        st2 = make_student("s12_2", "S12 2", "s122@t.ac.id")
+        c2 = make_intent("i12_2", "s12_2", "c_hard_a")
+        c2.student = st2
+        c2.availabilities = [make_availability("i12_2")]
+
+        lookup = {"i12_1": c1, "i12_2": c2, "ih_hard": self.host_intent}
+
+        # Kelompok n=3 (ih_hard, i12_1, i12_2).
+        # Pasangan yang diharapkan: (ih_hard, i12_1), (ih_hard, i12_2), (i12_1, i12_2).
+        # Kasus A: 3 elemen pairwise, tetapi ada duplikat (ih_hard, i12_1) dua kali dan (i12_1, i12_2) hilang!
+        res_dup = {
+            "formation_status": "READY", "group_size": 3, "min_group_size_bound": 2, "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "i12_1"}, {"intent_id": "i12_2"}],
+            "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120},
+            "pairwise_scores": [
+                {"intent_a_id": "ih_hard", "intent_b_id": "i12_1", "compatibility_score": 80.0},
+                {"intent_a_id": "i12_1", "intent_b_id": "ih_hard", "compatibility_score": 80.0},  # Duplikat (reversed)
+                {"intent_a_id": "ih_hard", "intent_b_id": "i12_2", "compatibility_score": 85.0}
+            ]
+        }
+        v_dup = check_hard_constraint_violations(self.host_intent, res_dup, lookup)
+        self.assertTrue(any("pasangan duplikat" in msg for msg in v_dup))
+        self.assertTrue(any("pasangan yang hilang" in msg for msg in v_dup))
+
+        # Kasus B: Pasangan asing (memuat intent_id i_stranger yang bukan anggota)
+        res_ext = {
+            "formation_status": "READY", "group_size": 2, "min_group_size_bound": 2, "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "i12_1"}],
+            "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120},
+            "pairwise_scores": [
+                {"intent_a_id": "ih_hard", "intent_b_id": "i_stranger", "compatibility_score": 80.0}
+            ]
+        }
+        lookup["i_stranger"] = c2
+        v_ext = check_hard_constraint_violations(self.host_intent, res_ext, lookup)
+        self.assertTrue(any("pasangan asing" in msg for msg in v_ext))
+
+    def test_13_pairwise_compatibility_score_non_numeric_nan_inf_bool_is_violation(self):
+        """
+        D19.6.1-02: Nilai compatibility_score wajib numerik, finite, dan non-boolean.
+        Ekspektasi: Boolean (True/False), NaN, Inf, atau string bernilai invalid dicatat sebagai pelanggaran.
+        """
+        st1 = make_student("s13", "S13", "s13@t.ac.id")
+        c1 = make_intent("i13", "s13", "c_hard_a")
+        c1.student = st1
+        c1.availabilities = [make_availability("i13")]
+        lookup = {"i13": c1, "ih_hard": self.host_intent}
+
+        test_scores = [
+            True,               # boolean
+            "85.0",             # string
+            None,               # None
+            float("nan"),       # NaN
+            float("inf"),       # Inf
+        ]
+
+        for bad_score in test_scores:
+            res = {
+                "formation_status": "READY", "group_size": 2, "min_group_size_bound": 2, "max_group_size_bound": 4,
+                "members": [{"intent_id": "ih_hard"}, {"intent_id": "i13"}],
+                "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120},
+                "pairwise_scores": [
+                    {"intent_a_id": "ih_hard", "intent_b_id": "i13", "compatibility_score": bad_score}
+                ]
+            }
+            v = check_hard_constraint_violations(self.host_intent, res, lookup)
+            self.assertTrue(
+                any(("tidak bernilai numerik valid" in msg or "bernilai NaN atau Inf" in msg) for msg in v),
+                f"Gagal mendeteksi bad score: {bad_score}"
+            )
+
+    # =========================================================================
+    # 4. D19.6.1-03: Schedule Integrity Fail-Open Closure
+    # =========================================================================
+
+    def test_14_schedule_fail_open_closure_malformed_duration_and_date_is_violation_not_crash(self):
+        """
+        D19.6.1-03: Penanganan aman malformed duration_minutes dan invalid date format.
+        Tidak boleh crash / raise Unhandled Exception, melainkan mencatat violation secara elegan.
+        """
+        st1 = make_student("s14", "S14", "s14@t.ac.id")
+        c1 = make_intent("i14", "s14", "c_hard_a")
+        c1.student = st1
+        c1.availabilities = [make_availability("i14")]
+        lookup = {"i14": c1, "ih_hard": self.host_intent}
+
+        # A. duration_minutes bertipe string "abc" atau boolean True
+        res_malformed_dur = {
+            "formation_status": "READY", "group_size": 2, "min_group_size_bound": 2, "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "i14"}],
+            "selected_schedule": {
+                "date": "2026-11-25",
+                "start_time": "09:00",
+                "end_time": "11:00",
+                "duration_minutes": "abc"  # Malformed string
+            },
+            "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i14", "compatibility_score": 80.0}]
+        }
+        v_dur = check_hard_constraint_violations(self.host_intent, res_malformed_dur, lookup)
+        self.assertTrue(any("duration_minutes (abc) harus numerik valid" in msg for msg in v_dur))
+
+        # B. Format tanggal bukan YYYY-MM-DD
+        res_bad_date = {
+            "formation_status": "READY", "group_size": 2, "min_group_size_bound": 2, "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "i14"}],
+            "selected_schedule": {
+                "date": "25/11/2026",  # Format salah
+                "start_time": "09:00",
+                "end_time": "11:00",
+                "duration_minutes": 120
+            },
+            "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i14", "compatibility_score": 80.0}]
+        }
+        v_date = check_hard_constraint_violations(self.host_intent, res_bad_date, lookup)
+        self.assertTrue(any("Format tanggal selected_schedule '25/11/2026' tidak valid" in msg for msg in v_date))
+
+        # C. Tanggal hilang / kosong (missing date)
+        res_missing_date = {
+            "formation_status": "READY", "group_size": 2, "min_group_size_bound": 2, "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "i14"}],
+            "selected_schedule": {
+                "date": "",  # Kosong
+                "start_time": "09:00",
+                "end_time": "11:00",
+                "duration_minutes": 120
+            },
+            "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i14", "compatibility_score": 80.0}]
+        }
+        v_mis_date = check_hard_constraint_violations(self.host_intent, res_missing_date, lookup)
+        self.assertTrue(any("Field jadwal 'date' pada selected_schedule tidak boleh kosong" in msg for msg in v_mis_date))
+
+        # D. Waktu malformed (malformed time string '25:00' atau 'abc')
+        res_bad_time = {
+            "formation_status": "READY", "group_size": 2, "min_group_size_bound": 2, "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "i14"}],
+            "selected_schedule": {
+                "date": "2026-11-25",
+                "start_time": "25:00",  # Jam invalid
+                "end_time": "11:00",
+                "duration_minutes": 120
+            },
+            "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i14", "compatibility_score": 80.0}]
+        }
+        v_bad_time = check_hard_constraint_violations(self.host_intent, res_bad_time, lookup)
+        self.assertTrue(any("Format waktu selected_schedule tidak valid" in msg for msg in v_bad_time))
+
+    def test_15_schedule_end_before_start_and_duration_mismatch_is_violation(self):
+        """
+        D19.6.1-03: Waktu selesai harus lebih besar dari waktu mulai, durasi minimal 60 menit,
+        dan durasi yang dilaporkan harus konsisten dengan selisih waktu.
+        """
+        st1 = make_student("s15", "S15", "s15@t.ac.id")
+        c1 = make_intent("i15", "s15", "c_hard_a")
+        c1.student = st1
+        c1.availabilities = [make_availability("i15")]
+        lookup = {"i15": c1, "ih_hard": self.host_intent}
+
+        # A. end_time <= start_time
+        res_end_before_start = {
+            "formation_status": "READY", "group_size": 2, "min_group_size_bound": 2, "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "i15"}],
+            "selected_schedule": {
+                "date": "2026-11-25",
+                "start_time": "11:00",
+                "end_time": "09:00",
+                "duration_minutes": 120
+            },
+            "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i15", "compatibility_score": 80.0}]
+        }
+        v_a = check_hard_constraint_violations(self.host_intent, res_end_before_start, lookup)
+        self.assertTrue(any("harus lebih besar dari waktu mulai" in msg for msg in v_a))
+
+        # B. Durasi kurang dari 60 menit
+        res_short = {
+            "formation_status": "READY", "group_size": 2, "min_group_size_bound": 2, "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "i15"}],
+            "selected_schedule": {
+                "date": "2026-11-25",
+                "start_time": "09:00",
+                "end_time": "09:45",
+                "duration_minutes": 45
+            },
+            "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i15", "compatibility_score": 80.0}]
+        }
+        v_b = check_hard_constraint_violations(self.host_intent, res_short, lookup)
+        self.assertTrue(any("kurang dari 60 menit" in msg for msg in v_b))
+
+        # C. Durasi reported (180m) != selisih waktu (120m)
+        res_mismatch = {
+            "formation_status": "READY", "group_size": 2, "min_group_size_bound": 2, "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "i15"}],
+            "selected_schedule": {
+                "date": "2026-11-25",
+                "start_time": "09:00",
+                "end_time": "11:00",
+                "duration_minutes": 180  # Harusnya 120
+            },
+            "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i15", "compatibility_score": 80.0}]
+        }
+        v_c = check_hard_constraint_violations(self.host_intent, res_mismatch, lookup)
+        self.assertTrue(any("tidak sesuai selisih waktu" in msg for msg in v_c))
+
+    # =========================================================================
+    # 5. D19.6.1-04 & D19.6.1-05: Direct Production Testing & Top-K Sentinel
+    # =========================================================================
+
+    def test_16_direct_comprehensive_report_topk_89_99_percent_yields_warning(self):
+        """
+        D19.6.1-04 & D19.6.1-05: Pengujian langsung fungsi produksi generate_comprehensive_evaluation_report
+        pada nilai Top-K retention ambang batas ketat 89.99%.
+        Ekspektasi: summary.topk_quality_retention == 89.99, overall_status == "WARNING",
+        dan rekomendasi memuat 'Top-K retention 89.99% < 90.0%'.
+        """
         candidates = []
-        for i in range(1, 5):
-            st = make_student(f"s_w_{i}", f"W {i}", f"w{i}@t.ac.id")
-            ci = make_intent(f"i_w_{i}", f"s_w_{i}", "c_hard_a")
+        for i in range(1, 4):
+            st = make_student(f"s16_{i}", f"Cand 16_{i}", f"c16_{i}@t.ac.id")
+            ci = make_intent(f"i16_{i}", f"s16_{i}", "c_hard_a")
             ci.student = st
-            ci.availabilities = [make_availability(f"i_w_{i}", "2026-11-25", "09:00", "12:00")]
+            ci.availabilities = [make_availability(f"i16_{i}", "2026-11-25", "09:00", "12:00")]
             candidates.append(ci)
 
-        report = generate_comprehensive_evaluation_report(
-            host_intent=self.host_intent,
-            candidate_intents=candidates,
-            stability_permutations=5,
-            min_score=60.0
+        mock_topk_result = TopKBenchmarkResult(
+            total_candidates=len(candidates),
+            baseline_k="Full",
+            benchmarks=[
+                TopKPoolBenchmarkItem(
+                    k_value=20,
+                    candidates_in_pool=20,
+                    candidates_examined=len(candidates),
+                    formation_status="READY",
+                    group_size=2,
+                    group_quality_score=71.99,
+                    average_pair_score=71.99,
+                    minimum_pair_score=71.99,
+                    quality_loss=10.01,
+                    quality_retention=89.99,
+                    execution_time_ms=1.5,
+                    is_identical_to_baseline=False
+                )
+            ]
         )
 
-        # Buat tiruan report yang memiliki topk_quality_retention = 85.0%
-        # Simulasikan evaluator summary determination
-        dr_rate = 100.0
-        cvr_rate = 0.0
-        all_preserved = True
-        breakdown_valid = True
-        topk_low = 85.0
+        with patch("app.matching_evaluation.benchmark_top_k_candidate_pool", return_value=mock_topk_result):
+            report = generate_comprehensive_evaluation_report(
+                host_intent=self.host_intent,
+                candidate_intents=candidates,
+                stability_permutations=2,
+                min_score=60.0
+            )
 
-        is_stable = (dr_rate == 100.0)
-        is_robust = (cvr_rate == 0.0 and all_preserved)
-        is_breakdown_valid = breakdown_valid
-        is_topk_satisfactory = (topk_low >= 90.0)
+        self.assertIsInstance(report, ComprehensiveEvaluationReport)
+        self.assertEqual(report.summary.topk_quality_retention, 89.99)
+        self.assertEqual(report.summary.overall_status, "WARNING")
+        self.assertIn("Top-K retention 89.99% < 90.0%", report.summary.recommendation)
 
-        status_result = "PASSED" if (is_stable and is_robust and is_breakdown_valid and is_topk_satisfactory) else (
-            "FAILED" if cvr_rate > 0.0 else "WARNING"
-        )
-        self.assertEqual(status_result, "WARNING")
-
-    def test_10_top_k_retention_at_or_above_90_percent_passes(self):
+    def test_17_direct_comprehensive_report_topk_90_00_and_95_00_percent_passes(self):
         """
-        Skenario 10: Jika topk_quality_retention >= 90.0% (misal 95% atau 100%), overall_status PASSED.
+        D19.6.1-04 & D19.6.1-05: Pengujian langsung fungsi produksi generate_comprehensive_evaluation_report
+        pada nilai Top-K retention 90.00% (ambang tepat) dan 95.00%.
         Ekspektasi: overall_status == "PASSED".
         """
         candidates = []
-        for i in range(1, 6):
-            st = make_student(f"s_p_{i}", f"P {i}", f"p{i}@t.ac.id")
-            ci = make_intent(f"i_p_{i}", f"s_p_{i}", "c_hard_a")
+        for i in range(1, 4):
+            st = make_student(f"s17_{i}", f"Cand 17_{i}", f"c17_{i}@t.ac.id")
+            ci = make_intent(f"i17_{i}", f"s17_{i}", "c_hard_a")
             ci.student = st
-            ci.availabilities = [make_availability(f"i_p_{i}", "2026-11-25", "09:00", "12:00")]
+            ci.availabilities = [make_availability(f"i17_{i}", "2026-11-25", "09:00", "12:00")]
+            candidates.append(ci)
+
+        for ret_val in (90.00, 95.00):
+            mock_item = TopKBenchmarkResult(
+                total_candidates=len(candidates),
+                baseline_k="Full",
+                benchmarks=[
+                    TopKPoolBenchmarkItem(
+                        k_value=20,
+                        candidates_in_pool=20,
+                        candidates_examined=len(candidates),
+                        formation_status="READY",
+                        group_size=2,
+                        group_quality_score=80.0,
+                        average_pair_score=80.0,
+                        minimum_pair_score=80.0,
+                        quality_loss=100.0 - ret_val,
+                        quality_retention=ret_val,
+                        execution_time_ms=1.5,
+                        is_identical_to_baseline=True
+                    )
+                ]
+            )
+
+            with patch("app.matching_evaluation.benchmark_top_k_candidate_pool", return_value=mock_item):
+                report = generate_comprehensive_evaluation_report(
+                    host_intent=self.host_intent,
+                    candidate_intents=candidates,
+                    stability_permutations=2,
+                    min_score=60.0
+                )
+
+            self.assertEqual(report.summary.topk_quality_retention, ret_val)
+            self.assertEqual(report.summary.overall_status, "PASSED")
+            self.assertIn("LOLOS pengujian komprehensif Day 19", report.summary.recommendation)
+
+    def test_18_direct_comprehensive_report_unbenchmarked_topk_none_yields_warning_sentinel(self):
+        """
+        D19.6.1-04: Jika benchmark Top-K numerik tidak dijalankan (k_values=(None,)),
+        topk_quality_retention bernilai None dan overall_status menjadi WARNING
+        dengan alasan 'Benchmark Top-K numerik tidak dijalankan'.
+        """
+        candidates = []
+        for i in range(1, 4):
+            st = make_student(f"s18_{i}", f"Cand 18_{i}", f"c18_{i}@t.ac.id")
+            ci = make_intent(f"i18_{i}", f"s18_{i}", "c_hard_a")
+            ci.student = st
+            ci.availabilities = [make_availability(f"i18_{i}", "2026-11-25", "09:00", "12:00")]
             candidates.append(ci)
 
         report = generate_comprehensive_evaluation_report(
             host_intent=self.host_intent,
             candidate_intents=candidates,
-            stability_permutations=5,
+            k_values=(None,),
+            stability_permutations=2,
             min_score=60.0
         )
 
-        self.assertGreaterEqual(report.summary.topk_quality_retention, 90.0)
-        self.assertEqual(report.summary.overall_status, "PASSED")
+        self.assertIsNone(report.summary.topk_quality_retention)
+        self.assertEqual(report.summary.overall_status, "WARNING")
+        self.assertIn("Benchmark Top-K numerik tidak dijalankan", report.summary.recommendation)
 
 
 if __name__ == "__main__":
