@@ -396,6 +396,14 @@ class TestDay19IntegrityHardening(unittest.TestCase):
         self.assertTrue(any("belum terverifikasi" in msg for msg in v_c))
         self.assertTrue(any("is_discoverable=False" in msg for msg in v_c))
 
+        # D. Host student is_discoverable=None (D19.6.2-R1 strict discoverability)
+        st_none_disc = make_student("sh_ndisc", "NDisc", "ndisc@t.ac.id", discoverable=True)
+        st_none_disc.is_discoverable = None
+        host_none_disc = make_intent("ih_ndisc", "sh_ndisc", "c_hard_a")
+        host_none_disc.student = st_none_disc
+        v_d = check_hard_constraint_violations(host_none_disc, res_ok)
+        self.assertTrue(any("tidak discoverable" in msg for msg in v_d))
+
     def test_10_non_host_members_without_candidate_lookup_is_violation(self):
         """
         D19.6.1-01: Jika kelompok memiliki anggota non-host tetapi candidate_lookup = None,
@@ -487,6 +495,40 @@ class TestDay19IntegrityHardening(unittest.TestCase):
         }
         v_d = check_hard_constraint_violations(self.host_intent, res_d, lookup)
         self.assertTrue(any("duplikasi mahasiswa" in msg for msg in v_d))
+
+        # E. Candidate student is_discoverable=None (D19.6.2-R1 strict discoverability)
+        c_none_disc = make_intent("i_ndisc", "s_ndisc", "c_hard_a")
+        c_none_disc.student = make_student("s_ndisc", "NDisc", "ndisc@t.ac.id")
+        c_none_disc.student.is_discoverable = None
+        c_none_disc.availabilities = [make_availability("i_ndisc")]
+
+        # F. Candidate lookup mis-mapped identity (D19.6.2-R2 lookup object identity)
+        c_mismap = make_intent("i_real_id", "s_real", "c_hard_a")
+        c_mismap.student = make_student("s_real", "Real", "real@t.ac.id")
+        c_mismap.availabilities = [make_availability("i_real_id")]
+
+        lookup["i_ndisc"] = c_none_disc
+        lookup["i_mapped"] = c_mismap
+
+        # Test E
+        res_e = {
+            "formation_status": "READY", "group_size": 2, "min_group_size_bound": 2, "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "i_ndisc"}],
+            "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120},
+            "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i_ndisc", "compatibility_score": 80.0}]
+        }
+        v_e = check_hard_constraint_violations(self.host_intent, res_e, lookup)
+        self.assertTrue(any("tidak discoverable" in msg for msg in v_e))
+
+        # Test F
+        res_f = {
+            "formation_status": "READY", "group_size": 2, "min_group_size_bound": 2, "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "i_mapped"}],
+            "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120},
+            "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i_mapped", "compatibility_score": 80.0}]
+        }
+        v_f = check_hard_constraint_violations(self.host_intent, res_f, lookup)
+        self.assertTrue(any("memetakan ke objek dengan intent_id berbeda" in msg for msg in v_f))
 
     # =========================================================================
     # 3. D19.6.1-02: Pairwise Identity & Completeness
@@ -649,6 +691,36 @@ class TestDay19IntegrityHardening(unittest.TestCase):
         }
         v_bad_time = check_hard_constraint_violations(self.host_intent, res_bad_time, lookup)
         self.assertTrue(any("Format waktu selected_schedule tidak valid" in msg for msg in v_bad_time))
+
+        # E. Tanggal kalender fiktif / tidak ada (D19.6.2-R3 calendar date check)
+        res_fake_date = {
+            "formation_status": "READY", "group_size": 2, "min_group_size_bound": 2, "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "i14"}],
+            "selected_schedule": {
+                "date": "2026-99-99",  # Kalender fiktif
+                "start_time": "09:00",
+                "end_time": "11:00",
+                "duration_minutes": 120
+            },
+            "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i14", "compatibility_score": 80.0}]
+        }
+        v_fake_date = check_hard_constraint_violations(self.host_intent, res_fake_date, lookup)
+        self.assertTrue(any("bukan tanggal kalender yang valid" in msg for msg in v_fake_date))
+
+        # F. duration_minutes bertipe desimal pecahan (D19.6.2-R4 non-integer duration)
+        res_decimal_dur = {
+            "formation_status": "READY", "group_size": 2, "min_group_size_bound": 2, "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "i14"}],
+            "selected_schedule": {
+                "date": "2026-11-25",
+                "start_time": "09:00",
+                "end_time": "11:00",
+                "duration_minutes": 60.9  # Desimal pecahan, tidak boleh di-truncate ke 60
+            },
+            "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i14", "compatibility_score": 80.0}]
+        }
+        v_dec_dur = check_hard_constraint_violations(self.host_intent, res_decimal_dur, lookup)
+        self.assertTrue(any("bukan desimal pecahan" in msg for msg in v_dec_dur))
 
     def test_15_schedule_end_before_start_and_duration_mismatch_is_violation(self):
         """

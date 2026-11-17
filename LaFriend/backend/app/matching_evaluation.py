@@ -17,6 +17,7 @@
 # ==============================================================================
 
 import copy
+import datetime
 import math
 import random
 import re
@@ -953,8 +954,8 @@ def check_hard_constraint_violations(
             violations.append(f"Host {host_id} memiliki akun mahasiswa tidak aktif ('{getattr(host_st, 'account_status', None)}')")
         if (getattr(host_st, "verification_status", None) or "").upper() != "VERIFIED":
             violations.append(f"Host {host_id} belum terverifikasi ('{getattr(host_st, 'verification_status', None)}')")
-        if getattr(host_st, "is_discoverable", True) is False:
-            violations.append(f"Host {host_id} memiliki is_discoverable=False")
+        if getattr(host_st, "is_discoverable", None) is not True:
+            violations.append(f"Host {host_id} tidak discoverable (is_discoverable={getattr(host_st, 'is_discoverable', None)})")
         student_ids.append(str(host_st.student_id))
 
     modes.append(getattr(host_intent, "learning_mode", "HYBRID"))
@@ -977,6 +978,11 @@ def check_hard_constraint_violations(
                     continue
 
                 cand_intent = candidate_lookup[mid]
+                cand_iid = str(getattr(cand_intent, "intent_id", "")).strip()
+                if cand_iid != mid:
+                    violations.append(f"Integritas candidate_lookup gagal: key '{mid}' memetakan ke objek dengan intent_id berbeda ('{cand_iid}')")
+                    continue
+
                 all_member_intents.append(cand_intent)
 
                 if getattr(cand_intent, "status", None) != "ACTIVE":
@@ -993,8 +999,8 @@ def check_hard_constraint_violations(
                         violations.append(f"Anggota {mid} memiliki akun mahasiswa tidak aktif ({getattr(st, 'account_status', None)})")
                     if (getattr(st, "verification_status", None) or "").upper() != "VERIFIED":
                         violations.append(f"Anggota {mid} belum terverifikasi ({getattr(st, 'verification_status', None)})")
-                    if getattr(st, "is_discoverable", True) is False:
-                        violations.append(f"Anggota {mid} memiliki is_discoverable=False")
+                    if getattr(st, "is_discoverable", None) is not True:
+                        violations.append(f"Anggota {mid} tidak discoverable (is_discoverable={getattr(st, 'is_discoverable', None)})")
                     student_ids.append(str(st.student_id))
 
                 modes.append(getattr(cand_intent, "learning_mode", "HYBRID"))
@@ -1092,15 +1098,27 @@ def check_hard_constraint_violations(
                 if selected_sched.get(req_f) is None or str(selected_sched.get(req_f)).strip() == "":
                     violations.append(f"Field jadwal '{req_f}' pada selected_schedule tidak boleh kosong")
 
-            # Validasi format tanggal YYYY-MM-DD
-            if sched_date and not re.match(r"^\d{4}-\d{2}-\d{2}$", sched_date):
-                violations.append(f"Format tanggal selected_schedule '{sched_date}' tidak valid (wajib YYYY-MM-DD)")
+            # Validasi format tanggal YYYY-MM-DD dan kalender riil
+            is_calendar_date_valid = False
+            if sched_date:
+                if not re.match(r"^\d{4}-\d{2}-\d{2}$", sched_date):
+                    violations.append(f"Format tanggal selected_schedule '{sched_date}' tidak valid (wajib YYYY-MM-DD)")
+                else:
+                    try:
+                        datetime.date.fromisoformat(sched_date)
+                        is_calendar_date_valid = True
+                    except ValueError:
+                        violations.append(f"Tanggal selected_schedule '{sched_date}' bukan tanggal kalender yang valid")
 
             # Validasi durasi yang dilaporkan
             reported_dur = None
             if raw_dur is not None:
-                if isinstance(raw_dur, bool) or not isinstance(raw_dur, (int, float)):
+                if isinstance(raw_dur, bool) or not isinstance(raw_dur, (int, float, Decimal)):
                     violations.append(f"Field duration_minutes ({raw_dur}) harus numerik valid")
+                elif isinstance(raw_dur, float) and not raw_dur.is_integer():
+                    violations.append(f"Field duration_minutes ({raw_dur}) harus berupa bilangan bulat integer, bukan desimal pecahan")
+                elif isinstance(raw_dur, Decimal) and raw_dur % 1 != 0:
+                    violations.append(f"Field duration_minutes ({raw_dur}) harus berupa bilangan bulat integer, bukan desimal pecahan")
                 else:
                     try:
                         reported_dur = int(raw_dur)
@@ -1127,7 +1145,7 @@ def check_hard_constraint_violations(
                     violations.append(f"Format waktu selected_schedule tidak valid: {ve}")
 
             # Verifikasi independen ketersediaan jadwal seluruh anggota
-            if s_min is not None and e_min is not None and sched_date and re.match(r"^\d{4}-\d{2}-\d{2}$", sched_date):
+            if s_min is not None and e_min is not None and is_calendar_date_valid:
                 for member_intent in all_member_intents:
                     mem_id = getattr(member_intent, "intent_id", "?")
                     mem_windows = resolve_availability_windows(member_intent)
