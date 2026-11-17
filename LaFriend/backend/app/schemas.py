@@ -524,6 +524,7 @@ class InvitationResponse(BaseModel):
     recipient_id: str
     session_id: Optional[str] = None
     target_intent_id: Optional[str] = None
+    proposal_id: Optional[str] = None
     status: str
     message: Optional[str] = None
     created_at: datetime
@@ -532,6 +533,19 @@ class InvitationResponse(BaseModel):
     recipient: Optional[StudentResponse] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class InvitationRespondRequest(BaseModel):
+    decision: str  # 'ACCEPT' atau 'DECLINE'
+    reason: Optional[str] = None
+
+    @field_validator("decision")
+    @classmethod
+    def validate_decision(cls, v: str) -> str:
+        clean = (v or "").strip().upper()
+        if clean not in {"ACCEPT", "DECLINE"}:
+            raise ValueError("Keputusan (decision) wajib bernilai 'ACCEPT' atau 'DECLINE'")
+        return clean
 
 
 # --- E. SKEMA HASIL PENCOCOKAN (MatchResult) ---
@@ -799,6 +813,67 @@ class GroupProposalPreviewResponse(BaseModel):
     selected_schedule: Optional[GroupScheduleOption] = None
     candidate_pruning_stats: Optional[CandidatePruningStats] = None
     message: str
+
+
+# ==============================================================================
+# 8.B. SKEMA USULAN KELOMPOK (GROUP PROPOSAL) & AGREEMENT LAYER (DAY 20)
+# ==============================================================================
+
+class GroupProposalCreateRequest(BaseModel):
+    host_intent_id: str
+    min_score: float = 60.0
+    target_group_size: Optional[int] = None
+    max_candidate_pool: Optional[int] = 20
+    message: Optional[str] = None
+    duration_hours: int = 24
+
+    @field_validator("min_score")
+    @classmethod
+    def validate_min_score(cls, v: float) -> float:
+        if v is None or isinstance(v, bool):
+            raise ValueError("min_score harus numerik berhingga")
+        val = float(v)
+        if val < 0.0 or val > 100.0:
+            raise ValueError("min_score harus berada dalam rentang [0.0, 100.0]")
+        return val
+
+    @field_validator("duration_hours")
+    @classmethod
+    def validate_duration(cls, v: int) -> int:
+        if v is None or isinstance(v, bool) or not isinstance(v, int):
+            raise ValueError("duration_hours harus berupa integer")
+        if v < 1 or v > 168:
+            raise ValueError("duration_hours harus berada dalam rentang 1 s/d 168 jam")
+        return v
+
+
+class GroupProposalCancelRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+class GroupProposalResponse(BaseModel):
+    proposal_id: str
+    host_intent_id: str
+    host_student_id: str
+    course_id: str
+    status: str  # PENDING_RESPONSES, QUORUM_REACHED, READY_FOR_SESSION, NOT_FORMED, CANCELLED, EXPIRED
+    min_group_size_bound: int
+    max_group_size_bound: int
+    group_quality_score: float
+    average_pair_score: float
+    minimum_pair_score: float
+    selected_schedule: Optional[Dict[str, Any]] = None
+    message: Optional[str] = None
+    expires_at: datetime
+    created_at: datetime
+    updated_at: datetime
+    finalized_at: Optional[datetime] = None
+    invitations: List[InvitationResponse] = []
+    active_member_count: int = 1
+    quorum_reached: bool = False
+    host_student: Optional[StudentResponse] = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ==============================================================================

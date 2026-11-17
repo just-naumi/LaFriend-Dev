@@ -87,7 +87,25 @@ def ensure_database_schema(target_engine=None):
                 if "duplicate column name" in err_msg or "already exists" in err_msg:
                     re_check = conn.execute(text("PRAGMA table_info(match_results)"))
                     current_cols = [row[1] for row in re_check.fetchall()]
-                    if "selected_schedule_json" in current_cols:
-                        return
-                raise oe
+                    if "selected_schedule_json" not in current_cols:
+                        raise oe
+                else:
+                    raise oe
+
+        # Migrasi kolom proposal_id pada tabel invitations (Day 20)
+        inv_result = conn.execute(text("PRAGMA table_info(invitations)"))
+        inv_columns = [row[1] for row in inv_result.fetchall()]
+        if inv_columns and "proposal_id" not in inv_columns:
+            try:
+                conn.execute(text("ALTER TABLE invitations ADD COLUMN proposal_id VARCHAR(36) REFERENCES group_proposals(proposal_id)"))
+                conn.commit()
+            except OperationalError as oe:
+                err_msg = str(oe).lower()
+                if "duplicate column name" in err_msg or "already exists" in err_msg:
+                    re_check = conn.execute(text("PRAGMA table_info(invitations)"))
+                    current_cols = [row[1] for row in re_check.fetchall()]
+                    if "proposal_id" not in current_cols:
+                        raise oe
+                else:
+                    raise oe
 

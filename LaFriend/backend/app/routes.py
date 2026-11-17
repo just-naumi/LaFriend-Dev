@@ -26,11 +26,22 @@ from app.schemas import (
     CourseResponse, StudyIntentCreate, StudyIntentResponse,
     ChatExtractionRequest, ChatExtractionResponse,
     RecommendationRequest, RecommendationResponse, MatchResultResponse,
-    GroupProposalPreviewRequest, GroupProposalPreviewResponse
+    GroupProposalPreviewRequest, GroupProposalPreviewResponse,
+    GroupProposalCreateRequest, GroupProposalResponse, GroupProposalCancelRequest,
+    InvitationRespondRequest, InvitationResponse
 )
 from app.extraction import process_chat_for_study_intent
 from app.matching import run_matching_pipeline, calculate_session_occupied_capacity
 from app.group_formation import preview_group_formation_pipeline
+from app.group_proposal_service import (
+    create_group_proposal_service,
+    get_group_proposal_detail_service,
+    finalize_group_proposal_service,
+    cancel_group_proposal_service,
+    respond_invitation_service,
+    get_student_inbox_service,
+    get_student_sent_service
+)
 
 # Buat router utama API v1
 api_router = APIRouter(prefix="/api/v1")
@@ -701,5 +712,135 @@ def preview_group_proposal_endpoint(
         return result
     except ValueError as ve:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+
+
+# ==============================================================================
+# 9. ENDPOINTS GROUP PROPOSAL & AGREEMENT LAYER (DAY 20)
+# ==============================================================================
+
+@api_router.post(
+    "/matching/group-proposals",
+    response_model=GroupProposalResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Group Proposals"]
+)
+def create_group_proposal_endpoint(
+    req: GroupProposalCreateRequest,
+    current_student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db)
+):
+    """
+    Day 20.2: Host membuat usulan kelompok belajar (GroupProposal) resmi
+    berdasarkan hasil rekomendasi matching engine dan menyebarkan undangan ke calon anggota.
+    """
+    return create_group_proposal_service(db=db, host_student=current_student, req=req)
+
+
+@api_router.get(
+    "/matching/group-proposals/{proposal_id}",
+    response_model=GroupProposalResponse,
+    tags=["Group Proposals"]
+)
+def get_group_proposal_endpoint(
+    proposal_id: str,
+    current_student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db)
+):
+    """
+    Day 20.3: Mengambil detail proposal kelompok beserta status respons undangan dan kuorum.
+    """
+    return get_group_proposal_detail_service(db=db, proposal_id=proposal_id, current_student=current_student)
+
+
+@api_router.post(
+    "/matching/group-proposals/{proposal_id}/finalize",
+    response_model=GroupProposalResponse,
+    tags=["Group Proposals"]
+)
+def finalize_group_proposal_endpoint(
+    proposal_id: str,
+    current_student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db)
+):
+    """
+    Day 20.5: Host memfinalisasi proposal yang sudah memenuhi kuorum (QUORUM_REACHED)
+    menjadi READY_FOR_SESSION.
+    """
+    return finalize_group_proposal_service(db=db, proposal_id=proposal_id, host_student=current_student)
+
+
+@api_router.post(
+    "/matching/group-proposals/{proposal_id}/cancel",
+    response_model=GroupProposalResponse,
+    tags=["Group Proposals"]
+)
+def cancel_group_proposal_endpoint(
+    proposal_id: str,
+    req: Optional[GroupProposalCancelRequest] = None,
+    current_student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db)
+):
+    """
+    Day 20.5: Host membatalkan proposal kelompok (status menjadi CANCELLED).
+    """
+    reason = req.reason if req else None
+    return cancel_group_proposal_service(db=db, proposal_id=proposal_id, host_student=current_student, reason=reason)
+
+
+@api_router.get(
+    "/invitations/inbox",
+    response_model=List[InvitationResponse],
+    tags=["Invitations"]
+)
+def get_invitations_inbox_endpoint(
+    status: Optional[str] = None,
+    current_student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db)
+):
+    """
+    Day 20.3: Mengambil daftar undangan masuk (received invitations) untuk mahasiswa saat ini.
+    """
+    return get_student_inbox_service(db=db, student=current_student, status_filter=status)
+
+
+@api_router.get(
+    "/invitations/sent",
+    response_model=List[InvitationResponse],
+    tags=["Invitations"]
+)
+def get_invitations_sent_endpoint(
+    status: Optional[str] = None,
+    current_student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db)
+):
+    """
+    Day 20.3: Mengambil daftar undangan terkirim (sent invitations) oleh mahasiswa saat ini.
+    """
+    return get_student_sent_service(db=db, student=current_student, status_filter=status)
+
+
+@api_router.post(
+    "/invitations/{invitation_id}/respond",
+    response_model=InvitationResponse,
+    tags=["Invitations"]
+)
+def respond_invitation_endpoint(
+    invitation_id: str,
+    req: InvitationRespondRequest,
+    current_student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db)
+):
+    """
+    Day 20.4: Calon anggota merespons undangan (ACCEPT / DECLINE) dan memicu
+    perhitungan kuorum dinamis pada proposal.
+    """
+    return respond_invitation_service(
+        db=db,
+        invitation_id=invitation_id,
+        decision=req.decision,
+        current_student=current_student,
+        reason=req.reason
+    )
+
 
 

@@ -10,7 +10,7 @@
 
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, Boolean, DateTime, ForeignKey, Text, Float
+from sqlalchemy import Column, String, Integer, Boolean, DateTime, ForeignKey, Text, Float, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -62,6 +62,8 @@ class Student(Base):
     session_memberships = relationship("SessionMember", back_populates="student", cascade="all, delete-orphan")
     sent_invitations = relationship("Invitation", foreign_keys="Invitation.sender_id", back_populates="sender", cascade="all, delete-orphan")
     received_invitations = relationship("Invitation", foreign_keys="Invitation.recipient_id", back_populates="recipient", cascade="all, delete-orphan")
+    # Day 20: Relasi ke Usulan Kelompok Belajar (GroupProposal)
+    hosted_proposals = relationship("GroupProposal", back_populates="host_student", foreign_keys="GroupProposal.host_student_id", cascade="all, delete-orphan")
 
 
 # ==============================================================================
@@ -306,6 +308,9 @@ class Invitation(Base):
     # target_intent_id: Terisi jika tipe PARTNER_INVITE (nullable jika JOIN_SESSION)
     target_intent_id = Column(String(36), ForeignKey("study_intents.intent_id", ondelete="SET NULL"), nullable=True)
 
+    # proposal_id: Terisi jika undangan merupakan bagian dari Group Proposal (Day 20)
+    proposal_id = Column(String(36), ForeignKey("group_proposals.proposal_id", ondelete="CASCADE"), nullable=True, index=True)
+
     # status: 'PENDING', 'ACCEPTED', 'REJECTED', 'WITHDRAWN', 'EXPIRED'
     status = Column(String(20), nullable=False, default="PENDING")
 
@@ -321,6 +326,11 @@ class Invitation(Base):
     recipient = relationship("Student", foreign_keys=[recipient_id], back_populates="received_invitations")
     session = relationship("StudySession", back_populates="invitations")
     target_intent = relationship("StudyIntent")
+    group_proposal = relationship("GroupProposal", back_populates="invitations")
+
+    __table_args__ = (
+        UniqueConstraint("proposal_id", "recipient_id", name="uq_proposal_recipient"),
+    )
 
 
 # ==============================================================================
@@ -365,4 +375,49 @@ class MatchResult(Base):
     intent = relationship("StudyIntent", foreign_keys=[intent_id], back_populates="match_results")
     candidate_session = relationship("StudySession")
     target_intent = relationship("StudyIntent", foreign_keys=[target_intent_id])
+
+
+# ==============================================================================
+# 10. TABEL USULAN KELOMPOK (group_proposals) - DAY 20
+# ==============================================================================
+# Menyimpan entitas kesepakatan pembentukan kelompok (Agreement & Quorum Layer)
+# sebelum resmi dieksekusi menjadi StudySession permanen (Day 21).
+class GroupProposal(Base):
+    __tablename__ = "group_proposals"
+
+    proposal_id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+
+    # Inisiator / Host kelompok
+    host_intent_id = Column(String(36), ForeignKey("study_intents.intent_id", ondelete="CASCADE"), nullable=False, index=True)
+    host_student_id = Column(String(36), ForeignKey("students.student_id", ondelete="CASCADE"), nullable=False, index=True)
+    course_id = Column(String(36), ForeignKey("courses.course_id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Status Lifecycle: 'PENDING_RESPONSES', 'QUORUM_REACHED', 'READY_FOR_SESSION', 'NOT_FORMED', 'CANCELLED', 'EXPIRED'
+    status = Column(String(32), default="PENDING_RESPONSES", nullable=False, index=True)
+
+    # Batasan ukuran kelompok yang disepakati
+    min_group_size_bound = Column(Integer, default=2, nullable=False)
+    max_group_size_bound = Column(Integer, default=4, nullable=False)
+
+    # Metrik Kualitas Hasil Matching Saat Proposal Dibuat
+    group_quality_score = Column(Float, default=0.0, nullable=False)
+    average_pair_score = Column(Float, default=0.0, nullable=False)
+    minimum_pair_score = Column(Float, default=0.0, nullable=False)
+
+    # Snapshot Hasil Rekomendasi (Anti-Tampering)
+    selected_schedule_json = Column(Text, nullable=True)     # JSON: {"date", "start_time", "end_time", "duration_minutes"}
+    proposal_snapshot_json = Column(Text, nullable=True)     # JSON: daftar kandidat, breakdown skor, pairwise
+    message = Column(Text, nullable=True)                    # Pesan pengantar dari host
+
+    # Timestamp Lifecycle
+    expires_at = Column(DateTime, nullable=False)            # Batas waktu konfirmasi (default created_at + 24 jam)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    finalized_at = Column(DateTime, nullable=True)           # Waktu ketika status berubah ke READY_FOR_SESSION
+
+    # Relasi ORM
+    host_student = relationship("Student", foreign_keys=[host_student_id], back_populates="hosted_proposals")
+    host_intent = relationship("StudyIntent", foreign_keys=[host_intent_id])
+    course = relationship("Course", foreign_keys=[course_id])
+    invitations = relationship("Invitation", back_populates="group_proposal", cascade="all, delete-orphan")
 
