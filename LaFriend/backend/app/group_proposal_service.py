@@ -469,6 +469,12 @@ def finalize_group_proposal_service(
             detail=f"Akun mahasiswa host ({proposal.host_student_id}) tidak aktif."
         )
 
+    if (host_student_rec.verification_status or "").upper() != "VERIFIED":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Status verifikasi akun host ({proposal.host_student_id}) belum VERIFIED."
+        )
+
     host_intent = db.query(StudyIntent).filter(StudyIntent.intent_id == proposal.host_intent_id).first()
     if not host_intent or host_intent.status != "ACTIVE":
         raise HTTPException(
@@ -497,6 +503,18 @@ def finalize_group_proposal_service(
                 detail=f"Akun mahasiswa anggota {inv.recipient_id} tidak aktif."
             )
 
+        if (cand_student.verification_status or "").upper() != "VERIFIED":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Status verifikasi akun anggota {inv.recipient_id} belum VERIFIED."
+            )
+
+        if not cand_student.is_discoverable:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Mahasiswa anggota {inv.recipient_id} tidak mengaktifkan mode discoverable (is_discoverable=False)."
+            )
+
         c_intent = db.query(StudyIntent).filter(StudyIntent.intent_id == inv.target_intent_id).first()
         if not c_intent or c_intent.status != "ACTIVE":
             raise HTTPException(
@@ -513,6 +531,15 @@ def finalize_group_proposal_service(
         active_members.append(c_intent)
 
     # C. Perhitungan Ulang Batasan Ukuran Kelompok Aktif (Group Size Constraints)
+    for m in active_members:
+        m_min = getattr(m, "min_group_size", 2) or 2
+        m_max = getattr(m, "max_group_size", 4) or 4
+        if m_min < 2 or m_max > 10 or m_min > m_max:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Batasan ukuran kelompok pada Study Intent {m.intent_id} tidak valid ({m_min}-{m_max}). Batas valid: min >= 2, max <= 10, min <= max."
+            )
+
     n_active = len(active_members)
     min_bound_active = max((getattr(m, "min_group_size", 2) or 2) for m in active_members)
     max_bound_active = min((getattr(m, "max_group_size", 4) or 4) for m in active_members)
@@ -535,8 +562,17 @@ def finalize_group_proposal_service(
             detail=f"Jumlah anggota aktif ({n_active}) melebihi batas maksimum kelompok ({max_bound_active})."
         )
 
-    # D. Verifikasi Kompatibilitas Mode Belajar Transitif
-    modes = [m.learning_mode for m in active_members]
+    # D. Verifikasi Kompatibilitas Mode Belajar Transitif & Whitelist
+    valid_modes = {"ONLINE", "OFFLINE", "HYBRID"}
+    for m in active_members:
+        mode_clean = (m.learning_mode or "").strip().upper()
+        if mode_clean not in valid_modes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Mode belajar '{m.learning_mode}' pada Study Intent {m.intent_id} tidak valid. Pilihan: ONLINE, OFFLINE, HYBRID."
+            )
+
+    modes = [(m.learning_mode or "").strip().upper() for m in active_members]
     if "ONLINE" in modes and "OFFLINE" in modes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -587,6 +623,12 @@ def finalize_group_proposal_service(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Waktu mulai jadwal ({s_start_raw}) harus lebih awal dari waktu selesai ({s_end_raw})."
+        )
+
+    if (s_end - s_start) < 60:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Durasi jadwal terpilih ({s_end - s_start} menit) kurang dari batas minimal 60 menit."
         )
 
     for mem in active_members:

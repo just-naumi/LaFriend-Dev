@@ -502,6 +502,184 @@ class TestDay20Finalization(unittest.TestCase):
             self.db.commit()
         self.db.rollback()
 
+    def test_15_pre_finalization_host_verification_status_pending_rejected(self):
+        """D20.9-01: Finalisasi ditolak jika status verifikasi host belum VERIFIED -> HTTP 400."""
+        proposal, _, _, _ = self._setup_proposal_with_status("QUORUM_REACHED")
+        self.andi.verification_status = "PENDING"
+        self.db.commit()
+
+        r = self.client.post(
+            f"/api/v1/matching/group-proposals/{proposal.proposal_id}/finalize",
+            headers={"Authorization": f"Bearer {self.token_andi}"}
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("belum VERIFIED", r.json()["detail"])
+
+    def test_16_pre_finalization_member_verification_status_pending_rejected(self):
+        """D20.9-01: Finalisasi ditolak jika salah satu anggota belum VERIFIED -> HTTP 400."""
+        proposal, _, _, _ = self._setup_proposal_with_status("QUORUM_REACHED")
+        self.budi.verification_status = "PENDING"
+        self.db.commit()
+
+        r = self.client.post(
+            f"/api/v1/matching/group-proposals/{proposal.proposal_id}/finalize",
+            headers={"Authorization": f"Bearer {self.token_andi}"}
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("belum VERIFIED", r.json()["detail"])
+
+    def test_17_pre_finalization_member_not_discoverable_rejected(self):
+        """D20.9-02: Finalisasi ditolak jika salah satu anggota menonaktifkan is_discoverable -> HTTP 400."""
+        proposal, _, _, _ = self._setup_proposal_with_status("QUORUM_REACHED")
+        self.citra.is_discoverable = False
+        self.db.commit()
+
+        r = self.client.post(
+            f"/api/v1/matching/group-proposals/{proposal.proposal_id}/finalize",
+            headers={"Authorization": f"Bearer {self.token_andi}"}
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("is_discoverable=False", r.json()["detail"])
+
+    def test_18_pre_finalization_learning_mode_whitelist_rejected(self):
+        """D20.9-03: Finalisasi ditolak jika mode belajar anggota di luar whitelist (ONLINE, OFFLINE, HYBRID) -> HTTP 400."""
+        proposal, _, _, _ = self._setup_proposal_with_status("QUORUM_REACHED")
+        self.intent_budi.learning_mode = "REMOTE"
+        self.db.commit()
+
+        r = self.client.post(
+            f"/api/v1/matching/group-proposals/{proposal.proposal_id}/finalize",
+            headers={"Authorization": f"Bearer {self.token_andi}"}
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("tidak valid", r.json()["detail"])
+
+    def test_19_pre_finalization_individual_capacity_bounds_rejected(self):
+        """D20.9-04: Finalisasi ditolak jika batas min/max intent individu di luar [2, 10] -> HTTP 400."""
+        proposal, _, _, _ = self._setup_proposal_with_status("QUORUM_REACHED")
+        self.intent_budi.min_group_size = 1  # Kurang dari 2
+        self.db.commit()
+
+        r = self.client.post(
+            f"/api/v1/matching/group-proposals/{proposal.proposal_id}/finalize",
+            headers={"Authorization": f"Bearer {self.token_andi}"}
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("tidak valid", r.json()["detail"])
+
+    def test_20_pre_finalization_schedule_duration_less_than_60_min_rejected(self):
+        """D20.9-05: Finalisasi ditolak jika durasi jadwal kurang dari 60 menit -> HTTP 400."""
+        proposal, _, _, _ = self._setup_proposal_with_status("QUORUM_REACHED")
+        proposal.selected_schedule_json = json.dumps({
+            "date": "2026-11-25",
+            "start_time": "10:00",
+            "end_time": "10:45"  # Hanya 45 menit (< 60 menit)
+        })
+        self.db.commit()
+
+        r = self.client.post(
+            f"/api/v1/matching/group-proposals/{proposal.proposal_id}/finalize",
+            headers={"Authorization": f"Bearer {self.token_andi}"}
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("kurang dari batas minimal 60 menit", r.json()["detail"])
+
+    def test_21_legacy_sqlite_database_migration(self):
+        """D20.9-06 & 07: Menguji jalur migrasi legacy SQLite: ALTER TABLE + CREATE UNIQUE INDEX bekerja dan menangani kegagalan eksplist."""
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.exc import IntegrityError
+        from app.database import ensure_database_schema
+
+        legacy_engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+        with legacy_engine.connect() as conn:
+            # 1. Simulasikan schema database legacy Day 13 (tanpa proposal_id dan tanpa uq_proposal_recipient)
+            conn.execute(text("""
+                CREATE TABLE students (
+                    student_id VARCHAR(36) PRIMARY KEY,
+                    full_name VARCHAR(100),
+                    email VARCHAR(100) UNIQUE,
+                    student_number VARCHAR(20) UNIQUE,
+                    password_hash VARCHAR(255),
+                    verification_status VARCHAR(20),
+                    account_status VARCHAR(20),
+                    is_discoverable BOOLEAN
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE courses (
+                    course_id VARCHAR(36) PRIMARY KEY,
+                    course_code VARCHAR(20) UNIQUE,
+                    course_name VARCHAR(100),
+                    study_program VARCHAR(50)
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE group_proposals (
+                    proposal_id VARCHAR(36) PRIMARY KEY,
+                    host_intent_id VARCHAR(36),
+                    host_student_id VARCHAR(36),
+                    course_id VARCHAR(36),
+                    status VARCHAR(32),
+                    min_group_size_bound INTEGER,
+                    max_group_size_bound INTEGER,
+                    group_quality_score FLOAT,
+                    average_pair_score FLOAT,
+                    minimum_pair_score FLOAT,
+                    expires_at DATETIME,
+                    created_at DATETIME,
+                    updated_at DATETIME
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE invitations (
+                    invitation_id VARCHAR(36) PRIMARY KEY,
+                    invitation_type VARCHAR(20) NOT NULL,
+                    sender_id VARCHAR(36) NOT NULL,
+                    recipient_id VARCHAR(36) NOT NULL,
+                    session_id VARCHAR(36),
+                    target_intent_id VARCHAR(36),
+                    status VARCHAR(20) NOT NULL,
+                    message TEXT,
+                    created_at DATETIME NOT NULL,
+                    responded_at DATETIME
+                )
+            """))
+            conn.commit()
+
+            # Verifikasi bahwa skema legacy memang belum memiliki proposal_id
+            cols_before = [r[1] for r in conn.execute(text("PRAGMA table_info(invitations)")).fetchall()]
+            self.assertNotIn("proposal_id", cols_before)
+
+            idx_before = [r[1] for r in conn.execute(text("PRAGMA index_list(invitations)")).fetchall()]
+            self.assertNotIn("uq_proposal_recipient", idx_before)
+
+        # 2. Jalankan migrasi melalui ensure_database_schema
+        ensure_database_schema(legacy_engine)
+
+        with legacy_engine.connect() as conn:
+            # 3. Verifikasi kolom proposal_id telah berhasil ditambahkan
+            cols_after = [r[1] for r in conn.execute(text("PRAGMA table_info(invitations)")).fetchall()]
+            self.assertIn("proposal_id", cols_after)
+
+            # 4. Verifikasi unique index uq_proposal_recipient telah terbuat
+            idx_after = [r[1] for r in conn.execute(text("PRAGMA index_list(invitations)")).fetchall()]
+            self.assertIn("uq_proposal_recipient", idx_after)
+
+            # 5. Uji keunikan: memasukkan dua record dengan proposal_id dan recipient_id yang sama harus melempar IntegrityError
+            conn.execute(text("""
+                INSERT INTO invitations (invitation_id, invitation_type, sender_id, recipient_id, proposal_id, status, created_at)
+                VALUES ('inv_1', 'GROUP_PROPOSAL', 'host_1', 'rec_1', 'prop_1', 'PENDING', '2026-11-20 10:00:00')
+            """))
+            conn.commit()
+
+            with self.assertRaises(IntegrityError):
+                conn.execute(text("""
+                    INSERT INTO invitations (invitation_id, invitation_type, sender_id, recipient_id, proposal_id, status, created_at)
+                    VALUES ('inv_2', 'GROUP_PROPOSAL', 'host_1', 'rec_1', 'prop_1', 'PENDING', '2026-11-20 10:00:00')
+                """))
+                conn.commit()
+            conn.rollback()
+
 
 if __name__ == "__main__":
     unittest.main()
