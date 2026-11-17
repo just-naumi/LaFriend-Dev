@@ -240,8 +240,52 @@ def run_tests():
     db = SessionLocal()
     try:
         student = db.query(Student).first()
-        student2 = db.query(Student).offset(1).first() or student
+        if student is None:
+            student = Student(
+                student_id="s_test_13_1",
+                full_name="Student Test 13",
+                email="student13@telkomuniversity.ac.id",
+                student_number="1201230001",
+                study_program="S1 Teknik Komputer",
+                academic_year=2023,
+                verification_status="VERIFIED",
+                account_status="ACTIVE",
+                is_discoverable=True
+            )
+            db.add(student)
+            db.commit()
+            db.refresh(student)
+
+        student2 = db.query(Student).offset(1).first()
+        if student2 is None:
+            student2 = Student(
+                student_id="s_test_13_2",
+                full_name="Student Test 13 Two",
+                email="student13_2@telkomuniversity.ac.id",
+                student_number="1201230002",
+                study_program="S1 Teknik Komputer",
+                academic_year=2023,
+                verification_status="VERIFIED",
+                account_status="ACTIVE",
+                is_discoverable=True
+            )
+            db.add(student2)
+            db.commit()
+            db.refresh(student2)
+
         course = db.query(Course).first()
+        if course is None:
+            course = Course(
+                course_id="c_test_13",
+                course_code="CS101",
+                course_name="Algoritma & Pemrograman",
+                credits=3,
+                study_program="S1 Teknik Komputer",
+                semester=1
+            )
+            db.add(course)
+            db.commit()
+            db.refresh(course)
         
         assert student is not None, "Need at least 1 Student"
         assert course is not None, "Need at least 1 Course"

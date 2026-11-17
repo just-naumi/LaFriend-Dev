@@ -23,7 +23,7 @@ import random
 import re
 import statistics
 import time
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation, DivisionByZero
 from typing import List, Dict, Any, Optional, Sequence, Tuple, Union
 
 from app.group_formation import calculate_group_quality_score, form_study_group
@@ -459,12 +459,12 @@ def evaluate_group_quality(
         mps = float(data.get("minimum_pair_score", 0.0))
         group_size = int(data.get("group_size", len(data.get("members", []))))
 
-        # Periksa konsistensi breakdown untuk setiap item pairwise jika tersedia
+        # Periksa konsistensi breakdown untuk setiap item pairwise jika tersedia (D19.6.4-10)
         breakdown_consistent = True
-        for pw in raw_pairwise:
-            if isinstance(pw, dict) and "breakdown" in pw and pw["breakdown"] is not None:
+        if raw_pairwise:
+            for pw in raw_pairwise:
                 chk = verify_pairwise_breakdown_consistency(pw)
-                if not chk["is_consistent"]:
+                if not chk.get("is_consistent", False):
                     breakdown_consistent = False
                     break
 
@@ -861,6 +861,9 @@ def benchmark_top_k_candidate_pool(
 # 9. EVALUASI KETAHANAN DATA TIDAK IDEAL (ROBUSTNESS TESTING - DAY 19.3)
 # ==============================================================================
 
+VALID_LEARNING_MODES = {"ONLINE", "OFFLINE", "HYBRID"}
+
+
 def check_hard_constraint_violations(
     host_intent: StudyIntent,
     formation_result: Dict[str, Any],
@@ -870,81 +873,160 @@ def check_hard_constraint_violations(
     """
     Memeriksa secara independen apakah hasil pembentukan kelompok melanggar
     satu pun aturan Hard Constraints dari Day 14 atau aturan multi-way Day 17/18.
-    (Day 19.6.2 Closed Independent Evaluator Specification)
+    (Day 19.6.4 Closed Independent Evaluator Specification)
 
     Empat Kelompok Pemeriksaan Utama:
     1. Formation Integrity:
+       - Parameter min_score tervalidasi numerik, berhingga, dan dalam rentang [0.0, 100.0].
+       - group_size, min_bound, max_bound wajib integer murni (bukan float, string, bool).
+       - host_intent_id pada metadata cocok dengan host_intent.
+       - Host wajib terdapat dalam members tepat satu kali.
+       - Tidak ada anggota duplikat dan setiap anggota memiliki intent_id valid.
        - READY: 2 <= group_size, min_bound <= group_size <= max_bound, min_bound <= max_bound.
        - INSUFFICIENT_MEMBERS: 2 <= group_size < min_bound (bukan violation!).
        - NO_COMPATIBLE_GROUP: group_size == 1 (jika group_size >= 2 maka violation!).
        - Unknown status: ditandai sebagai hasil tidak valid.
        - Konsistensi jumlah elemen members == group_size.
     2. Candidate & Host Integrity:
-       - Host intent: status == ACTIVE, profil student tersedia, account_status == ACTIVE,
-         verification_status == VERIFIED, is_discoverable == True.
+       - Host intent: status == ACTIVE, domain learning_mode valid (ONLINE/OFFLINE/HYBRID),
+         profil student tersedia, account_status == ACTIVE, verification_status == VERIFIED,
+         is_discoverable == True.
        - Jika ada anggota non-host, candidate_lookup WAJIB disediakan. Jika tidak, catat violation.
-       - Setiap anggota non-host: wajib ada di candidate_lookup, status intent == ACTIVE,
-         course_id sama dengan host, profil student tersedia, akun ACTIVE, VERIFIED, is_discoverable.
+       - Setiap anggota non-host: wajib ada di candidate_lookup, mapping key == intent_id,
+         status intent == ACTIVE, domain learning_mode valid, course_id sama dengan host,
+         profil student tersedia, akun ACTIVE, VERIFIED, is_discoverable.
        - Deduplikasi mahasiswa: tidak ada student_id ganda.
        - Transitive Learning Mode: tidak ada kombinasi ONLINE dan OFFLINE sekaligus.
+       - Perhitungan ulang independen rentang kapasitas [MinGroup, MaxGroup] dari objek intent anggota.
     3. Pairwise Integrity (khusus status READY):
        - Jumlah pairwise_scores wajib tepat N*(N-1)/2.
        - Himpunan pasangan aktual wajib identik dengan himpunan seluruh pasangan kombinasi anggota (A, B).
        - Tidak boleh ada pasangan duplikat, pasangan hilang, atau pasangan asing.
-       - Nilai compatibility_score wajib numerik, finite, non-boolean, dan >= min_score.
+       - Nilai compatibility_score wajib numerik, finite, non-boolean, berada dalam rentang [0.0, 100.0],
+         dan >= min_score.
     4. Schedule Integrity (khusus status READY):
        - selected_schedule wajib ada dan berupa dictionary.
        - Field date, start_time, end_time, dan duration_minutes wajib lengkap dan valid.
-       - Format date YYYY-MM-DD, format waktu HH:MM, durasi selisih >= 60 menit.
-       - Field duration_minutes wajib numerik integer dan tepat sama dengan selisih waktu.
+       - Format date YYYY-MM-DD dan kalender riil valid.
+       - Format waktu HH:MM, durasi selisih >= 60 menit.
+       - Field duration_minutes wajib numerik integer berhingga (tahan NaN/Inf/Decimal Infinity)
+         dan tepat sama dengan selisih waktu.
        - Seluruh anggota kelompok (host + kandidat) wajib memiliki jendela ketersediaan
-         yang mencakup jadwal terpilih.
+         yang mencakup jadwal terpilih (fail-closed resolver exception handling).
     """
     violations = []
-    status = formation_result.get("formation_status", "UNKNOWN")
-    group_size = int(formation_result.get("group_size", 0))
-    members = formation_result.get("members", [])
-    selected_sched = formation_result.get("selected_schedule")
-    min_bound = int(formation_result.get("min_group_size_bound", 2))
-    max_bound = int(formation_result.get("max_group_size_bound", 10))
 
     # =========================================================================
-    # 1. FORMATION INTEGRITY
+    # 0. VALIDASI PARAMETER INPUT (D19.6.4-05 & D19.6.4-06)
     # =========================================================================
-    if status == "READY":
-        if group_size < 2:
-            violations.append(f"Ukuran kelompok READY ({group_size}) kurang dari batas minimum absolut (2)")
-        if min_bound > max_bound:
-            violations.append(f"Kelompok READY memiliki rentang kapasitas tidak valid: min_bound ({min_bound}) > max_bound ({max_bound})")
-        if group_size < min_bound or group_size > max_bound:
-            violations.append(f"Kelompok READY memiliki group_size ({group_size}) di luar batas kapasitas [{min_bound}, {max_bound}]")
-        if not selected_sched:
-            violations.append("Kelompok berstatus READY tetapi tidak memiliki selected_schedule")
-    elif status == "INSUFFICIENT_MEMBERS":
-        if group_size < 2:
-            violations.append(f"Status INSUFFICIENT_MEMBERS tetapi group_size ({group_size}) < 2")
-        if group_size >= min_bound:
-            violations.append(f"Status INSUFFICIENT_MEMBERS tetapi group_size ({group_size}) >= min_bound ({min_bound})")
-    elif status == "NO_COMPATIBLE_GROUP":
-        if group_size != 1:
-            violations.append(f"Status NO_COMPATIBLE_GROUP tetapi group_size ({group_size}) != 1")
+    min_score_val = 60.0
+    if min_score is None or isinstance(min_score, bool) or not isinstance(min_score, (int, float, Decimal)):
+        violations.append(f"Parameter min_score ({min_score}) tidak valid: harus numerik berhingga antara 0.0 dan 100.0")
     else:
-        violations.append(f"Status pembentukan kelompok tidak dikenal atau tidak valid: '{status}'")
+        try:
+            val_f = float(min_score)
+            if math.isnan(val_f) or math.isinf(val_f):
+                violations.append(f"Parameter min_score ({min_score}) tidak valid: harus numerik berhingga antara 0.0 dan 100.0")
+            elif val_f < 0.0 or val_f > 100.0:
+                violations.append(f"Parameter min_score ({min_score}) tidak valid: harus numerik berhingga antara 0.0 dan 100.0")
+            else:
+                min_score_val = val_f
+        except (ValueError, TypeError, OverflowError):
+            violations.append(f"Parameter min_score ({min_score}) tidak valid: gagal dikonversi ke numerik")
+
+    # =========================================================================
+    # 1. FORMATION INTEGRITY & STRICT INTEGER VALIDATION (D19.6.4-01 & D19.6.4-03)
+    # =========================================================================
+    status = formation_result.get("formation_status", "UNKNOWN")
+    raw_group_size = formation_result.get("group_size")
+    if raw_group_size is None or isinstance(raw_group_size, bool) or not isinstance(raw_group_size, int):
+        violations.append(f"Field group_size ({raw_group_size}) harus berupa integer numerik murni (bukan float, string, atau boolean)")
+        try:
+            group_size = int(raw_group_size) if (raw_group_size is not None and not isinstance(raw_group_size, bool)) else 0
+        except (ValueError, TypeError):
+            group_size = 0
+    else:
+        group_size = raw_group_size
+
+    raw_min_bound = formation_result.get("min_group_size_bound")
+    if raw_min_bound is not None:
+        if isinstance(raw_min_bound, bool) or not isinstance(raw_min_bound, int):
+            violations.append(f"Field min_group_size_bound ({raw_min_bound}) harus berupa integer numerik murni")
+            try:
+                reported_min_bound = int(raw_min_bound) if not isinstance(raw_min_bound, bool) else 2
+            except (ValueError, TypeError):
+                reported_min_bound = 2
+        else:
+            reported_min_bound = raw_min_bound
+    else:
+        reported_min_bound = None
+
+    raw_max_bound = formation_result.get("max_group_size_bound")
+    if raw_max_bound is not None:
+        if isinstance(raw_max_bound, bool) or not isinstance(raw_max_bound, int):
+            violations.append(f"Field max_group_size_bound ({raw_max_bound}) harus berupa integer numerik murni")
+            try:
+                reported_max_bound = int(raw_max_bound) if not isinstance(raw_max_bound, bool) else 10
+            except (ValueError, TypeError):
+                reported_max_bound = 10
+        else:
+            reported_max_bound = raw_max_bound
+    else:
+        reported_max_bound = None
+
+    members = formation_result.get("members", [])
+    if not isinstance(members, list):
+        violations.append(f"Field members ({members}) harus berupa list")
+        members = []
+    selected_sched = formation_result.get("selected_schedule")
 
     if len(members) != group_size:
         violations.append(f"Jumlah anggota aktual ({len(members)}) tidak sesuai dengan group_size ({group_size})")
 
+    # D19.6.4-01: Validasi host_intent_id pada formation_result
+    host_id = str(getattr(host_intent, "intent_id", "host")).strip()
+    reported_host_id = formation_result.get("host_intent_id")
+    if reported_host_id is not None:
+        if str(reported_host_id).strip() != host_id:
+            violations.append(f"host_intent_id pada formation_result ('{reported_host_id}') tidak cocok dengan host_intent ('{host_id}')")
+
+    # D19.6.4-01: Validasi kelengkapan, keunikan anggota, dan kehadiran host
+    member_id_list = []
+    for idx, m in enumerate(members):
+        if isinstance(m, dict):
+            mid = str(m.get("intent_id", "")).strip()
+        else:
+            mid = str(getattr(m, "intent_id", "")).strip()
+        if not mid:
+            violations.append(f"Anggota pada index {idx} tidak memiliki intent_id yang valid")
+        else:
+            member_id_list.append(mid)
+
+    if len(member_id_list) != len(set(member_id_list)):
+        violations.append("Terdapat duplikasi anggota (intent_id ganda) pada members")
+
+    host_count = member_id_list.count(host_id)
+    if host_count == 0:
+        violations.append(f"Host {host_id} tidak terdapat dalam daftar members")
+    elif host_count > 1:
+        violations.append(f"Host {host_id} muncul lebih dari satu kali dalam daftar members ({host_count} kali)")
+
     # =========================================================================
-    # 2. CANDIDATE & HOST INTEGRITY
+    # 2. CANDIDATE & HOST INTEGRITY (D19.6.4-02 & D19.6.4-04)
     # =========================================================================
     all_member_intents: List[StudyIntent] = []
     student_ids: List[str] = []
     modes: List[str] = []
 
     # 2.A. Validasi Host
-    host_id = str(getattr(host_intent, "intent_id", "host"))
     if getattr(host_intent, "status", None) != "ACTIVE":
         violations.append(f"Host {host_id} memiliki status intent tidak aktif ('{getattr(host_intent, 'status', None)}')")
+
+    host_mode = getattr(host_intent, "learning_mode", None)
+    if host_mode not in VALID_LEARNING_MODES:
+        violations.append(f"Host {host_id} memiliki learning_mode tidak valid: '{host_mode}' (wajib salah satu dari ONLINE, OFFLINE, HYBRID)")
+    else:
+        modes.append(host_mode)
 
     host_st = getattr(host_intent, "student", None)
     if host_st is None:
@@ -958,16 +1040,10 @@ def check_hard_constraint_violations(
             violations.append(f"Host {host_id} tidak discoverable (is_discoverable={getattr(host_st, 'is_discoverable', None)})")
         student_ids.append(str(host_st.student_id))
 
-    modes.append(getattr(host_intent, "learning_mode", "HYBRID"))
     all_member_intents.append(host_intent)
 
     # 2.B. Validasi Anggota Non-Host
-    non_host_members = []
-    for m in members:
-        mid = str(m.get("intent_id") if isinstance(m, dict) else getattr(m, "intent_id", "")).strip()
-        if mid and mid != host_id:
-            non_host_members.append(mid)
-
+    non_host_members = [mid for mid in member_id_list if mid != host_id]
     if non_host_members:
         if candidate_lookup is None:
             violations.append(f"candidate_lookup wajib disediakan untuk memverifikasi integritas {len(non_host_members)} anggota kandidat non-host")
@@ -988,6 +1064,12 @@ def check_hard_constraint_violations(
                 if getattr(cand_intent, "status", None) != "ACTIVE":
                     violations.append(f"Anggota {mid} memiliki status intent tidak aktif ('{getattr(cand_intent, 'status', None)}')")
 
+                cand_mode = getattr(cand_intent, "learning_mode", None)
+                if cand_mode not in VALID_LEARNING_MODES:
+                    violations.append(f"Anggota {mid} memiliki learning_mode tidak valid: '{cand_mode}' (wajib salah satu dari ONLINE, OFFLINE, HYBRID)")
+                else:
+                    modes.append(cand_mode)
+
                 if str(cand_intent.course_id) != str(host_intent.course_id):
                     violations.append(f"Anggota {mid} memiliki course_id berbeda ({cand_intent.course_id} != {host_intent.course_id})")
 
@@ -1003,8 +1085,6 @@ def check_hard_constraint_violations(
                         violations.append(f"Anggota {mid} tidak discoverable (is_discoverable={getattr(st, 'is_discoverable', None)})")
                     student_ids.append(str(st.student_id))
 
-                modes.append(getattr(cand_intent, "learning_mode", "HYBRID"))
-
     # Deduplikasi mahasiswa
     if len(student_ids) != len(set(student_ids)):
         violations.append("Terdapat duplikasi mahasiswa (student_id sama) dalam kelompok yang sama")
@@ -1013,25 +1093,67 @@ def check_hard_constraint_violations(
     if "ONLINE" in modes and "OFFLINE" in modes:
         violations.append("Kelompok memuat mahasiswa ONLINE dan OFFLINE sekaligus (inkompatibel)")
 
+    # 2.C. Perhitungan Ulang Independen Batas Kapasitas (D19.6.4-02)
+    try:
+        recomputed_min_bound = max(int(getattr(m, "min_group_size", 2)) for m in all_member_intents)
+        recomputed_max_bound = min(int(getattr(m, "max_group_size", 10)) for m in all_member_intents)
+    except Exception:
+        recomputed_min_bound = 2
+        recomputed_max_bound = 10
+
+    if reported_min_bound is not None and reported_min_bound != recomputed_min_bound:
+        violations.append(f"Metadata min_group_size_bound ({reported_min_bound}) tidak cocok dengan hasil perhitungan independen ({recomputed_min_bound})")
+    if reported_max_bound is not None and reported_max_bound != recomputed_max_bound:
+        violations.append(f"Metadata max_group_size_bound ({reported_max_bound}) tidak cocok dengan hasil perhitungan independen ({recomputed_max_bound})")
+
+    # Validasi kapasitas kelompok berdasarkan status (baik reported maupun recomputed)
+    if reported_min_bound is not None and reported_max_bound is not None and reported_min_bound > reported_max_bound:
+        violations.append(f"Kelompok READY memiliki rentang kapasitas tidak valid: min_bound ({reported_min_bound}) > max_bound ({reported_max_bound})")
+    elif recomputed_min_bound > recomputed_max_bound:
+        violations.append(f"Kelompok READY memiliki rentang kapasitas tidak valid: min_bound ({recomputed_min_bound}) > max_bound ({recomputed_max_bound})")
+
+    if status == "READY":
+        if group_size < 2:
+            violations.append(f"Ukuran kelompok READY ({group_size}) kurang dari batas minimum absolut (2)")
+        if reported_min_bound is not None and reported_max_bound is not None and (group_size < reported_min_bound or group_size > reported_max_bound):
+            violations.append(f"Kelompok READY memiliki group_size ({group_size}) di luar batas kapasitas [{reported_min_bound}, {reported_max_bound}]")
+        elif group_size < recomputed_min_bound or group_size > recomputed_max_bound:
+            violations.append(f"Kelompok READY memiliki group_size ({group_size}) di luar batas kapasitas [{recomputed_min_bound}, {recomputed_max_bound}]")
+        if not selected_sched:
+            violations.append("Kelompok berstatus READY tetapi tidak memiliki selected_schedule")
+    elif status == "INSUFFICIENT_MEMBERS":
+        if group_size < 2:
+            violations.append(f"Status INSUFFICIENT_MEMBERS tetapi group_size ({group_size}) < 2")
+        effective_min = recomputed_min_bound if reported_min_bound is None else min(reported_min_bound, recomputed_min_bound)
+        if group_size >= effective_min:
+            violations.append(f"Status INSUFFICIENT_MEMBERS tetapi group_size ({group_size}) >= min_bound ({effective_min})")
+    elif status == "NO_COMPATIBLE_GROUP":
+        if group_size != 1:
+            violations.append(f"Status NO_COMPATIBLE_GROUP tetapi group_size ({group_size}) != 1")
+    else:
+        violations.append(f"Status pembentukan kelompok tidak dikenal atau tidak valid: '{status}'")
+
     # =========================================================================
-    # 3. PAIRWISE INTEGRITY (Khusus Status READY)
+    # 3. PAIRWISE INTEGRITY (Khusus Status READY - D19.6.4-05)
     # =========================================================================
     if status == "READY":
-        member_ids = [str(m.get("intent_id") if isinstance(m, dict) else getattr(m, "intent_id", "")).strip() for m in members]
         expected_pairs = set()
-        for i in range(len(member_ids)):
-            for j in range(i + 1, len(member_ids)):
-                if member_ids[i] and member_ids[j]:
-                    expected_pairs.add(tuple(sorted([member_ids[i], member_ids[j]])))
+        for i in range(len(member_id_list)):
+            for j in range(i + 1, len(member_id_list)):
+                if member_id_list[i] and member_id_list[j]:
+                    expected_pairs.add(tuple(sorted([member_id_list[i], member_id_list[j]])))
 
         n = group_size
         expected_n_pairs = (n * (n - 1)) // 2
         pairwise_scores = formation_result.get("pairwise_scores", [])
+        if not isinstance(pairwise_scores, list):
+            violations.append(f"Field pairwise_scores ({pairwise_scores}) harus berupa list")
+            pairwise_scores = []
+
         if len(pairwise_scores) != expected_n_pairs:
             violations.append(f"Jumlah pairwise_scores ({len(pairwise_scores)}) tidak sesuai dengan formula N*(N-1)/2 ({expected_n_pairs}) untuk n={n}")
 
         seen_pairs = set()
-        min_score_val = float(min_score)
 
         for pw in pairwise_scores:
             if not isinstance(pw, dict):
@@ -1068,6 +1190,9 @@ def check_hard_constraint_violations(
                 violations.append(f"Compatibility score untuk pasangan {pair_key} gagal dikonversi ke float")
                 continue
 
+            if cs_float < 0.0 or cs_float > 100.0:
+                violations.append(f"Compatibility score untuk pasangan {pair_key} ({cs_float}) di luar rentang valid [0.0, 100.0]")
+
             if cs_float < min_score_val:
                 violations.append(f"Pasangan ({id_a} - {id_b}) memiliki Compatibility Score ({cs_float}) < min_score ({min_score_val})")
 
@@ -1081,7 +1206,7 @@ def check_hard_constraint_violations(
             violations.append(f"Terdapat pasangan asing pada pairwise_scores yang bukan anggota kelompok: {sorted(list(extraneous_pairs))}")
 
     # =========================================================================
-    # 4. SCHEDULE INTEGRITY (Khusus Status READY)
+    # 4. SCHEDULE INTEGRITY (Khusus Status READY - D19.6.4-06 & D19.6.4-07)
     # =========================================================================
     if status == "READY":
         if not selected_sched or not isinstance(selected_sched, dict):
@@ -1110,22 +1235,37 @@ def check_hard_constraint_violations(
                     except ValueError:
                         violations.append(f"Tanggal selected_schedule '{sched_date}' bukan tanggal kalender yang valid")
 
-            # Validasi durasi yang dilaporkan
+            # Validasi durasi yang dilaporkan (D19.6.4-07: penanganan Decimal infinity & non-finite)
             reported_dur = None
             if raw_dur is not None:
                 if isinstance(raw_dur, bool) or not isinstance(raw_dur, (int, float, Decimal)):
                     violations.append(f"Field duration_minutes ({raw_dur}) harus numerik valid")
-                elif isinstance(raw_dur, float) and not raw_dur.is_integer():
-                    violations.append(f"Field duration_minutes ({raw_dur}) harus berupa bilangan bulat integer, bukan desimal pecahan")
-                elif isinstance(raw_dur, Decimal) and raw_dur % 1 != 0:
-                    violations.append(f"Field duration_minutes ({raw_dur}) harus berupa bilangan bulat integer, bukan desimal pecahan")
+                elif isinstance(raw_dur, float):
+                    if math.isnan(raw_dur) or math.isinf(raw_dur):
+                        violations.append(f"Field duration_minutes ({raw_dur}) bernilai non-finite / NaN / Inf")
+                    elif not raw_dur.is_integer():
+                        violations.append(f"Field duration_minutes ({raw_dur}) harus berupa bilangan bulat integer, bukan desimal pecahan")
+                    else:
+                        reported_dur = int(raw_dur)
+                elif isinstance(raw_dur, Decimal):
+                    if not raw_dur.is_finite() or raw_dur.is_nan():
+                        violations.append(f"Field duration_minutes ({raw_dur}) bernilai non-finite / NaN / Inf")
+                    else:
+                        try:
+                            if raw_dur % 1 != 0:
+                                violations.append(f"Field duration_minutes ({raw_dur}) harus berupa bilangan bulat integer, bukan desimal pecahan")
+                            else:
+                                reported_dur = int(raw_dur)
+                        except (InvalidOperation, DivisionByZero):
+                            violations.append(f"Field duration_minutes ({raw_dur}) menghasilkan operasi Decimal tidak valid")
                 else:
                     try:
                         reported_dur = int(raw_dur)
-                        if reported_dur < 60:
-                            violations.append(f"Durasi selected_schedule ({reported_dur}m) kurang dari 60 menit")
                     except (ValueError, TypeError):
                         violations.append(f"Field duration_minutes ({raw_dur}) gagal dikonversi ke integer")
+
+            if reported_dur is not None and reported_dur < 60:
+                violations.append(f"Durasi selected_schedule ({reported_dur}m) kurang dari 60 menit")
 
             # Validasi waktu mulai dan selesai
             s_min, e_min = None, None
@@ -1144,11 +1284,20 @@ def check_hard_constraint_violations(
                 except Exception as ve:
                     violations.append(f"Format waktu selected_schedule tidak valid: {ve}")
 
-            # Verifikasi independen ketersediaan jadwal seluruh anggota
+            # Verifikasi independen ketersediaan jadwal seluruh anggota (D19.6.4-06: fail-closed resolver exception handling)
             if s_min is not None and e_min is not None and is_calendar_date_valid:
                 for member_intent in all_member_intents:
                     mem_id = getattr(member_intent, "intent_id", "?")
-                    mem_windows = resolve_availability_windows(member_intent)
+                    avs = getattr(member_intent, "availabilities", None)
+                    if avs is None or not isinstance(avs, list) or any(a is None for a in avs):
+                        violations.append(f"Ketersediaan anggota {mem_id} tidak valid atau memuat nilai None")
+                        continue
+                    try:
+                        mem_windows = resolve_availability_windows(member_intent)
+                    except Exception as exc:
+                        violations.append(f"Ketersediaan anggota {mem_id} tidak dapat diverifikasi karena error pada resolver: {str(exc)}")
+                        continue
+
                     mem_covers = False
                     for w in mem_windows:
                         if str(w.get("date", "")) == sched_date:
@@ -1164,6 +1313,8 @@ def check_hard_constraint_violations(
                         violations.append(f"Selected schedule ({sched_date} {sched_start_str}-{sched_end_str}) tidak tercakup dalam ketersediaan anggota {mem_id}")
             else:
                 violations.append("Jadwal selected_schedule tidak lengkap atau tidak valid sehingga tidak dapat diverifikasi terhadap ketersediaan anggota kelompok")
+
+    return violations
 
     return violations
 
@@ -1240,7 +1391,7 @@ def evaluate_matching_robustness(
         ))
 
     cvr = round((violation_count / total_tested) * 100.0, 2) if total_tested > 0 else 0.0
-    all_preserved = (cvr == 0.0 and passed_count == total_tested)
+    all_preserved = (total_tested > 0 and cvr == 0.0 and passed_count == total_tested)
 
     return RobustnessEvaluationResult(
         total_scenarios_tested=total_tested,
@@ -1375,6 +1526,17 @@ def generate_comprehensive_evaluation_report(
         min_score=min_score
     )
 
+    # 1.B. Verifikasi Integritas Baseline Formation (D19.6.4-08)
+    cand_lookup = {str(c.intent_id): c for c in candidates_list}
+    cand_lookup[host_id] = host_intent
+    baseline_violations = check_hard_constraint_violations(
+        host_intent=host_intent,
+        formation_result=formation_res,
+        candidate_lookup=cand_lookup,
+        min_score=min_score
+    )
+    has_baseline_violations = (len(baseline_violations) > 0)
+
     # 2. Pilar 1: Group Quality Evaluation (Day 19.1)
     quality_res = evaluate_group_quality(formation_res)
 
@@ -1408,57 +1570,84 @@ def generate_comprehensive_evaluation_report(
     dr_rate = round(stability_res.determinism_rate, 2)
     cvr_rate = round(robustness_res.constraint_violation_rate, 2)
 
-    # Ambil retensi Top-K secara konsisten (Day 19.6.1 & Day 19.6.2):
-    # Prioritaskan K=20. Jika tidak ada, ambil K numerik terbesar yang diuji (k_value != "Full").
-    # Jika tidak ada benchmark numerik sama sekali (misal k_values=(None,)), set None.
+    # Ambil retensi Top-K secara konsisten (Day 19.6.1 s/d Day 19.6.4):
+    baseline_status = formation_res.get("formation_status", "UNKNOWN")
+    is_ready = (baseline_status == "READY")
+
     topk_retention: Optional[float] = None
-    numeric_benchmarks = []
-    for b in topk_res.benchmarks:
-        if isinstance(b.k_value, int):
-            numeric_benchmarks.append((b.k_value, b.quality_retention))
-        elif isinstance(b.k_value, str) and b.k_value.isdigit():
-            numeric_benchmarks.append((int(b.k_value), b.quality_retention))
+    if is_ready and gq_val > 0.0:
+        numeric_benchmarks = []
+        for b in topk_res.benchmarks:
+            if isinstance(b.k_value, int):
+                numeric_benchmarks.append((b.k_value, b.quality_retention))
+            elif isinstance(b.k_value, str) and b.k_value.isdigit():
+                numeric_benchmarks.append((int(b.k_value), b.quality_retention))
 
-    if numeric_benchmarks:
-        b_20 = [ret for k_val, ret in numeric_benchmarks if k_val == 20]
-        if b_20:
-            topk_retention = b_20[0]
-        else:
-            numeric_benchmarks.sort(key=lambda item: item[0], reverse=True)
-            topk_retention = numeric_benchmarks[0][1]
+        if numeric_benchmarks:
+            b_20 = [ret for k_val, ret in numeric_benchmarks if k_val == 20]
+            if b_20:
+                topk_retention = b_20[0]
+            else:
+                numeric_benchmarks.sort(key=lambda item: item[0], reverse=True)
+                topk_retention = numeric_benchmarks[0][1]
 
-    # Penentuan overall status & rekomendasi (Day 19.6.1 & Day 19.6.2)
+    # Penentuan overall status & rekomendasi (Day 19.6.1 s/d Day 19.6.4)
     is_stable = (dr_rate == 100.0)
-    is_robust = (cvr_rate == 0.0 and robustness_res.all_constraints_preserved)
+    is_robust = (robustness_res.total_scenarios_tested > 0 and cvr_rate == 0.0 and robustness_res.all_constraints_preserved)
     is_breakdown_valid = quality_res.is_breakdown_consistent
-    has_topk_benchmark = (topk_retention is not None)
-    is_topk_satisfactory = (has_topk_benchmark and topk_retention >= 90.0)
+    is_formula_valid = quality_res.formula_consistency.is_valid
 
-    if cvr_rate > 0.0 or not robustness_res.all_constraints_preserved:
+    if is_ready and gq_val > 0.0:
+        has_topk_benchmark = (topk_retention is not None)
+        is_topk_satisfactory = (has_topk_benchmark and topk_retention >= 90.0)
+    else:
+        # Jika kelompok tidak terbentuk, Top-K retention tidak dapat diukur/diaplikasikan
+        has_topk_benchmark = True
+        is_topk_satisfactory = True
+
+    if has_baseline_violations:
         overall_status = "FAILED"
         recommendation = (
-            f"Ditemukan pelanggaran hard constraints (CVR: {cvr_rate}%). "
+            f"Ditemukan {len(baseline_violations)} pelanggaran hard constraints pada baseline formation: "
+            f"{'; '.join(baseline_violations)}. Segera periksa integritas pembentukan kelompok."
+        )
+    elif cvr_rate > 0.0 or (robustness_res.total_scenarios_tested > 0 and not robustness_res.all_constraints_preserved):
+        overall_status = "FAILED"
+        recommendation = (
+            f"Ditemukan pelanggaran hard constraints pada skenario robustness (CVR: {cvr_rate}%). "
             f"Segera periksa filtering sebelum melanjutkan deployment."
         )
-    elif is_stable and is_robust and is_breakdown_valid and is_topk_satisfactory:
+    elif is_stable and is_robust and is_breakdown_valid and is_formula_valid and is_topk_satisfactory:
         overall_status = "PASSED"
-        recommendation = (
-            f"Matching Engine LaFriend LOLOS pengujian komprehensif Day 19. "
-            f"Kualitas grup optimal (GQ: {gq_val}), stabilitas 100% invarian urutan (DR: 100%), "
-            f"integritas hard constraints terlindungi sempurna (CVR: 0.0%), "
-            f"dan retensi kualitas Top-K memenuhi ambang operasional ({topk_retention}% >= 90.0%)."
-        )
+        if is_ready:
+            recommendation = (
+                f"Matching Engine LaFriend LOLOS pengujian komprehensif Day 19. "
+                f"Kualitas grup optimal (GQ: {gq_val}), stabilitas 100% invarian urutan (DR: 100%), "
+                f"integritas hard constraints terlindungi sempurna (CVR: 0.0%), "
+                f"dan retensi kualitas Top-K memenuhi ambang operasional ({topk_retention}% >= 90.0%)."
+            )
+        else:
+            recommendation = (
+                f"Matching Engine LaFriend LOLOS pengujian komprehensif Day 19 untuk kondisi tanpa kelompok "
+                f"(status baseline: {baseline_status}). Stabilitas deterministik (DR: 100%), "
+                f"seluruh batasan integritas terjaga (CVR: 0.0%), dan Top-K retention tidak dapat dihitung karena tidak ada kelompok yang terbentuk."
+            )
     else:
         overall_status = "WARNING"
         warning_reasons = []
+        if robustness_res.total_scenarios_tested == 0:
+            warning_reasons.append("Tidak ada skenario robustness yang diuji")
         if not is_stable:
             warning_reasons.append(f"DR {dr_rate}% < 100%")
         if not is_breakdown_valid:
             warning_reasons.append("Breakdown pairwise tidak valid")
-        if not has_topk_benchmark:
-            warning_reasons.append("Benchmark Top-K numerik tidak dijalankan")
-        elif not is_topk_satisfactory:
-            warning_reasons.append(f"Top-K retention {topk_retention}% < 90.0%")
+        if not is_formula_valid:
+            warning_reasons.append(f"Inkonsistensi formula GQ vs APS/MPS (discrepancy: {quality_res.formula_consistency.discrepancy})")
+        if is_ready and gq_val > 0.0:
+            if not has_topk_benchmark:
+                warning_reasons.append("Benchmark Top-K numerik tidak dijalankan")
+            elif not is_topk_satisfactory:
+                warning_reasons.append(f"Top-K retention {topk_retention}% < 90.0%")
         recommendation = (
             f"Pengujian menghasilkan status peringatan ({', '.join(warning_reasons)}). "
             f"Harap tinjau catatan kualitas dan parameter tuning engine."

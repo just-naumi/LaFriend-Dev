@@ -21,7 +21,9 @@ from decimal import Decimal
 from app.models import Student, Course, StudyIntent, IntentAvailability
 from app.matching_evaluation import (
     check_hard_constraint_violations,
-    generate_comprehensive_evaluation_report
+    generate_comprehensive_evaluation_report,
+    evaluate_group_quality,
+    evaluate_matching_robustness
 )
 from app.schemas import (
     ComprehensiveEvaluationReport,
@@ -121,12 +123,13 @@ class TestDay19IntegrityHardening(unittest.TestCase):
         Skenario 1: Status INSUFFICIENT_MEMBERS dengan group_size=3 dan min_group_size_bound=4.
         Ekspektasi: Tidak dianggap violation (valid state saat kuorum belum tercapai).
         """
+        self.host_intent.max_group_size = 5
         st1 = make_student("s1", "Cand 1", "c1@t.ac.id")
-        c1 = make_intent("i1", "s1", "c_hard_a")
+        c1 = make_intent("i1", "s1", "c_hard_a", min_size=4, max_size=5)
         c1.student = st1
 
         st2 = make_student("s2", "Cand 2", "c2@t.ac.id")
-        c2 = make_intent("i2", "s2", "c_hard_a")
+        c2 = make_intent("i2", "s2", "c_hard_a", min_size=2, max_size=5)
         c2.student = st2
 
         lookup = {"i1": c1, "i2": c2, "ih_hard": self.host_intent}
@@ -904,6 +907,344 @@ class TestDay19IntegrityHardening(unittest.TestCase):
         self.assertIsNone(report.summary.topk_quality_retention)
         self.assertEqual(report.summary.overall_status, "WARNING")
         self.assertIn("Benchmark Top-K numerik tidak dijalankan", report.summary.recommendation)
+
+    # =========================================================================
+    # Day 19.6.4: Final Independent Evaluator Trust & Report Integrity Tests
+    # =========================================================================
+
+    def test_19_host_missing_from_members_is_violation(self):
+        """D19.6.4-01: Host tidak terdapat dalam daftar members memicu violation."""
+        st1 = make_student("s19_1", "Cand 19_1", "c19_1@t.ac.id")
+        c1 = make_intent("i19_1", "s19_1", "c_hard_a")
+        c1.student = st1
+        c1.availabilities = [make_availability("i19_1", "2026-11-25", "09:00", "12:00")]
+
+        st2 = make_student("s19_2", "Cand 19_2", "c19_2@t.ac.id")
+        c2 = make_intent("i19_2", "s19_2", "c_hard_a")
+        c2.student = st2
+        c2.availabilities = [make_availability("i19_2", "2026-11-25", "09:00", "12:00")]
+
+        lookup = {"i19_1": c1, "i19_2": c2, "ih_hard": self.host_intent}
+        res = {
+            "formation_status": "READY",
+            "group_size": 2,
+            "min_group_size_bound": 2,
+            "max_group_size_bound": 4,
+            "members": [{"intent_id": "i19_1"}, {"intent_id": "i19_2"}],
+            "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120},
+            "pairwise_scores": [{"intent_a_id": "i19_1", "intent_b_id": "i19_2", "compatibility_score": 80.0}]
+        }
+        violations = check_hard_constraint_violations(self.host_intent, res, lookup)
+        self.assertTrue(any("tidak terdapat dalam daftar members" in v for v in violations))
+
+    def test_20_host_duplicated_in_members_is_violation(self):
+        """D19.6.4-01: Host muncul dua kali dalam daftar members memicu violation."""
+        lookup = {"ih_hard": self.host_intent}
+        res = {
+            "formation_status": "READY",
+            "group_size": 2,
+            "min_group_size_bound": 2,
+            "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "ih_hard"}],
+            "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120},
+            "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "ih_hard", "compatibility_score": 80.0}]
+        }
+        violations = check_hard_constraint_violations(self.host_intent, res, lookup)
+        self.assertTrue(any("muncul lebih dari satu kali" in v for v in violations))
+        self.assertTrue(any("duplikasi anggota" in v for v in violations))
+
+    def test_21_formation_result_host_intent_id_mismatch_is_violation(self):
+        """D19.6.4-01: formation_result.host_intent_id berbeda dari host_intent memicu violation."""
+        st1 = make_student("s21_1", "Cand 21_1", "c21_1@t.ac.id")
+        c1 = make_intent("i21_1", "s21_1", "c_hard_a")
+        c1.student = st1
+        c1.availabilities = [make_availability("i21_1", "2026-11-25", "09:00", "12:00")]
+
+        lookup = {"i21_1": c1, "ih_hard": self.host_intent}
+        res = {
+            "host_intent_id": "some_other_host",
+            "formation_status": "READY",
+            "group_size": 2,
+            "min_group_size_bound": 2,
+            "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "i21_1"}],
+            "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120},
+            "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i21_1", "compatibility_score": 80.0}]
+        }
+        violations = check_hard_constraint_violations(self.host_intent, res, lookup)
+        self.assertTrue(any("host_intent_id pada formation_result" in v and "tidak cocok" in v for v in violations))
+
+    def test_22_reported_capacity_differs_from_recomputed_is_violation(self):
+        """D19.6.4-02: Batas kapasitas yang dilaporkan berbeda dari perhitungan ulang objek intent."""
+        # Host: min 2, max 4. Cand: min 2, max 4. Recomputed: [2, 4].
+        st1 = make_student("s22_1", "Cand 22_1", "c22_1@t.ac.id")
+        c1 = make_intent("i22_1", "s22_1", "c_hard_a", min_size=2, max_size=4)
+        c1.student = st1
+        c1.availabilities = [make_availability("i22_1", "2026-11-25", "09:00", "12:00")]
+
+        lookup = {"i22_1": c1, "ih_hard": self.host_intent}
+        # Metadata dimanipulasi: min_bound=3 (seharusnya 2)
+        res = {
+            "formation_status": "READY",
+            "group_size": 2,
+            "min_group_size_bound": 3,
+            "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "i22_1"}],
+            "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120},
+            "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i22_1", "compatibility_score": 80.0}]
+        }
+        violations = check_hard_constraint_violations(self.host_intent, res, lookup)
+        self.assertTrue(any("Metadata min_group_size_bound" in v and "tidak cocok" in v for v in violations))
+
+    def test_23_strict_integer_group_size_validation(self):
+        """D19.6.4-03: group_size bertipe float (2.9), string ('2'), atau bool (True) ditolak."""
+        lookup = {"ih_hard": self.host_intent}
+
+        for bad_size in (2.9, "2", True):
+            res = {
+                "formation_status": "READY",
+                "group_size": bad_size,
+                "min_group_size_bound": 2,
+                "max_group_size_bound": 4,
+                "members": [{"intent_id": "ih_hard"}],
+                "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120},
+                "pairwise_scores": []
+            }
+            v = check_hard_constraint_violations(self.host_intent, res, lookup)
+            self.assertTrue(any("harus berupa integer numerik murni" in msg for msg in v), f"Gagal menolak group_size={bad_size}")
+
+    def test_24_unknown_learning_modes_are_violations(self):
+        """D19.6.4-04: Mode belajar non-domain (REMOTE, UNKNOWN, None) ditolak."""
+        st1 = make_student("s24_1", "Cand 24_1", "c24_1@t.ac.id")
+
+        for bad_mode in ("REMOTE", "UNKNOWN", None):
+            c1 = make_intent("i24_1", "s24_1", "c_hard_a", learning_mode=bad_mode)
+            c1.student = st1
+            c1.availabilities = [make_availability("i24_1", "2026-11-25", "09:00", "12:00")]
+            lookup = {"i24_1": c1, "ih_hard": self.host_intent}
+
+            res = {
+                "formation_status": "READY",
+                "group_size": 2,
+                "min_group_size_bound": 2,
+                "max_group_size_bound": 4,
+                "members": [{"intent_id": "ih_hard"}, {"intent_id": "i24_1"}],
+                "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120},
+                "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i24_1", "compatibility_score": 80.0}]
+            }
+            violations = check_hard_constraint_violations(self.host_intent, res, lookup)
+            self.assertTrue(any("learning_mode tidak valid" in msg for msg in violations), f"Gagal menolak mode={bad_mode}")
+
+    def test_25_pairwise_score_out_of_bounds_0_to_100_or_non_finite(self):
+        """D19.6.4-05: Compatibility Score < 0, > 100, NaN, atau Inf ditolak."""
+        st1 = make_student("s25_1", "Cand 25_1", "c25_1@t.ac.id")
+        c1 = make_intent("i25_1", "s25_1", "c_hard_a")
+        c1.student = st1
+        c1.availabilities = [make_availability("i25_1", "2026-11-25", "09:00", "12:00")]
+        lookup = {"i25_1": c1, "ih_hard": self.host_intent}
+
+        for bad_score in (-1.0, 100.01, 150.0, float("nan"), float("inf")):
+            res = {
+                "formation_status": "READY",
+                "group_size": 2,
+                "min_group_size_bound": 2,
+                "max_group_size_bound": 4,
+                "members": [{"intent_id": "ih_hard"}, {"intent_id": "i25_1"}],
+                "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120},
+                "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i25_1", "compatibility_score": bad_score}]
+            }
+            v = check_hard_constraint_violations(self.host_intent, res, lookup)
+            self.assertTrue(any("di luar rentang valid [0.0, 100.0]" in msg or "bernilai NaN atau Inf" in msg for msg in v), f"Gagal menolak score={bad_score}")
+
+    def test_26_min_score_parameter_strict_validation(self):
+        """D19.6.4-06: min_score NaN, Inf, boolean, atau di luar rentang ditolak."""
+        st1 = make_student("s26_1", "Cand 26_1", "c26_1@t.ac.id")
+        c1 = make_intent("i26_1", "s26_1", "c_hard_a")
+        c1.student = st1
+        c1.availabilities = [make_availability("i26_1", "2026-11-25", "09:00", "12:00")]
+        lookup = {"i26_1": c1, "ih_hard": self.host_intent}
+
+        res = {
+            "formation_status": "READY",
+            "group_size": 2,
+            "min_group_size_bound": 2,
+            "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "i26_1"}],
+            "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120},
+            "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i26_1", "compatibility_score": 80.0}]
+        }
+
+        for bad_min in (float("nan"), float("inf"), True, -5.0, 105.0):
+            v = check_hard_constraint_violations(self.host_intent, res, lookup, min_score=bad_min)
+            self.assertTrue(any("Parameter min_score" in msg and "tidak valid" in msg for msg in v), f"Gagal menolak min_score={bad_min}")
+
+    def test_27_availability_contains_none_or_malformed_fail_closed(self):
+        """D19.6.4-06 (Resolver): Availability berisi None atau malformed menghasilkan violation tanpa crash."""
+        st1 = make_student("s27_1", "Cand 27_1", "c27_1@t.ac.id")
+        c1 = make_intent("i27_1", "s27_1", "c_hard_a")
+        c1.student = st1
+        # Set availabilities memuat None
+        c1.availabilities = [None]
+        lookup = {"i27_1": c1, "ih_hard": self.host_intent}
+
+        res = {
+            "formation_status": "READY",
+            "group_size": 2,
+            "min_group_size_bound": 2,
+            "max_group_size_bound": 4,
+            "members": [{"intent_id": "ih_hard"}, {"intent_id": "i27_1"}],
+            "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120},
+            "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i27_1", "compatibility_score": 80.0}]
+        }
+        # Wajib tidak raise exception dan mencatat violation ketersediaan
+        violations = check_hard_constraint_violations(self.host_intent, res, lookup)
+        self.assertTrue(any("Ketersediaan anggota" in msg and ("tidak valid" in msg or "resolver" in msg or "tidak tercakup" in msg) for msg in violations))
+
+    def test_28_duration_minutes_decimal_infinity_and_nan_fail_closed(self):
+        """D19.6.4-07: duration_minutes Decimal('Infinity'), Decimal('-Infinity'), Decimal('NaN') ditolak tanpa crash."""
+        st1 = make_student("s28_1", "Cand 28_1", "c28_1@t.ac.id")
+        c1 = make_intent("i28_1", "s28_1", "c_hard_a")
+        c1.student = st1
+        c1.availabilities = [make_availability("i28_1", "2026-11-25", "09:00", "12:00")]
+        lookup = {"i28_1": c1, "ih_hard": self.host_intent}
+
+        for dec_val in (Decimal("Infinity"), Decimal("-Infinity"), Decimal("NaN"), Decimal("sNaN")):
+            res = {
+                "formation_status": "READY",
+                "group_size": 2,
+                "min_group_size_bound": 2,
+                "max_group_size_bound": 4,
+                "members": [{"intent_id": "ih_hard"}, {"intent_id": "i28_1"}],
+                "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": dec_val},
+                "pairwise_scores": [{"intent_a_id": "ih_hard", "intent_b_id": "i28_1", "compatibility_score": 80.0}]
+            }
+            v = check_hard_constraint_violations(self.host_intent, res, lookup)
+            self.assertTrue(any("non-finite / NaN / Inf" in msg or "Decimal tidak valid" in msg for msg in v), f"Gagal menolak {dec_val}")
+
+    def test_29_missing_breakdown_in_pairwise_yields_breakdown_inconsistent(self):
+        """D19.6.4-10: Item pairwise tanpa key breakdown menghasilkan is_breakdown_consistent=False."""
+        payload = {
+            "group_quality_score": 80.0,
+            "average_pair_score": 80.0,
+            "minimum_pair_score": 80.0,
+            "group_size": 2,
+            "pairwise_scores": [
+                {
+                    "student_a_id": "sh_hard",
+                    "student_b_id": "s29_1",
+                    "intent_a_id": "ih_hard",
+                    "intent_b_id": "i29_1",
+                    "compatibility_score": 80.0
+                    # breakdown sengaja dihilangkan
+                }
+            ]
+        }
+        res = evaluate_group_quality(payload)
+        self.assertFalse(res.is_breakdown_consistent)
+
+    def test_30_formula_gq_inconsistency_yields_warning_report(self):
+        """D19.6.4-09: Jika formula GQ tidak konsisten terhadap APS/MPS, report berstatus WARNING."""
+        candidates = []
+        for i in range(1, 4):
+            st = make_student(f"s30_{i}", f"Cand 30_{i}", f"c30_{i}@t.ac.id")
+            ci = make_intent(f"i30_{i}", f"s30_{i}", "c_hard_a")
+            ci.student = st
+            ci.availabilities = [make_availability(f"i30_{i}", "2026-11-25", "09:00", "12:00")]
+            candidates.append(ci)
+
+        # Mock evaluate_group_quality agar formula consistency tidak valid
+        real_quality_eval = evaluate_group_quality
+        def mock_quality(data):
+            res = real_quality_eval(data)
+            # Pasang formula_consistency is_valid = False
+            object.__setattr__(res.formula_consistency, "is_valid", False)
+            object.__setattr__(res.formula_consistency, "discrepancy", 10.0)
+            return res
+
+        with patch("app.matching_evaluation.evaluate_group_quality", side_effect=mock_quality):
+            report = generate_comprehensive_evaluation_report(
+                host_intent=self.host_intent,
+                candidate_intents=candidates,
+                stability_permutations=2,
+                min_score=60.0
+            )
+
+        self.assertEqual(report.summary.overall_status, "WARNING")
+        self.assertIn("Inkonsistensi formula GQ", report.summary.recommendation)
+
+    def test_31_baseline_formation_violations_yield_failed_report(self):
+        """D19.6.4-08: Jika baseline formation melanggar hard constraint, report berstatus FAILED."""
+        candidates = []
+        for i in range(1, 4):
+            st = make_student(f"s31_{i}", f"Cand 31_{i}", f"c31_{i}@t.ac.id")
+            ci = make_intent(f"i31_{i}", f"s31_{i}", "c_hard_a")
+            ci.student = st
+            ci.availabilities = [make_availability(f"i31_{i}", "2026-11-25", "09:00", "12:00")]
+            candidates.append(ci)
+
+        # Mock form_study_group agar menghasilkan output baseline yang rusak (misal host hilang dari members)
+        def mock_form(*args, **kwargs):
+            return {
+                "formation_status": "READY",
+                "group_size": 2,
+                "min_group_size_bound": 2,
+                "max_group_size_bound": 4,
+                "group_quality_score": 80.0,
+                "average_pair_score": 80.0,
+                "minimum_pair_score": 80.0,
+                "members": [{"intent_id": "i31_1"}, {"intent_id": "i31_2"}],  # Host hilang!
+                "selected_schedule": {"date": "2026-11-25", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120},
+                "pairwise_scores": [{"intent_a_id": "i31_1", "intent_b_id": "i31_2", "compatibility_score": 80.0}]
+            }
+
+        with patch("app.matching_evaluation.form_study_group", side_effect=mock_form):
+            report = generate_comprehensive_evaluation_report(
+                host_intent=self.host_intent,
+                candidate_intents=candidates,
+                stability_permutations=2,
+                min_score=60.0
+            )
+
+        self.assertEqual(report.summary.overall_status, "FAILED")
+        self.assertIn("pelanggaran hard constraints pada baseline formation", report.summary.recommendation)
+
+    def test_32_empty_robustness_scenarios_yields_warning_report(self):
+        """D19.6.4-11: Jika skenario robustness kosong ([]), all_constraints_preserved=False dan report WARNING."""
+        candidates = []
+        for i in range(1, 4):
+            st = make_student(f"s32_{i}", f"Cand 32_{i}", f"c32_{i}@t.ac.id")
+            ci = make_intent(f"i32_{i}", f"s32_{i}", "c_hard_a")
+            ci.student = st
+            ci.availabilities = [make_availability(f"i32_{i}", "2026-11-25", "09:00", "12:00")]
+            candidates.append(ci)
+
+        # Panggil evaluate_matching_robustness langsung dengan scenarios=[]
+        rob_res = evaluate_matching_robustness(self.host_intent, [])
+        self.assertFalse(rob_res.all_constraints_preserved)
+        self.assertEqual(rob_res.total_scenarios_tested, 0)
+
+        # Panggil report dengan candidate_scenarios=[]
+        report = generate_comprehensive_evaluation_report(
+            host_intent=self.host_intent,
+            candidate_intents=candidates,
+            candidate_scenarios=[],
+            stability_permutations=2,
+            min_score=60.0
+        )
+        self.assertEqual(report.summary.overall_status, "WARNING")
+        self.assertIn("Tidak ada skenario robustness yang diuji", report.summary.recommendation)
+
+    def test_33_no_group_formed_in_baseline_yields_none_topk_retention_and_passed(self):
+        """D19.6.4-12: Full pool dengan candidate_intents=[] menghasilkan status baseline NO_COMPATIBLE_GROUP, topk_quality_retention=None, dan overall_status=PASSED."""
+        report = generate_comprehensive_evaluation_report(
+            host_intent=self.host_intent,
+            candidate_intents=[],
+            stability_permutations=2,
+            min_score=60.0
+        )
+        self.assertIsNone(report.summary.topk_quality_retention)
+        self.assertEqual(report.summary.overall_status, "PASSED")
+        self.assertIn("kondisi tanpa kelompok", report.summary.recommendation)
 
 
 if __name__ == "__main__":
