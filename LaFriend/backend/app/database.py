@@ -109,22 +109,26 @@ def ensure_database_schema(target_engine=None):
                 else:
                     raise oe
 
-        # Migrasi Unique Index uq_proposal_recipient pada tabel invitations (Day 20.8)
-        try:
-            inv_recheck = conn.execute(text("PRAGMA table_info(invitations)"))
-            inv_curr_cols = [row[1] for row in inv_recheck.fetchall()]
-            if "proposal_id" in inv_curr_cols and "recipient_id" in inv_curr_cols:
-                idx_res = conn.execute(text("PRAGMA index_list(invitations)")).fetchall()
-                existing_indexes = [row[1] for row in idx_res]
-                if "uq_proposal_recipient" not in existing_indexes:
+        # Migrasi Unique Index uq_proposal_recipient pada tabel invitations (Day 20.8 - Day 20.9)
+        inv_recheck = conn.execute(text("PRAGMA table_info(invitations)"))
+        inv_curr_cols = [row[1] for row in inv_recheck.fetchall()]
+        if "proposal_id" in inv_curr_cols and "recipient_id" in inv_curr_cols:
+            idx_res = conn.execute(text("PRAGMA index_list(invitations)")).fetchall()
+            existing_indexes = [row[1] for row in idx_res]
+            if "uq_proposal_recipient" not in existing_indexes:
+                try:
                     conn.execute(text(
                         "CREATE UNIQUE INDEX IF NOT EXISTS uq_proposal_recipient "
                         "ON invitations (proposal_id, recipient_id) "
                         "WHERE proposal_id IS NOT NULL"
                     ))
                     conn.commit()
-        except OperationalError:
-            pass
+                except OperationalError as oe:
+                    err_msg = str(oe).lower()
+                    if "already exists" in err_msg or "duplicate" in err_msg:
+                        pass
+                    else:
+                        raise oe
 
         # Migrasi kolom proposal_id pada tabel study_sessions (Day 21)
         sess_result = conn.execute(text("PRAGMA table_info(study_sessions)"))
