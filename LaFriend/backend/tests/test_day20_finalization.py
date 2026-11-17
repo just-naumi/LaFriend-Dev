@@ -386,6 +386,122 @@ class TestDay20Finalization(unittest.TestCase):
         self.assertEqual(r.status_code, 400)
         self.assertIn("READY_FOR_SESSION", r.json()["detail"])
 
+    def test_08_pre_finalization_schedule_empty_rejected(self):
+        """D20-AUDIT-01: Finalisasi ditolak fail-closed jika selected_schedule_json kosong -> HTTP 400."""
+        proposal, _, _, _ = self._setup_proposal_with_status("QUORUM_REACHED")
+        proposal.selected_schedule_json = ""
+        self.db.commit()
+
+        r = self.client.post(
+            f"/api/v1/matching/group-proposals/{proposal.proposal_id}/finalize",
+            headers={"Authorization": f"Bearer {self.token_andi}"}
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("kosong atau tidak tersedia", r.json()["detail"])
+
+    def test_09_pre_finalization_schedule_malformed_rejected(self):
+        """D20-AUDIT-01: Finalisasi ditolak fail-closed jika selected_schedule_json rusak / non-valid JSON -> HTTP 400."""
+        proposal, _, _, _ = self._setup_proposal_with_status("QUORUM_REACHED")
+        proposal.selected_schedule_json = "{bad_json: True, invalid"
+        self.db.commit()
+
+        r = self.client.post(
+            f"/api/v1/matching/group-proposals/{proposal.proposal_id}/finalize",
+            headers={"Authorization": f"Bearer {self.token_andi}"}
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("malformed", r.json()["detail"])
+
+    def test_10_pre_finalization_schedule_invalid_time_rejected(self):
+        """D20-AUDIT-01: Finalisasi ditolak jika waktu mulai >= waktu selesai -> HTTP 400."""
+        proposal, _, _, _ = self._setup_proposal_with_status("QUORUM_REACHED")
+        proposal.selected_schedule_json = json.dumps({
+            "date": "2026-11-25",
+            "start_time": "14:00",
+            "end_time": "12:00"
+        })
+        self.db.commit()
+
+        r = self.client.post(
+            f"/api/v1/matching/group-proposals/{proposal.proposal_id}/finalize",
+            headers={"Authorization": f"Bearer {self.token_andi}"}
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("lebih awal", r.json()["detail"])
+
+    def test_11_pre_finalization_course_consistency_member_changed(self):
+        """D20-AUDIT-02: Finalisasi ditolak jika salah satu anggota mengubah mata kuliah intent-nya -> HTTP 400."""
+        proposal, _, _, _ = self._setup_proposal_with_status("QUORUM_REACHED")
+
+        # Budi berganti mata kuliah setelah proposal dibuat
+        self.intent_budi.course_id = "c_other_math"
+        self.db.commit()
+
+        r = self.client.post(
+            f"/api/v1/matching/group-proposals/{proposal.proposal_id}/finalize",
+            headers={"Authorization": f"Bearer {self.token_andi}"}
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("tidak cocok dengan proposal", r.json()["detail"])
+
+    def test_12_pre_finalization_group_size_recalculated_violation(self):
+        """D20-AUDIT-02: Finalisasi ditolak jika batas ukuran grup dihitung ulang dan tidak terpenuhi -> HTTP 400."""
+        proposal, _, _, _ = self._setup_proposal_with_status("QUORUM_REACHED")
+
+        # Budi menaikkan min_group_size menjadi 4 (sekarang active_members = 3: Andi, Budi, Citra)
+        self.intent_budi.min_group_size = 4
+        self.db.commit()
+
+        r = self.client.post(
+            f"/api/v1/matching/group-proposals/{proposal.proposal_id}/finalize",
+            headers={"Authorization": f"Bearer {self.token_andi}"}
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("kurang dari batas minimum kelompok", r.json()["detail"])
+
+    def test_13_pre_finalization_host_account_restricted(self):
+        """D20-AUDIT-02: Finalisasi ditolak jika akun mahasiswa host dibekukan (RESTRICTED) -> HTTP 400."""
+        proposal, _, _, _ = self._setup_proposal_with_status("QUORUM_REACHED")
+
+        # Akun Andi (host) dibekukan
+        self.andi.account_status = "RESTRICTED"
+        self.db.commit()
+
+        r = self.client.post(
+            f"/api/v1/matching/group-proposals/{proposal.proposal_id}/finalize",
+            headers={"Authorization": f"Bearer {self.token_andi}"}
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("Akun mahasiswa host", r.json()["detail"])
+
+    def test_14_database_unique_index_on_invitations(self):
+        """D20-AUDIT-03: Memastikan unique index uq_proposal_recipient aktif dan menolak duplikasi undangan."""
+        from sqlalchemy import text
+        from sqlalchemy.exc import IntegrityError
+
+        proposal, _, _, _ = self._setup_proposal_with_status("QUORUM_REACHED")
+
+        # Periksa apakah index uq_proposal_recipient tercatat pada sqlite
+        indexes = self.db.execute(text("PRAGMA index_list(invitations)")).fetchall()
+        idx_names = [row[1] for row in indexes]
+        self.assertIn("uq_proposal_recipient", idx_names)
+
+        # Coba masukkan duplikat undangan untuk proposal dan recipient yang sama
+        dup_inv = Invitation(
+            invitation_id=f"inv_dup_{datetime.utcnow().timestamp()}",
+            invitation_type="GROUP_PROPOSAL",
+            proposal_id=proposal.proposal_id,
+            target_intent_id=self.intent_budi.intent_id,
+            sender_id=self.andi.student_id,
+            recipient_id=self.budi.student_id,
+            status="PENDING",
+            created_at=datetime.utcnow()
+        )
+        self.db.add(dup_inv)
+        with self.assertRaises(IntegrityError):
+            self.db.commit()
+        self.db.rollback()
+
 
 if __name__ == "__main__":
     unittest.main()

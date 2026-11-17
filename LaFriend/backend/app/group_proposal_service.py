@@ -402,7 +402,9 @@ def _evaluate_dynamic_quorum(db: Session, proposal: GroupProposal) -> None:
     max_active_bound = min((getattr(m, "max_group_size", 4) or 4) for m in active_intents)
 
     # 3. Evaluasi kuorum
-    if min_active_bound <= n_active <= max_active_bound:
+    if min_active_bound > max_active_bound:
+        proposal.status = "NOT_FORMED"
+    elif min_active_bound <= n_active <= max_active_bound:
         proposal.status = "QUORUM_REACHED"
     elif n_active < min_active_bound:
         # Cek apakah secara matematis kuorum masih mungkin tercapai jika seluruh sisa pending menerima
@@ -460,11 +462,24 @@ def finalize_group_proposal_service(
 
     # VALIDASI ULANG INDEPENDEN SEBELUM FINALISASI:
     # A. Verifikasi Host Intent & Akun
+    host_student_rec = db.query(Student).filter(Student.student_id == proposal.host_student_id).first()
+    if not host_student_rec or (host_student_rec.account_status or "").upper() != "ACTIVE":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Akun mahasiswa host ({proposal.host_student_id}) tidak aktif."
+        )
+
     host_intent = db.query(StudyIntent).filter(StudyIntent.intent_id == proposal.host_intent_id).first()
     if not host_intent or host_intent.status != "ACTIVE":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Study Intent milik host sudah tidak aktif."
+        )
+
+    if host_intent.course_id != proposal.course_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Mata kuliah pada Study Intent host ({host_intent.course_id}) tidak cocok dengan proposal ({proposal.course_id})."
         )
 
     # B. Verifikasi Anggota yang Menerima (ACCEPTED)
@@ -475,21 +490,52 @@ def finalize_group_proposal_service(
 
     active_members = [host_intent]
     for inv in accepted_invs:
-        c_intent = db.query(StudyIntent).filter(StudyIntent.intent_id == inv.target_intent_id).first()
-        if not c_intent or c_intent.status != "ACTIVE":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Study Intent kandidat {inv.recipient_id} sudah tidak aktif."
-            )
         cand_student = db.query(Student).filter(Student.student_id == inv.recipient_id).first()
         if not cand_student or (cand_student.account_status or "").upper() != "ACTIVE":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Akun mahasiswa anggota {inv.recipient_id} tidak aktif."
             )
+
+        c_intent = db.query(StudyIntent).filter(StudyIntent.intent_id == inv.target_intent_id).first()
+        if not c_intent or c_intent.status != "ACTIVE":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Study Intent kandidat {inv.recipient_id} sudah tidak aktif."
+            )
+
+        if c_intent.course_id != proposal.course_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Mata kuliah pada Study Intent anggota {inv.recipient_id} ({c_intent.course_id}) tidak cocok dengan proposal ({proposal.course_id})."
+            )
+
         active_members.append(c_intent)
 
-    # C. Verifikasi Kompatibilitas Mode Belajar Transitif
+    # C. Perhitungan Ulang Batasan Ukuran Kelompok Aktif (Group Size Constraints)
+    n_active = len(active_members)
+    min_bound_active = max((getattr(m, "min_group_size", 2) or 2) for m in active_members)
+    max_bound_active = min((getattr(m, "max_group_size", 4) or 4) for m in active_members)
+
+    if min_bound_active > max_bound_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Batasan ukuran kelompok anggota saling bertentangan: MinGroup ({min_bound_active}) > MaxGroup ({max_bound_active})."
+        )
+
+    if n_active < min_bound_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Jumlah anggota aktif ({n_active}) kurang dari batas minimum kelompok ({min_bound_active})."
+        )
+
+    if n_active > max_bound_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Jumlah anggota aktif ({n_active}) melebihi batas maksimum kelompok ({max_bound_active})."
+        )
+
+    # D. Verifikasi Kompatibilitas Mode Belajar Transitif
     modes = [m.learning_mode for m in active_members]
     if "ONLINE" in modes and "OFFLINE" in modes:
         raise HTTPException(
@@ -497,33 +543,70 @@ def finalize_group_proposal_service(
             detail="Finalisasi gagal: kelompok memuat anggota ONLINE dan OFFLINE sekaligus."
         )
 
-    # D. Verifikasi Jadwal Terpilih Masih Mencakup Seluruh Anggota
-    if proposal.selected_schedule_json:
-        try:
-            sched = json.loads(proposal.selected_schedule_json)
-            s_date = str(sched.get("date", ""))
-            s_start = parse_time_minutes(str(sched.get("start_time", "00:00")))
-            s_end = parse_time_minutes(str(sched.get("end_time", "00:00")))
+    # E. Verifikasi Jadwal Terpilih (Fail-Closed)
+    if not proposal.selected_schedule_json or not proposal.selected_schedule_json.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Jadwal terpilih (selected_schedule_json) kosong atau tidak tersedia."
+        )
 
-            for mem in active_members:
-                windows = resolve_availability_windows(mem)
-                covered = False
-                for w in windows:
-                    if str(w.get("date", "")) == s_date:
-                        w_s = parse_time_minutes(str(w.get("start_time", "00:00")))
-                        w_e = parse_time_minutes(str(w.get("end_time", "00:00")))
-                        if w_s <= s_start and w_e >= s_end:
-                            covered = True
-                            break
-                if not covered:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Jadwal terpilih ({s_date}) sudah tidak lagi cocok dengan jadwal anggota {mem.student_id}."
-                    )
-        except HTTPException:
-            raise
-        except Exception:
-            pass
+    try:
+        sched = json.loads(proposal.selected_schedule_json)
+    except Exception as err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Jadwal terpilih malformed / format JSON tidak valid: {str(err)}"
+        )
+
+    if not isinstance(sched, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Format jadwal terpilih harus berupa objek JSON."
+        )
+
+    s_date = str(sched.get("date", "")).strip()
+    s_start_raw = str(sched.get("start_time", "")).strip()
+    s_end_raw = str(sched.get("end_time", "")).strip()
+
+    if not s_date or not s_start_raw or not s_end_raw:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Jadwal terpilih tidak lengkap (memerlukan field date, start_time, dan end_time)."
+        )
+
+    try:
+        s_start = parse_time_minutes(s_start_raw)
+        s_end = parse_time_minutes(s_end_raw)
+    except Exception as err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Format waktu jadwal terpilih tidak valid: {str(err)}"
+        )
+
+    if s_start >= s_end:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Waktu mulai jadwal ({s_start_raw}) harus lebih awal dari waktu selesai ({s_end_raw})."
+        )
+
+    for mem in active_members:
+        windows = resolve_availability_windows(mem)
+        covered = False
+        for w in windows:
+            if str(w.get("date", "")).strip() == s_date:
+                try:
+                    w_s = parse_time_minutes(str(w.get("start_time", "00:00")))
+                    w_e = parse_time_minutes(str(w.get("end_time", "00:00")))
+                    if w_s <= s_start and w_e >= s_end:
+                        covered = True
+                        break
+                except Exception:
+                    continue
+        if not covered:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Jadwal terpilih ({s_date} {s_start_raw}-{s_end_raw}) sudah tidak lagi cocok dengan jadwal anggota {mem.student_id}."
+            )
 
     # Transisi Status Proposal ke READY_FOR_SESSION
     proposal.status = "READY_FOR_SESSION"
