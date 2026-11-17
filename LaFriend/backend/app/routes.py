@@ -724,6 +724,12 @@ def preview_group_proposal_endpoint(
     status_code=status.HTTP_201_CREATED,
     tags=["Group Proposals"]
 )
+@api_router.post(
+    "/group-proposals",
+    response_model=GroupProposalResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Group Proposals"]
+)
 def create_group_proposal_endpoint(
     req: GroupProposalCreateRequest,
     current_student: Student = Depends(get_current_student),
@@ -738,6 +744,11 @@ def create_group_proposal_endpoint(
 
 @api_router.get(
     "/matching/group-proposals/{proposal_id}",
+    response_model=GroupProposalResponse,
+    tags=["Group Proposals"]
+)
+@api_router.get(
+    "/group-proposals/{proposal_id}",
     response_model=GroupProposalResponse,
     tags=["Group Proposals"]
 )
@@ -757,6 +768,11 @@ def get_group_proposal_endpoint(
     response_model=GroupProposalResponse,
     tags=["Group Proposals"]
 )
+@api_router.post(
+    "/group-proposals/{proposal_id}/finalize",
+    response_model=GroupProposalResponse,
+    tags=["Group Proposals"]
+)
 def finalize_group_proposal_endpoint(
     proposal_id: str,
     current_student: Student = Depends(get_current_student),
@@ -764,13 +780,18 @@ def finalize_group_proposal_endpoint(
 ):
     """
     Day 20.5: Host memfinalisasi proposal yang sudah memenuhi kuorum (QUORUM_REACHED)
-    menjadi READY_FOR_SESSION.
+    menjadi READY_FOR_SESSION (AGREED).
     """
     return finalize_group_proposal_service(db=db, proposal_id=proposal_id, host_student=current_student)
 
 
 @api_router.post(
     "/matching/group-proposals/{proposal_id}/cancel",
+    response_model=GroupProposalResponse,
+    tags=["Group Proposals"]
+)
+@api_router.post(
+    "/group-proposals/{proposal_id}/cancel",
     response_model=GroupProposalResponse,
     tags=["Group Proposals"]
 )
@@ -785,6 +806,53 @@ def cancel_group_proposal_endpoint(
     """
     reason = req.reason if req else None
     return cancel_group_proposal_service(db=db, proposal_id=proposal_id, host_student=current_student, reason=reason)
+
+
+@api_router.get(
+    "/group-proposals/invitations/pending",
+    response_model=List[InvitationResponse],
+    tags=["Group Proposals", "Invitations"]
+)
+def get_pending_proposal_invitations_endpoint(
+    current_student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db)
+):
+    """
+    Day 20.3: Alias mengambil daftar undangan usulan kelompok yang masih pending bagi mahasiswa saat ini.
+    """
+    return get_student_inbox_service(db=db, student=current_student, status_filter="PENDING")
+
+
+@api_router.post(
+    "/group-proposals/{proposal_id}/respond",
+    response_model=InvitationResponse,
+    tags=["Group Proposals", "Invitations"]
+)
+def respond_group_proposal_by_proposal_id_endpoint(
+    proposal_id: str,
+    req: InvitationRespondRequest,
+    current_student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db)
+):
+    """
+    Day 20.4: Calon anggota merespons undangan proposal langsung melalui proposal_id.
+    """
+    inv = db.query(Invitation).filter(
+        Invitation.proposal_id == proposal_id,
+        Invitation.recipient_id == current_student.student_id
+    ).first()
+    if not inv:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Tidak ditemukan undangan untuk mahasiswa {current_student.student_id} pada proposal '{proposal_id}'."
+        )
+    return respond_invitation_service(
+        db=db,
+        invitation_id=inv.invitation_id,
+        decision=req.decision,
+        current_student=current_student,
+        reason=req.reason
+    )
 
 
 @api_router.get(

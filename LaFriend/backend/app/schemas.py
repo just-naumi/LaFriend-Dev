@@ -536,16 +536,18 @@ class InvitationResponse(BaseModel):
 
 
 class InvitationRespondRequest(BaseModel):
-    decision: str  # 'ACCEPT' atau 'DECLINE'
+    decision: str  # 'ACCEPT' atau 'DECLINE' (juga toleran terhadap 'ACCEPTED', 'DECLINED', 'REJECT')
     reason: Optional[str] = None
 
     @field_validator("decision")
     @classmethod
     def validate_decision(cls, v: str) -> str:
         clean = (v or "").strip().upper()
-        if clean not in {"ACCEPT", "DECLINE"}:
-            raise ValueError("Keputusan (decision) wajib bernilai 'ACCEPT' atau 'DECLINE'")
-        return clean
+        if clean in {"ACCEPT", "ACCEPTED"}:
+            return "ACCEPT"
+        if clean in {"DECLINE", "DECLINED", "REJECT", "REJECTED"}:
+            return "DECLINE"
+        raise ValueError("Keputusan (decision) wajib bernilai 'ACCEPT' atau 'DECLINE'")
 
 
 # --- E. SKEMA HASIL PENCOCOKAN (MatchResult) ---
