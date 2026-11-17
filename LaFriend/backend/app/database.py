@@ -148,19 +148,79 @@ def ensure_database_schema(target_engine=None):
                     raise oe
 
         # Migrasi Unique Index uq_session_proposal pada tabel study_sessions (Day 21)
-        try:
-            sess_recheck = conn.execute(text("PRAGMA table_info(study_sessions)"))
-            sess_curr_cols = [row[1] for row in sess_recheck.fetchall()]
-            if "proposal_id" in sess_curr_cols:
-                idx_res = conn.execute(text("PRAGMA index_list(study_sessions)")).fetchall()
-                existing_indexes = [row[1] for row in idx_res]
-                if "uq_session_proposal" not in existing_indexes:
+        sess_recheck = conn.execute(text("PRAGMA table_info(study_sessions)"))
+        sess_curr_cols = [row[1] for row in sess_recheck.fetchall()]
+        if "proposal_id" in sess_curr_cols:
+            idx_res = conn.execute(text("PRAGMA index_list(study_sessions)")).fetchall()
+            existing_indexes = [row[1] for row in idx_res]
+            if "uq_session_proposal" not in existing_indexes:
+                try:
                     conn.execute(text(
                         "CREATE UNIQUE INDEX IF NOT EXISTS uq_session_proposal "
                         "ON study_sessions (proposal_id) "
                         "WHERE proposal_id IS NOT NULL"
                     ))
                     conn.commit()
-        except OperationalError:
-            pass
+                except OperationalError as oe:
+                    err_msg = str(oe).lower()
+                    if "already exists" in err_msg or "duplicate" in err_msg:
+                        pass
+                    else:
+                        raise oe
+
+        # Migrasi kolom intent_id pada tabel session_members (Day 21.1)
+        sm_result = conn.execute(text("PRAGMA table_info(session_members)"))
+        sm_columns = [row[1] for row in sm_result.fetchall()]
+        if sm_columns and "intent_id" not in sm_columns:
+            try:
+                conn.execute(text("ALTER TABLE session_members ADD COLUMN intent_id VARCHAR(36) REFERENCES study_intents(intent_id)"))
+                conn.commit()
+            except OperationalError as oe:
+                err_msg = str(oe).lower()
+                if "duplicate column name" in err_msg or "already exists" in err_msg:
+                    re_check = conn.execute(text("PRAGMA table_info(session_members)"))
+                    current_cols = [row[1] for row in re_check.fetchall()]
+                    if "intent_id" not in current_cols:
+                        raise oe
+                else:
+                    raise oe
+
+        # Migrasi Unique Index uq_session_member_intent pada tabel session_members (Day 21.1)
+        sm_recheck = conn.execute(text("PRAGMA table_info(session_members)"))
+        sm_curr_cols = [row[1] for row in sm_recheck.fetchall()]
+        if "intent_id" in sm_curr_cols:
+            idx_res = conn.execute(text("PRAGMA index_list(session_members)")).fetchall()
+            existing_indexes = [row[1] for row in idx_res]
+            if "uq_session_member_intent" not in existing_indexes:
+                try:
+                    conn.execute(text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_session_member_intent "
+                        "ON session_members (intent_id) "
+                        "WHERE intent_id IS NOT NULL"
+                    ))
+                    conn.commit()
+                except OperationalError as oe:
+                    err_msg = str(oe).lower()
+                    if "already exists" in err_msg or "duplicate" in err_msg:
+                        pass
+                    else:
+                        raise oe
+
+        # Migrasi Compound Unique Index uq_session_member_student pada tabel session_members (Day 21.1)
+        if "session_id" in sm_curr_cols and "student_id" in sm_curr_cols:
+            idx_res = conn.execute(text("PRAGMA index_list(session_members)")).fetchall()
+            existing_indexes = [row[1] for row in idx_res]
+            if "uq_session_member_student" not in existing_indexes:
+                try:
+                    conn.execute(text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_session_member_student "
+                        "ON session_members (session_id, student_id)"
+                    ))
+                    conn.commit()
+                except OperationalError as oe:
+                    err_msg = str(oe).lower()
+                    if "already exists" in err_msg or "duplicate" in err_msg:
+                        pass
+                    else:
+                        raise oe
 

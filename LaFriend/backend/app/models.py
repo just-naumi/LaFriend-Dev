@@ -10,7 +10,7 @@
 
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, Boolean, DateTime, ForeignKey, Text, Float, UniqueConstraint
+from sqlalchemy import Column, String, Integer, Boolean, DateTime, ForeignKey, Text, Float, UniqueConstraint, Index, text
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -146,6 +146,9 @@ class StudyIntent(Base):
     # Day 13: Relasi hasil rekomendasi & skor pencocokan (MatchResult)
     match_results = relationship("MatchResult", foreign_keys="MatchResult.intent_id", back_populates="intent", cascade="all, delete-orphan")
 
+    # Day 21: Relasi keanggotaan sesi belajar (provenance)
+    session_members = relationship("SessionMember", back_populates="intent")
+
 
 # ==============================================================================
 # 4. TABEL SLOT KETERSEDIAAN WAKTU (intent_availabilities)
@@ -226,7 +229,7 @@ class StudySession(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # proposal_id: Referensi unik ke GroupProposal asal jika dieksekusi dari kesepakatan kelompok (Day 21)
-    proposal_id = Column(String(36), ForeignKey("group_proposals.proposal_id", ondelete="SET NULL"), nullable=True, unique=True, index=True)
+    proposal_id = Column(String(36), ForeignKey("group_proposals.proposal_id", ondelete="RESTRICT"), nullable=True)
 
     # Relasi
     host = relationship("Student", back_populates="hosted_sessions", foreign_keys=[host_id])
@@ -237,7 +240,7 @@ class StudySession(Base):
     proposal = relationship("GroupProposal", back_populates="study_session")
 
     __table_args__ = (
-        UniqueConstraint("proposal_id", name="uq_session_proposal"),
+        Index("uq_session_proposal", "proposal_id", unique=True, sqlite_where=text("proposal_id IS NOT NULL")),
     )
 
 
@@ -277,6 +280,10 @@ class SessionMember(Base):
     session_id = Column(String(36), ForeignKey("study_sessions.session_id", ondelete="CASCADE"), nullable=False)
     student_id = Column(String(36), ForeignKey("students.student_id", ondelete="CASCADE"), nullable=False)
 
+    # intent_id: Referensi ke Study Intent asal mahasiswa untuk keanggotaan ini (Day 21)
+    # Menjamin provenance dan mencegah satu Study Intent dialokasikan ke dua sesi berbeda
+    intent_id = Column(String(36), ForeignKey("study_intents.intent_id", ondelete="RESTRICT"), nullable=True)
+
     # role: 'HOST' (Pembuat sesi) atau 'MEMBER' (Anggota biasa)
     role = Column(String(20), nullable=False, default="MEMBER")
 
@@ -287,9 +294,15 @@ class SessionMember(Base):
     # joined_at: Waktu saat mahasiswa bergabung/diundang ke sesi
     joined_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
-    # Relasi ke StudySession dan Student
+    # Relasi ke StudySession, Student, dan StudyIntent
     session = relationship("StudySession", back_populates="members")
     student = relationship("Student", back_populates="session_memberships")
+    intent = relationship("StudyIntent", back_populates="session_members")
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "student_id", name="uq_session_member_student"),
+        Index("uq_session_member_intent", "intent_id", unique=True, sqlite_where=text("intent_id IS NOT NULL")),
+    )
 
 
 # ==============================================================================

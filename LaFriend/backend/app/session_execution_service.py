@@ -52,6 +52,7 @@ def format_study_session_response(session: StudySession, db: Session) -> StudySe
                 member_id=m.member_id,
                 session_id=m.session_id,
                 student_id=m.student_id,
+                intent_id=m.intent_id,
                 role=m.role,
                 status=m.status,
                 joined_at=m.joined_at,
@@ -261,23 +262,25 @@ def execute_study_session_from_proposal_service(
         )
         db.add(slot)
 
-        # C. Buat SessionMember untuk Host
+        # C. Buat SessionMember untuk Host (dengan provenance intent_id)
         host_member = SessionMember(
             member_id=str(uuid.uuid4()),
             session_id=new_session.session_id,
             student_id=proposal.host_student_id,
+            intent_id=proposal.host_intent_id,
             role="HOST",
             status="CONFIRMED",
             joined_at=datetime.utcnow()
         )
         db.add(host_member)
 
-        # D. Buat SessionMember untuk Setiap Anggota yang ACCEPTED
+        # D. Buat SessionMember untuk Setiap Anggota yang ACCEPTED (dengan provenance intent_id)
         for inv in accepted_invs:
             mem = SessionMember(
                 member_id=str(uuid.uuid4()),
                 session_id=new_session.session_id,
                 student_id=inv.recipient_id,
+                intent_id=inv.target_intent_id,
                 role="MEMBER",
                 status="CONFIRMED",
                 joined_at=datetime.utcnow()
@@ -304,6 +307,19 @@ def execute_study_session_from_proposal_service(
         concurrent_session = db.query(StudySession).filter(StudySession.proposal_id == proposal.proposal_id).first()
         if concurrent_session:
             return format_study_session_response(concurrent_session, db)
+
+        err_str = str(ie).lower()
+        if "uq_session_member_intent" in err_str or "intent_id" in err_str:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Salah satu Study Intent anggota atau host telah dialokasikan ke sesi belajar lain."
+            )
+        if "uq_session_member_student" in err_str:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Terdapat duplikasi keanggotaan mahasiswa dalam sesi belajar yang sama."
+            )
+
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Terjadi konflik integritas database saat mengeksekusi sesi: {str(ie)}"

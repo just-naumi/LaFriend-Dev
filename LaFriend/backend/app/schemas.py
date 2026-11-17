@@ -393,6 +393,7 @@ class SessionMemberResponse(BaseModel):
     member_id: str
     session_id: str
     student_id: str
+    intent_id: Optional[str] = None
     role: str
     status: str
     joined_at: datetime

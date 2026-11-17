@@ -472,6 +472,284 @@ class TestDay21SessionExecution(unittest.TestCase):
         my_doni_ids = [s["session_id"] for s in r_my_doni.json()]
         self.assertNotIn(session_id, my_doni_ids)
 
+    def test_10_unique_constraint_one_intent_one_session(self):
+        """Memverifikasi partial unique index uq_session_member_intent menolak intent_id yang sama dialokasikan ke 2 sesi."""
+        sess1 = StudySession(
+            session_id=f"sess1_{datetime.utcnow().timestamp()}",
+            host_id=self.andi.student_id,
+            course_id=self.course.course_id,
+            title="Sesi 1",
+            status="CONFIRMED"
+        )
+        self.db.add(sess1)
+        self.db.commit()
+
+        # Alokasikan intent_andi ke sess1
+        m1 = SessionMember(
+            member_id=f"mem1_{datetime.utcnow().timestamp()}",
+            session_id=sess1.session_id,
+            student_id=self.andi.student_id,
+            intent_id=self.intent_andi.intent_id,
+            role="HOST",
+            status="CONFIRMED"
+        )
+        self.db.add(m1)
+        self.db.commit()
+
+        # Buat sesi kedua
+        sess2 = StudySession(
+            session_id=f"sess2_{datetime.utcnow().timestamp()}",
+            host_id=self.budi.student_id,
+            course_id=self.course.course_id,
+            title="Sesi 2",
+            status="CONFIRMED"
+        )
+        self.db.add(sess2)
+        self.db.commit()
+
+        # Coba alokasikan intent_andi yang sama ke sess2
+        m2 = SessionMember(
+            member_id=f"mem2_{datetime.utcnow().timestamp()}",
+            session_id=sess2.session_id,
+            student_id=self.budi.student_id,
+            intent_id=self.intent_andi.intent_id,
+            role="MEMBER",
+            status="CONFIRMED"
+        )
+        self.db.add(m2)
+        with self.assertRaises(IntegrityError):
+            self.db.commit()
+        self.db.rollback()
+
+    def test_11_unique_constraint_session_member_student(self):
+        """Memverifikasi compound unique constraint uq_session_member_student menolak mahasiswa yang sama tercatat ganda dalam satu sesi."""
+        sess = StudySession(
+            session_id=f"sess_dup_{datetime.utcnow().timestamp()}",
+            host_id=self.andi.student_id,
+            course_id=self.course.course_id,
+            title="Sesi Uji Mahasiswa Duplikat",
+            status="CONFIRMED"
+        )
+        self.db.add(sess)
+        self.db.commit()
+
+        m1 = SessionMember(
+            member_id=f"mem1_{datetime.utcnow().timestamp()}",
+            session_id=sess.session_id,
+            student_id=self.budi.student_id,
+            role="MEMBER",
+            status="CONFIRMED"
+        )
+        self.db.add(m1)
+        self.db.commit()
+
+        # Coba masukkan budi lagi ke sesi yang sama
+        m2 = SessionMember(
+            member_id=f"mem2_{datetime.utcnow().timestamp()}",
+            session_id=sess.session_id,
+            student_id=self.budi.student_id,
+            role="MEMBER",
+            status="CONFIRMED"
+        )
+        self.db.add(m2)
+        with self.assertRaises(IntegrityError):
+            self.db.commit()
+        self.db.rollback()
+
+    def test_12_intent_provenance_and_backward_compatibility(self):
+        """Memverifikasi backward compatibility session_members tanpa intent_id (multiple nulls diizinkan) dan navigasi relasi ORM."""
+        sess = StudySession(
+            session_id=f"sess_compat_{datetime.utcnow().timestamp()}",
+            host_id=self.andi.student_id,
+            course_id=self.course.course_id,
+            title="Sesi Kompatibilitas Legacy",
+            status="CONFIRMED"
+        )
+        self.db.add(sess)
+        self.db.commit()
+
+        # 1. Dua anggota lama tanpa intent_id (intent_id=None) wajib berhasil disimpan
+        m_legacy_1 = SessionMember(
+            member_id=f"mem_leg_1_{datetime.utcnow().timestamp()}",
+            session_id=sess.session_id,
+            student_id=self.andi.student_id,
+            intent_id=None,
+            role="HOST",
+            status="CONFIRMED"
+        )
+        m_legacy_2 = SessionMember(
+            member_id=f"mem_leg_2_{datetime.utcnow().timestamp()}",
+            session_id=sess.session_id,
+            student_id=self.budi.student_id,
+            intent_id=None,
+            role="MEMBER",
+            status="CONFIRMED"
+        )
+        self.db.add(m_legacy_1)
+        self.db.add(m_legacy_2)
+        self.db.commit()
+
+        # 2. Anggota baru dengan intent_id terisi
+        m_new = SessionMember(
+            member_id=f"mem_new_{datetime.utcnow().timestamp()}",
+            session_id=sess.session_id,
+            student_id=self.citra.student_id,
+            intent_id=self.intent_citra.intent_id,
+            role="MEMBER",
+            status="CONFIRMED"
+        )
+        self.db.add(m_new)
+        self.db.commit()
+
+        # 3. Verifikasi provenance navigasi ORM
+        self.db.refresh(m_new)
+        self.assertIsNotNone(m_new.intent)
+        self.assertEqual(m_new.intent.topics, "Binary Trees")
+
+        # 4. Verifikasi navigasi dua arah dari StudyIntent ke SessionMember
+        self.db.refresh(self.intent_citra)
+        member_ids = [mem.member_id for mem in self.intent_citra.session_members]
+        self.assertIn(m_new.member_id, member_ids)
+
+    def test_13_sqlite_legacy_migration_day21(self):
+        """Memverifikasi auto-migrasi skema SQLite lama (tanpa proposal_id dan intent_id) secara aman, idempotent, dan fail-closed."""
+        legacy_engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool
+        )
+        # Buat skema SQLite mentah versi Day 13 (tanpa proposal_id pada study_sessions, tanpa intent_id pada session_members)
+        with legacy_engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE students (
+                    student_id VARCHAR(36) PRIMARY KEY,
+                    full_name VARCHAR(100) NOT NULL,
+                    email VARCHAR(100) NOT NULL,
+                    student_number VARCHAR(20) NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL,
+                    verification_status VARCHAR(20) DEFAULT 'UNVERIFIED',
+                    account_status VARCHAR(20) DEFAULT 'ACTIVE',
+                    is_discoverable BOOLEAN DEFAULT 1,
+                    created_at TIMESTAMP,
+                    updated_at TIMESTAMP
+                );
+            """))
+            conn.execute(text("""
+                CREATE TABLE courses (
+                    course_id VARCHAR(36) PRIMARY KEY,
+                    course_code VARCHAR(20) NOT NULL,
+                    course_name VARCHAR(100) NOT NULL,
+                    study_program VARCHAR(50) NOT NULL
+                );
+            """))
+            conn.execute(text("""
+                CREATE TABLE study_intents (
+                    intent_id VARCHAR(36) PRIMARY KEY,
+                    student_id VARCHAR(36) NOT NULL,
+                    course_id VARCHAR(36) NOT NULL,
+                    topics TEXT NOT NULL,
+                    learning_goal VARCHAR(50) DEFAULT 'UNDERSTAND',
+                    collaboration_style VARCHAR(50) DEFAULT 'DISCUSSION',
+                    learning_mode VARCHAR(20) DEFAULT 'OFFLINE',
+                    earliest_date VARCHAR(20) NOT NULL,
+                    latest_date VARCHAR(20) NOT NULL,
+                    min_group_size INTEGER DEFAULT 2,
+                    max_group_size INTEGER DEFAULT 4,
+                    status VARCHAR(20) DEFAULT 'ACTIVE',
+                    created_at TIMESTAMP
+                );
+            """))
+            conn.execute(text("""
+                CREATE TABLE study_sessions (
+                    session_id VARCHAR(36) PRIMARY KEY,
+                    host_id VARCHAR(36) NOT NULL,
+                    course_id VARCHAR(36) NOT NULL,
+                    title VARCHAR(150) NOT NULL,
+                    description TEXT,
+                    learning_goal VARCHAR(50) DEFAULT 'UNDERSTAND',
+                    collaboration_style VARCHAR(50) DEFAULT 'DISCUSSION',
+                    learning_mode VARCHAR(20) DEFAULT 'OFFLINE',
+                    location VARCHAR(100),
+                    min_group_size INTEGER DEFAULT 2,
+                    max_group_size INTEGER DEFAULT 4,
+                    status VARCHAR(30) DEFAULT 'DRAFT',
+                    created_at TIMESTAMP,
+                    updated_at TIMESTAMP
+                );
+            """))
+            conn.execute(text("""
+                CREATE TABLE session_members (
+                    member_id VARCHAR(36) PRIMARY KEY,
+                    session_id VARCHAR(36) NOT NULL,
+                    student_id VARCHAR(36) NOT NULL,
+                    role VARCHAR(20) DEFAULT 'MEMBER',
+                    status VARCHAR(20) DEFAULT 'INVITED',
+                    joined_at TIMESTAMP
+                );
+            """))
+            conn.commit()
+
+        # Jalankan auto-migrasi ensure_database_schema pada legacy engine
+        ensure_database_schema(legacy_engine)
+
+        with legacy_engine.connect() as conn:
+            # 1. Periksa kolom proposal_id di study_sessions
+            cols_sess = [row[1] for row in conn.execute(text("PRAGMA table_info(study_sessions)")).fetchall()]
+            self.assertIn("proposal_id", cols_sess)
+
+            # 2. Periksa index uq_session_proposal
+            idxs_sess = [row[1] for row in conn.execute(text("PRAGMA index_list(study_sessions)")).fetchall()]
+            self.assertIn("uq_session_proposal", idxs_sess)
+
+            # 3. Periksa kolom intent_id di session_members
+            cols_mem = [row[1] for row in conn.execute(text("PRAGMA table_info(session_members)")).fetchall()]
+            self.assertIn("intent_id", cols_mem)
+
+            # 4. Periksa index uq_session_member_intent dan uq_session_member_student
+            idxs_mem = [row[1] for row in conn.execute(text("PRAGMA index_list(session_members)")).fetchall()]
+            self.assertIn("uq_session_member_intent", idxs_mem)
+            self.assertIn("uq_session_member_student", idxs_mem)
+
+            # 5. Uji idempotensi migrasi: panggil ulang tidak boleh melempar exception
+            ensure_database_schema(legacy_engine)
+
+    def test_14_service_populates_intent_id_on_host_and_members(self):
+        """Memverifikasi eksekusi proposal via API mengisi intent_id pada host dan anggota di response maupun DB."""
+        proposal, _, _ = self._setup_ready_proposal("READY_FOR_SESSION")
+
+        r_exec = self.client.post(
+            f"/api/v1/group-proposals/{proposal.proposal_id}/execute-session",
+            headers={"Authorization": f"Bearer {self.token_andi}"}
+        )
+        self.assertEqual(r_exec.status_code, 201)
+        data = r_exec.json()
+
+        # Verifikasi response members memiliki intent_id yang tepat
+        members = data["members"]
+        self.assertEqual(len(members), 3)
+
+        host_mem = next(m for m in members if m["student_id"] == self.andi.student_id)
+        self.assertEqual(host_mem["role"], "HOST")
+        self.assertEqual(host_mem["status"], "CONFIRMED")
+        self.assertEqual(host_mem["intent_id"], self.intent_andi.intent_id)
+
+        budi_mem = next(m for m in members if m["student_id"] == self.budi.student_id)
+        self.assertEqual(budi_mem["role"], "MEMBER")
+        self.assertEqual(budi_mem["status"], "CONFIRMED")
+        self.assertEqual(budi_mem["intent_id"], self.intent_budi.intent_id)
+
+        citra_mem = next(m for m in members if m["student_id"] == self.citra.student_id)
+        self.assertEqual(citra_mem["role"], "MEMBER")
+        self.assertEqual(citra_mem["status"], "CONFIRMED")
+        self.assertEqual(citra_mem["intent_id"], self.intent_citra.intent_id)
+
+        # Verifikasi langsung pada data database
+        db_members = self.db.query(SessionMember).filter(SessionMember.session_id == data["session_id"]).all()
+        intent_map = {m.student_id: m.intent_id for m in db_members}
+        self.assertEqual(intent_map[self.andi.student_id], self.intent_andi.intent_id)
+        self.assertEqual(intent_map[self.budi.student_id], self.intent_budi.intent_id)
+        self.assertEqual(intent_map[self.citra.student_id], self.intent_citra.intent_id)
+
 
 if __name__ == "__main__":
     unittest.main()
