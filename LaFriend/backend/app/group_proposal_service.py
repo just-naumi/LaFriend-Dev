@@ -85,7 +85,8 @@ def format_proposal_response(proposal: GroupProposal, db: Session) -> GroupPropo
         invitations=invitation_responses,
         active_member_count=active_member_count,
         quorum_reached=is_quorum,
-        host_student=host_student_resp
+        host_student=host_student_resp,
+        session_id=proposal.study_session.session_id if proposal.study_session else None
     )
 
 

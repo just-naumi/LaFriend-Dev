@@ -28,7 +28,8 @@ from app.schemas import (
     RecommendationRequest, RecommendationResponse, MatchResultResponse,
     GroupProposalPreviewRequest, GroupProposalPreviewResponse,
     GroupProposalCreateRequest, GroupProposalResponse, GroupProposalCancelRequest,
-    InvitationRespondRequest, InvitationResponse
+    InvitationRespondRequest, InvitationResponse,
+    StudySessionResponse
 )
 from app.extraction import process_chat_for_study_intent
 from app.matching import run_matching_pipeline, calculate_session_occupied_capacity
@@ -41,6 +42,11 @@ from app.group_proposal_service import (
     respond_invitation_service,
     get_student_inbox_service,
     get_student_sent_service
+)
+from app.session_execution_service import (
+    execute_study_session_from_proposal_service,
+    get_study_session_detail_service,
+    get_my_study_sessions_service
 )
 
 # Buat router utama API v1
@@ -909,6 +915,70 @@ def respond_invitation_endpoint(
         current_student=current_student,
         reason=req.reason
     )
+
+
+# ==============================================================================
+# 10. ENDPOINTS STUDY SESSION EXECUTION (DAY 21)
+# ==============================================================================
+
+@api_router.post(
+    "/group-proposals/{proposal_id}/execute-session",
+    response_model=StudySessionResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Study Sessions"]
+)
+@api_router.post(
+    "/sessions/from-proposal/{proposal_id}",
+    response_model=StudySessionResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Study Sessions"]
+)
+def execute_session_from_proposal_endpoint(
+    proposal_id: str,
+    current_student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db)
+):
+    """
+    Day 21: Mengeksekusi GroupProposal berstatus READY_FOR_SESSION menjadi StudySession resmi.
+    """
+    return execute_study_session_from_proposal_service(
+        db=db,
+        proposal_id=proposal_id,
+        host_student=current_student
+    )
+
+
+@api_router.get(
+    "/sessions/my-sessions",
+    response_model=List[StudySessionResponse],
+    tags=["Study Sessions"]
+)
+def get_my_study_sessions_endpoint(
+    status: Optional[str] = None,
+    current_student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db)
+):
+    """
+    Day 21: Mengambil daftar seluruh sesi belajar yang diikuti mahasiswa saat ini.
+    """
+    return get_my_study_sessions_service(db=db, current_student=current_student, status_filter=status)
+
+
+@api_router.get(
+    "/sessions/{session_id}",
+    response_model=StudySessionResponse,
+    tags=["Study Sessions"]
+)
+def get_study_session_detail_endpoint(
+    session_id: str,
+    current_student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db)
+):
+    """
+    Day 21: Mengambil informasi detail sesi belajar beserta slot jadwal dan anggota.
+    """
+    return get_study_session_detail_service(db=db, session_id=session_id, current_student=current_student)
+
 
 
 

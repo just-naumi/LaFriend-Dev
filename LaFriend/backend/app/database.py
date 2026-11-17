@@ -126,3 +126,37 @@ def ensure_database_schema(target_engine=None):
         except OperationalError:
             pass
 
+        # Migrasi kolom proposal_id pada tabel study_sessions (Day 21)
+        sess_result = conn.execute(text("PRAGMA table_info(study_sessions)"))
+        sess_columns = [row[1] for row in sess_result.fetchall()]
+        if sess_columns and "proposal_id" not in sess_columns:
+            try:
+                conn.execute(text("ALTER TABLE study_sessions ADD COLUMN proposal_id VARCHAR(36) REFERENCES group_proposals(proposal_id)"))
+                conn.commit()
+            except OperationalError as oe:
+                err_msg = str(oe).lower()
+                if "duplicate column name" in err_msg or "already exists" in err_msg:
+                    re_check = conn.execute(text("PRAGMA table_info(study_sessions)"))
+                    current_cols = [row[1] for row in re_check.fetchall()]
+                    if "proposal_id" not in current_cols:
+                        raise oe
+                else:
+                    raise oe
+
+        # Migrasi Unique Index uq_session_proposal pada tabel study_sessions (Day 21)
+        try:
+            sess_recheck = conn.execute(text("PRAGMA table_info(study_sessions)"))
+            sess_curr_cols = [row[1] for row in sess_recheck.fetchall()]
+            if "proposal_id" in sess_curr_cols:
+                idx_res = conn.execute(text("PRAGMA index_list(study_sessions)")).fetchall()
+                existing_indexes = [row[1] for row in idx_res]
+                if "uq_session_proposal" not in existing_indexes:
+                    conn.execute(text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_session_proposal "
+                        "ON study_sessions (proposal_id) "
+                        "WHERE proposal_id IS NOT NULL"
+                    ))
+                    conn.commit()
+        except OperationalError:
+            pass
+

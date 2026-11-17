@@ -483,6 +483,7 @@ class StudySessionResponse(BaseModel):
     min_group_size: int
     max_group_size: int
     status: str
+    proposal_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     course: Optional[CourseResponse] = None
@@ -874,6 +875,7 @@ class GroupProposalResponse(BaseModel):
     active_member_count: int = 1
     quorum_reached: bool = False
     host_student: Optional[StudentResponse] = None
+    session_id: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

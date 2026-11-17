@@ -225,12 +225,20 @@ class StudySession(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
+    # proposal_id: Referensi unik ke GroupProposal asal jika dieksekusi dari kesepakatan kelompok (Day 21)
+    proposal_id = Column(String(36), ForeignKey("group_proposals.proposal_id", ondelete="SET NULL"), nullable=True, unique=True, index=True)
+
     # Relasi
     host = relationship("Student", back_populates="hosted_sessions", foreign_keys=[host_id])
     course = relationship("Course", back_populates="study_sessions")
     slots = relationship("SessionSlot", back_populates="session", cascade="all, delete-orphan")
     members = relationship("SessionMember", back_populates="session", cascade="all, delete-orphan")
     invitations = relationship("Invitation", back_populates="session", cascade="all, delete-orphan")
+    proposal = relationship("GroupProposal", back_populates="study_session")
+
+    __table_args__ = (
+        UniqueConstraint("proposal_id", name="uq_session_proposal"),
+    )
 
 
 # ==============================================================================
@@ -392,7 +400,7 @@ class GroupProposal(Base):
     host_student_id = Column(String(36), ForeignKey("students.student_id", ondelete="CASCADE"), nullable=False, index=True)
     course_id = Column(String(36), ForeignKey("courses.course_id", ondelete="CASCADE"), nullable=False, index=True)
 
-    # Status Lifecycle: 'PENDING_RESPONSES', 'QUORUM_REACHED', 'READY_FOR_SESSION', 'NOT_FORMED', 'CANCELLED', 'EXPIRED'
+    # Status Lifecycle: 'PENDING_RESPONSES', 'QUORUM_REACHED', 'READY_FOR_SESSION', 'SESSION_EXECUTED', 'NOT_FORMED', 'CANCELLED', 'EXPIRED'
     status = Column(String(32), default="PENDING_RESPONSES", nullable=False, index=True)
 
     # Batasan ukuran kelompok yang disepakati
@@ -420,4 +428,5 @@ class GroupProposal(Base):
     host_intent = relationship("StudyIntent", foreign_keys=[host_intent_id])
     course = relationship("Course", foreign_keys=[course_id])
     invitations = relationship("Invitation", back_populates="group_proposal", cascade="all, delete-orphan")
+    study_session = relationship("StudySession", back_populates="proposal", uselist=False)
 
