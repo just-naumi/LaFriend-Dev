@@ -238,8 +238,8 @@ class TestDay19TopKBenchmark(unittest.TestCase):
         for b in res.benchmarks:
             self.assertEqual(b.formation_status, "NO_COMPATIBLE_GROUP")
             self.assertEqual(b.group_size, 1)
-            self.assertEqual(b.quality_retention, 100.0)
-            self.assertEqual(b.quality_loss, 0.0)
+            self.assertIsNone(b.quality_retention)
+            self.assertIsNone(b.quality_loss)
 
     def test_06_single_candidate_pool(self):
         """

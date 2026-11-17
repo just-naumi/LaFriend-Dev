@@ -328,17 +328,29 @@ def identify_weakest_and_strongest_links(
     """
     Mengidentifikasi pasangan dengan skor terlemah (MPS bottleneck)
     dan pasangan dengan skor tertinggi (Strongest link).
+    Aman terhadap elemen None, non-dict, atau non-numerik (D19.6.5-03).
     """
     if not pairwise_scores:
         return None, None
 
-    sorted_pairs = sorted(
-        pairwise_scores,
-        key=lambda item: float(item.get("compatibility_score", 0.0))
-    )
+    valid_items = []
+    for item in pairwise_scores:
+        if isinstance(item, dict):
+            raw_cs = item.get("compatibility_score")
+            if raw_cs is not None and not isinstance(raw_cs, bool) and isinstance(raw_cs, (int, float, Decimal)):
+                try:
+                    cs_f = float(raw_cs)
+                    if not math.isnan(cs_f) and not math.isinf(cs_f):
+                        valid_items.append((cs_f, item))
+                except Exception:
+                    pass
 
-    weakest_item = sorted_pairs[0]
-    strongest_item = sorted_pairs[-1]
+    if not valid_items:
+        return None, None
+
+    valid_items.sort(key=lambda t: t[0])
+    weakest_item = valid_items[0][1]
+    strongest_item = valid_items[-1][1]
 
     def _to_link_detail(item: Dict[str, Any], is_weak: bool):
         cls = WeakestLinkDetail if is_weak else StrongestLinkDetail
@@ -438,7 +450,7 @@ def generate_quality_notes(
 
 
 # ==============================================================================
-# 5. EVALUATOR UTAMA KUALITAS KELOMPOK (DAY 19.1)
+# 5. EVALUATOR UTAMA KUALITAS KELOMPOK (DAY 19.1 & DAY 19.6.5)
 # ==============================================================================
 
 def evaluate_group_quality(
@@ -450,35 +462,94 @@ def evaluate_group_quality(
     atau sekumpulan skor numerik pasangan [CS_1, CS_2, ...].
 
     Menghasilkan laporan komprehensif GroupQualityEvaluationResult.
+    (D19.6.5-01 & D19.6.5-03: Sanitasi payload pairwise & verifikasi skor agregat vs pairwise)
     """
+    aggregate_match_valid = True
+    aggregate_discrepancy = 0.0
+    verified_gq, verified_aps, verified_mps = 0.0, 0.0, 0.0
+
     if isinstance(data, dict):
         raw_pairwise = data.get("pairwise_scores", [])
-        scores = [float(item.get("compatibility_score", 0.0)) for item in raw_pairwise]
-        gq = float(data.get("group_quality_score", 0.0))
-        aps = float(data.get("average_pair_score", 0.0))
-        mps = float(data.get("minimum_pair_score", 0.0))
-        group_size = int(data.get("group_size", len(data.get("members", []))))
+        if not isinstance(raw_pairwise, list):
+            raw_pairwise = []
+            has_malformed_pairwise = True
+        else:
+            has_malformed_pairwise = False
 
-        # Periksa konsistensi breakdown untuk setiap item pairwise jika tersedia (D19.6.4-10)
-        breakdown_consistent = True
-        if raw_pairwise:
-            for pw in raw_pairwise:
+        valid_pairwise = []
+        scores = []
+        for item in raw_pairwise:
+            if not isinstance(item, dict):
+                has_malformed_pairwise = True
+                continue
+            raw_cs = item.get("compatibility_score")
+            if raw_cs is None or isinstance(raw_cs, bool) or not isinstance(raw_cs, (int, float, Decimal)):
+                has_malformed_pairwise = True
+                continue
+            try:
+                cs_val = float(raw_cs)
+                if math.isnan(cs_val) or math.isinf(cs_val):
+                    has_malformed_pairwise = True
+                    continue
+                scores.append(cs_val)
+                valid_pairwise.append(item)
+            except (ValueError, TypeError, OverflowError):
+                has_malformed_pairwise = True
+                continue
+
+        # D19.6.5-03: Periksa konsistensi breakdown untuk setiap item pairwise valid
+        breakdown_consistent = not has_malformed_pairwise
+        if valid_pairwise:
+            for pw in valid_pairwise:
                 chk = verify_pairwise_breakdown_consistency(pw)
                 if not chk.get("is_consistent", False):
                     breakdown_consistent = False
                     break
+        elif raw_pairwise:
+            # raw_pairwise tidak kosong tapi seluruh elemennya malformed
+            breakdown_consistent = False
 
-        # Jika scores kosong atau tidak konsisten, hitung ulang
-        if not scores and "all_pairwise_scores" in data:
-            scores = [float(s) for s in data["all_pairwise_scores"]]
+        # Jika scores kosong tapi data menyediakan "all_pairwise_scores"
+        if not scores and "all_pairwise_scores" in data and isinstance(data["all_pairwise_scores"], list):
+            for s in data["all_pairwise_scores"]:
+                try:
+                    if not isinstance(s, bool) and isinstance(s, (int, float, Decimal)):
+                        sf = float(s)
+                        if not math.isnan(sf) and not math.isinf(sf):
+                            scores.append(sf)
+                except Exception:
+                    pass
 
-        if scores and (gq == 0.0 and aps == 0.0 and mps == 0.0):
-            gq, aps, mps = calculate_group_quality_score(scores)
+        reported_gq = float(data.get("group_quality_score", 0.0))
+        reported_aps = float(data.get("average_pair_score", 0.0))
+        reported_mps = float(data.get("minimum_pair_score", 0.0))
+        group_size = int(data.get("group_size", len(data.get("members", []))))
 
-        weakest_link, strongest_link = identify_weakest_and_strongest_links(raw_pairwise)
+        # Hitung skor terverifikasi dari pairwise_scores yang ada
+        if scores:
+            verified_gq, verified_aps, verified_mps = calculate_group_quality_score(scores)
+
+        # Jika data tidak melaporkan skor agregat (semua 0.0), gunakan hasil perhitungan
+        has_reported_aggregates = not (reported_gq == 0.0 and reported_aps == 0.0 and reported_mps == 0.0)
+        if not has_reported_aggregates and scores:
+            gq, aps, mps = verified_gq, verified_aps, verified_mps
+        else:
+            gq, aps, mps = reported_gq, reported_aps, reported_mps
+
+        # D19.6.5-01: Verifikasi kecocokan skor agregat yang dilaporkan vs skor terverifikasi dari pairwise
+        if scores and has_reported_aggregates:
+            disc_gq = abs(round(reported_gq, 2) - round(verified_gq, 2))
+            disc_aps = abs(round(reported_aps, 2) - round(verified_aps, 2))
+            disc_mps = abs(round(reported_mps, 2) - round(verified_mps, 2))
+            aggregate_discrepancy = max(disc_gq, disc_aps, disc_mps)
+            if aggregate_discrepancy > 0.01:
+                aggregate_match_valid = False
+
+        weakest_link, strongest_link = identify_weakest_and_strongest_links(valid_pairwise)
     else:
         scores = [float(s) for s in data]
         gq, aps, mps = calculate_group_quality_score(scores)
+        verified_gq, verified_aps, verified_mps = gq, aps, mps
         group_size = len(scores) + 1 if scores else 0
         breakdown_consistent = True
         weakest_link = None
@@ -491,8 +562,20 @@ def evaluate_group_quality(
 
     distribution = calculate_pairwise_distribution(scores)
     formula_check = verify_gq_consistency(gq, aps, mps)
+
+    # D19.6.5-01: Jika terjadi ketidakcocokan skor agregat vs skor pairwise, tandai formula_check tidak valid
+    if not aggregate_match_valid:
+        formula_check.is_valid = False
+        formula_check.discrepancy = max(formula_check.discrepancy, round(aggregate_discrepancy, 4))
+        formula_check.formula_expression += f" [MISMATCH WITH PAIRWISE: Expected GQ={verified_gq:.2f}, APS={verified_aps:.2f}, MPS={verified_mps:.2f}]"
+
     tier = determine_quality_tier(gq)
     notes = generate_quality_notes(gq, aps, mps, distribution, weakest_link)
+    if not aggregate_match_valid:
+        notes.append(
+            f"PERINGATAN INTEGRITAS: Skor agregat yang dilaporkan (GQ={gq:.2f}, APS={aps:.2f}, MPS={mps:.2f}) "
+            f"tidak konsisten dengan skor pairwise aktual (GQ={verified_gq:.2f}, APS={verified_aps:.2f}, MPS={verified_mps:.2f})."
+        )
 
     max_pair_score = distribution.max_score
 
@@ -817,13 +900,14 @@ def benchmark_top_k_candidate_pool(
         cand_in_pool = pruning.get("candidates_in_pool", 0)
         cand_examined = pruning.get("total_candidates_examined", 0)
 
-        # Hitung Quality Retention & Quality Loss
+        # Hitung Quality Retention & Quality Loss (D19.6.5-04)
+        # Jika full_gq <= 0.0 (misal kelompok tidak terbentuk), retention & loss adalah None
         if full_gq > 0.0:
             retention = min(100.0, max(0.0, round((gq / full_gq) * 100.0, 2)))
             loss = min(100.0, max(0.0, round(((full_gq - gq) / full_gq) * 100.0, 2)))
         else:
-            retention = 100.0
-            loss = 0.0
+            retention = None
+            loss = None
 
         # Cek apakah anggota kelompok identik dengan baseline Full
         k_members = set()
@@ -1093,45 +1177,90 @@ def check_hard_constraint_violations(
     if "ONLINE" in modes and "OFFLINE" in modes:
         violations.append("Kelompok memuat mahasiswa ONLINE dan OFFLINE sekaligus (inkompatibel)")
 
-    # 2.C. Perhitungan Ulang Independen Batas Kapasitas (D19.6.4-02)
-    try:
-        recomputed_min_bound = max(int(getattr(m, "min_group_size", 2)) for m in all_member_intents)
-        recomputed_max_bound = min(int(getattr(m, "max_group_size", 10)) for m in all_member_intents)
-    except Exception:
-        recomputed_min_bound = 2
-        recomputed_max_bound = 10
+    # 2.C. Perhitungan Ulang Independen Batas Kapasitas (D19.6.5-02)
+    has_capacity_calc_error = False
+    intent_min_bounds = []
+    intent_max_bounds = []
 
-    if reported_min_bound is not None and reported_min_bound != recomputed_min_bound:
-        violations.append(f"Metadata min_group_size_bound ({reported_min_bound}) tidak cocok dengan hasil perhitungan independen ({recomputed_min_bound})")
-    if reported_max_bound is not None and reported_max_bound != recomputed_max_bound:
-        violations.append(f"Metadata max_group_size_bound ({reported_max_bound}) tidak cocok dengan hasil perhitungan independen ({recomputed_max_bound})")
+    for mem_intent in all_member_intents:
+        mem_iid = str(getattr(mem_intent, "intent_id", "?")).strip()
+        raw_min = getattr(mem_intent, "min_group_size", None)
+        raw_max = getattr(mem_intent, "max_group_size", None)
 
-    # Validasi kapasitas kelompok berdasarkan status (baik reported maupun recomputed)
-    if reported_min_bound is not None and reported_max_bound is not None and reported_min_bound > reported_max_bound:
-        violations.append(f"Kelompok READY memiliki rentang kapasitas tidak valid: min_bound ({reported_min_bound}) > max_bound ({reported_max_bound})")
-    elif recomputed_min_bound > recomputed_max_bound:
-        violations.append(f"Kelompok READY memiliki rentang kapasitas tidak valid: min_bound ({recomputed_min_bound}) > max_bound ({recomputed_max_bound})")
+        # Strict integer check: tolak float (e.g. 2.9), string (e.g. "2"), None, bool (e.g. True)
+        if raw_min is None or isinstance(raw_min, bool) or not isinstance(raw_min, int):
+            violations.append(f"Intent {mem_iid} memiliki min_group_size ({raw_min}) yang tidak valid (wajib integer murni)")
+            has_capacity_calc_error = True
+        elif raw_min < 2:
+            violations.append(f"Intent {mem_iid} memiliki min_group_size ({raw_min}) < 2 (batas minimum absolut)")
+            has_capacity_calc_error = True
+        else:
+            intent_min_bounds.append(raw_min)
 
-    if status == "READY":
-        if group_size < 2:
-            violations.append(f"Ukuran kelompok READY ({group_size}) kurang dari batas minimum absolut (2)")
-        if reported_min_bound is not None and reported_max_bound is not None and (group_size < reported_min_bound or group_size > reported_max_bound):
-            violations.append(f"Kelompok READY memiliki group_size ({group_size}) di luar batas kapasitas [{reported_min_bound}, {reported_max_bound}]")
-        elif group_size < recomputed_min_bound or group_size > recomputed_max_bound:
-            violations.append(f"Kelompok READY memiliki group_size ({group_size}) di luar batas kapasitas [{recomputed_min_bound}, {recomputed_max_bound}]")
-        if not selected_sched:
-            violations.append("Kelompok berstatus READY tetapi tidak memiliki selected_schedule")
-    elif status == "INSUFFICIENT_MEMBERS":
-        if group_size < 2:
-            violations.append(f"Status INSUFFICIENT_MEMBERS tetapi group_size ({group_size}) < 2")
-        effective_min = recomputed_min_bound if reported_min_bound is None else min(reported_min_bound, recomputed_min_bound)
-        if group_size >= effective_min:
-            violations.append(f"Status INSUFFICIENT_MEMBERS tetapi group_size ({group_size}) >= min_bound ({effective_min})")
-    elif status == "NO_COMPATIBLE_GROUP":
-        if group_size != 1:
-            violations.append(f"Status NO_COMPATIBLE_GROUP tetapi group_size ({group_size}) != 1")
+        if raw_max is None or isinstance(raw_max, bool) or not isinstance(raw_max, int):
+            violations.append(f"Intent {mem_iid} memiliki max_group_size ({raw_max}) yang tidak valid (wajib integer murni)")
+            has_capacity_calc_error = True
+        elif isinstance(raw_min, int) and not isinstance(raw_min, bool) and raw_max < raw_min:
+            violations.append(f"Intent {mem_iid} memiliki rentang kapasitas tidak valid: min_group_size ({raw_min}) > max_group_size ({raw_max})")
+            has_capacity_calc_error = True
+        else:
+            intent_max_bounds.append(raw_max)
+
+    if not has_capacity_calc_error and intent_min_bounds and intent_max_bounds:
+        recomputed_min_bound = max(intent_min_bounds)
+        recomputed_max_bound = min(intent_max_bounds)
     else:
-        violations.append(f"Status pembentukan kelompok tidak dikenal atau tidak valid: '{status}'")
+        # PENTING (D19.6.5-02): ELIMINASI DEFAULT FALLBACK KE [2, 10]
+        recomputed_min_bound = None
+        recomputed_max_bound = None
+        if "Kapasitas anggota tidak valid sehingga rentang kapasitas kelompok tidak dapat dihitung" not in violations:
+            violations.append("Kapasitas anggota tidak valid sehingga rentang kapasitas kelompok tidak dapat dihitung")
+
+    if recomputed_min_bound is not None and recomputed_max_bound is not None:
+        if reported_min_bound is not None and reported_min_bound != recomputed_min_bound:
+            violations.append(f"Metadata min_group_size_bound ({reported_min_bound}) tidak cocok dengan hasil perhitungan independen ({recomputed_min_bound})")
+        if reported_max_bound is not None and reported_max_bound != recomputed_max_bound:
+            violations.append(f"Metadata max_group_size_bound ({reported_max_bound}) tidak cocok dengan hasil perhitungan independen ({recomputed_max_bound})")
+
+        # Validasi kapasitas kelompok berdasarkan status (baik reported maupun recomputed)
+        if reported_min_bound is not None and reported_max_bound is not None and reported_min_bound > reported_max_bound:
+            violations.append(f"Kelompok READY memiliki rentang kapasitas tidak valid: min_bound ({reported_min_bound}) > max_bound ({reported_max_bound})")
+        elif recomputed_min_bound > recomputed_max_bound:
+            violations.append(f"Kelompok READY memiliki rentang kapasitas tidak valid: min_bound ({recomputed_min_bound}) > max_bound ({recomputed_max_bound})")
+
+        if status == "READY":
+            if group_size < 2:
+                violations.append(f"Ukuran kelompok READY ({group_size}) kurang dari batas minimum absolut (2)")
+            if reported_min_bound is not None and reported_max_bound is not None and (group_size < reported_min_bound or group_size > reported_max_bound):
+                violations.append(f"Kelompok READY memiliki group_size ({group_size}) di luar batas kapasitas [{reported_min_bound}, {reported_max_bound}]")
+            elif group_size < recomputed_min_bound or group_size > recomputed_max_bound:
+                violations.append(f"Kelompok READY memiliki group_size ({group_size}) di luar batas kapasitas [{recomputed_min_bound}, {recomputed_max_bound}]")
+            if not selected_sched:
+                violations.append("Kelompok berstatus READY tetapi tidak memiliki selected_schedule")
+        elif status == "INSUFFICIENT_MEMBERS":
+            if group_size < 2:
+                violations.append(f"Status INSUFFICIENT_MEMBERS tetapi group_size ({group_size}) < 2")
+            effective_min = recomputed_min_bound if reported_min_bound is None else min(reported_min_bound, recomputed_min_bound)
+            if group_size >= effective_min:
+                violations.append(f"Status INSUFFICIENT_MEMBERS tetapi group_size ({group_size}) >= min_bound ({effective_min})")
+        elif status == "NO_COMPATIBLE_GROUP":
+            if group_size != 1:
+                violations.append(f"Status NO_COMPATIBLE_GROUP tetapi group_size ({group_size}) != 1")
+        else:
+            violations.append(f"Status pembentukan kelompok tidak dikenal atau tidak valid: '{status}'")
+    else:
+        # Kapasitas tidak dapat dihitung secara valid
+        if status == "READY":
+            violations.append("Kelompok READY tidak dapat memverifikasi batas kapasitas karena ada data kapasitas intent anggota yang tidak valid")
+            if not selected_sched:
+                violations.append("Kelompok berstatus READY tetapi tidak memiliki selected_schedule")
+        elif status == "INSUFFICIENT_MEMBERS":
+            violations.append("Kelompok INSUFFICIENT_MEMBERS tidak dapat memverifikasi batas kapasitas karena ada data kapasitas intent anggota yang tidak valid")
+        elif status == "NO_COMPATIBLE_GROUP":
+            if group_size != 1:
+                violations.append(f"Status NO_COMPATIBLE_GROUP tetapi group_size ({group_size}) != 1")
+        else:
+            violations.append(f"Status pembentukan kelompok tidak dikenal atau tidak valid: '{status}'")
 
     # =========================================================================
     # 3. PAIRWISE INTEGRITY (Khusus Status READY - D19.6.4-05)
@@ -1154,6 +1283,7 @@ def check_hard_constraint_violations(
             violations.append(f"Jumlah pairwise_scores ({len(pairwise_scores)}) tidak sesuai dengan formula N*(N-1)/2 ({expected_n_pairs}) untuk n={n}")
 
         seen_pairs = set()
+        valid_cs_list = []
 
         for pw in pairwise_scores:
             if not isinstance(pw, dict):
@@ -1196,6 +1326,8 @@ def check_hard_constraint_violations(
             if cs_float < min_score_val:
                 violations.append(f"Pasangan ({id_a} - {id_b}) memiliki Compatibility Score ({cs_float}) < min_score ({min_score_val})")
 
+            valid_cs_list.append(cs_float)
+
         # Cek pasangan yang hilang dan pasangan asing
         missing_pairs = expected_pairs - seen_pairs
         if missing_pairs:
@@ -1204,6 +1336,38 @@ def check_hard_constraint_violations(
         extraneous_pairs = seen_pairs - expected_pairs
         if extraneous_pairs:
             violations.append(f"Terdapat pasangan asing pada pairwise_scores yang bukan anggota kelompok: {sorted(list(extraneous_pairs))}")
+
+        # D19.6.5-01: Verifikasi skor agregat yang dilaporkan (group_quality_score, average_pair_score, minimum_pair_score)
+        # terhadap hasil perhitungan aktual dari pairwise_scores
+        if len(valid_cs_list) == expected_n_pairs and expected_n_pairs > 0:
+            calc_gq, calc_aps, calc_mps = calculate_group_quality_score(valid_cs_list)
+
+            rep_gq = formation_result.get("group_quality_score")
+            if rep_gq is not None and not isinstance(rep_gq, bool) and isinstance(rep_gq, (int, float, Decimal)):
+                try:
+                    rep_gq_f = float(rep_gq)
+                    if abs(round(rep_gq_f, 2) - round(calc_gq, 2)) > 0.01:
+                        violations.append(f"group_quality_score yang dilaporkan ({rep_gq_f}) tidak cocok dengan hasil perhitungan skor pairwise ({calc_gq})")
+                except Exception:
+                    pass
+
+            rep_aps = formation_result.get("average_pair_score")
+            if rep_aps is not None and not isinstance(rep_aps, bool) and isinstance(rep_aps, (int, float, Decimal)):
+                try:
+                    rep_aps_f = float(rep_aps)
+                    if abs(round(rep_aps_f, 2) - round(calc_aps, 2)) > 0.01:
+                        violations.append(f"average_pair_score yang dilaporkan ({rep_aps_f}) tidak cocok dengan rata-rata skor pairwise ({calc_aps})")
+                except Exception:
+                    pass
+
+            rep_mps = formation_result.get("minimum_pair_score")
+            if rep_mps is not None and not isinstance(rep_mps, bool) and isinstance(rep_mps, (int, float, Decimal)):
+                try:
+                    rep_mps_f = float(rep_mps)
+                    if abs(round(rep_mps_f, 2) - round(calc_mps, 2)) > 0.01:
+                        violations.append(f"minimum_pair_score yang dilaporkan ({rep_mps_f}) tidak cocok dengan skor minimum pairwise ({calc_mps})")
+                except Exception:
+                    pass
 
     # =========================================================================
     # 4. SCHEDULE INTEGRITY (Khusus Status READY - D19.6.4-06 & D19.6.4-07)
@@ -1520,48 +1684,135 @@ def generate_comprehensive_evaluation_report(
     generated_at = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
     # 1. Eksekusi Pembentukan Kelompok Baseline
-    formation_res = form_study_group(
-        host_intent=host_intent,
-        candidate_intents=candidates_list,
-        min_score=min_score
-    )
+    formation_res = None
+    baseline_violations = []
+    try:
+        formation_res = form_study_group(
+            host_intent=host_intent,
+            candidate_intents=candidates_list,
+            min_score=min_score
+        )
+    except Exception as exc:
+        baseline_violations.append(f"Eksekusi form_study_group gagal dengan exception: {str(exc)}")
+        formation_res = {
+            "formation_status": "FAILED",
+            "host_intent_id": host_id,
+            "members": [host_intent],
+            "group_size": 1,
+            "pairwise_scores": [],
+        }
 
-    # 1.B. Verifikasi Integritas Baseline Formation (D19.6.4-08)
-    cand_lookup = {str(c.intent_id): c for c in candidates_list}
+    if not isinstance(formation_res, dict):
+        baseline_violations.append(f"form_study_group menghasilkan tipe data tidak valid: {type(formation_res)}")
+        formation_res = {
+            "formation_status": "FAILED",
+            "host_intent_id": host_id,
+            "members": [host_intent],
+            "group_size": 1,
+            "pairwise_scores": [],
+        }
+
+    # 1.B. Verifikasi Integritas Baseline Formation (D19.6.4-08 & D19.6.5-03)
+    cand_lookup = {}
+    for c in candidates_list:
+        try:
+            cid = str(getattr(c, "intent_id", "")).strip()
+            if cid:
+                cand_lookup[cid] = c
+        except Exception:
+            pass
     cand_lookup[host_id] = host_intent
-    baseline_violations = check_hard_constraint_violations(
-        host_intent=host_intent,
-        formation_result=formation_res,
-        candidate_lookup=cand_lookup,
-        min_score=min_score
-    )
+
+    try:
+        v_list = check_hard_constraint_violations(
+            host_intent=host_intent,
+            formation_result=formation_res,
+            candidate_lookup=cand_lookup,
+            min_score=min_score
+        )
+        baseline_violations.extend(v_list)
+    except Exception as exc:
+        baseline_violations.append(f"Pemeriksaan check_hard_constraint_violations gagal dengan exception: {str(exc)}")
+
     has_baseline_violations = (len(baseline_violations) > 0)
 
     # 2. Pilar 1: Group Quality Evaluation (Day 19.1)
-    quality_res = evaluate_group_quality(formation_res)
+    try:
+        quality_res = evaluate_group_quality(formation_res)
+    except Exception as exc:
+        quality_res = GroupQualityEvaluationResult(
+            group_quality_score=0.0,
+            average_pair_score=0.0,
+            minimum_pair_score=0.0,
+            maximum_pair_score=0.0,
+            distribution=calculate_pairwise_distribution([]),
+            weakest_link=None,
+            strongest_link=None,
+            formula_consistency=FormulaConsistencyCheck(
+                is_valid=False,
+                expected_gq=0.0,
+                actual_gq=0.0,
+                discrepancy=0.0,
+                formula_expression=f"ERROR: {str(exc)}",
+                aps=0.0,
+                mps=0.0
+            ),
+            all_pairwise_scores=[],
+            quality_tier="NEEDS_IMPROVEMENT",
+            evaluation_notes=[f"Evaluasi kualitas gagal dengan exception: {str(exc)}"],
+            group_size=0,
+            is_breakdown_consistent=False
+        )
 
     # 3. Pilar 2: Matching Stability & Order Invariance (Day 19.2)
-    stability_res = evaluate_matching_stability(
-        host_intent=host_intent,
-        candidate_intents=candidates_list,
-        num_permutations=stability_permutations,
-        min_score=min_score
-    )
+    try:
+        stability_res = evaluate_matching_stability(
+            host_intent=host_intent,
+            candidate_intents=candidates_list,
+            num_permutations=stability_permutations,
+            min_score=min_score
+        )
+    except Exception as exc:
+        stability_res = MatchingStabilityResult(
+            num_permutations=stability_permutations,
+            is_order_invariant=False,
+            determinism_rate=0.0,
+            distinct_group_signatures=0,
+            baseline_signature="ERROR",
+            permutations=[]
+        )
 
     # 4. Pilar 3: Robustness & Constraint Violation Rate (Day 19.3)
-    scenarios = candidate_scenarios if candidate_scenarios is not None else build_default_robustness_scenarios(host_intent)
-    robustness_res = evaluate_matching_robustness(
-        host_intent=host_intent,
-        candidate_scenarios=scenarios
-    )
+    try:
+        scenarios = candidate_scenarios if candidate_scenarios is not None else build_default_robustness_scenarios(host_intent)
+        robustness_res = evaluate_matching_robustness(
+            host_intent=host_intent,
+            candidate_scenarios=scenarios
+        )
+    except Exception as exc:
+        robustness_res = RobustnessEvaluationResult(
+            total_scenarios_tested=0,
+            passed_scenarios=0,
+            failed_scenarios=0,
+            constraint_violation_rate=100.0,
+            all_constraints_preserved=False,
+            scenario_results=[]
+        )
 
     # 5. Pilar 4: Top-K Efficiency Benchmarking (Day 19.4)
-    topk_res = benchmark_top_k_candidate_pool(
-        host_intent=host_intent,
-        candidate_intents=candidates_list,
-        k_values=k_values,
-        min_score=min_score
-    )
+    try:
+        topk_res = benchmark_top_k_candidate_pool(
+            host_intent=host_intent,
+            candidate_intents=candidates_list,
+            k_values=k_values,
+            min_score=min_score
+        )
+    except Exception as exc:
+        topk_res = TopKBenchmarkResult(
+            total_candidates=len(candidates_list),
+            baseline_k="Full",
+            benchmarks=[]
+        )
 
     # 6. Agregasi Metrik Ringkasan (Day 19.5 & Day 19.6.1)
     total_elapsed_ms = round((time.perf_counter() - t_start) * 1000, 2)

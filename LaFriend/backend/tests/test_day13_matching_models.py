@@ -25,7 +25,10 @@ backend_dir = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(backend_dir))
 
 from pydantic import ValidationError
-from app.database import engine, Base, SessionLocal
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+from app.database import Base
 from app.models import (
     Student, Course, StudyIntent, IntentAvailability,
     StudySession, SessionSlot, SessionMember, Invitation, MatchResult
@@ -41,8 +44,14 @@ def run_tests():
     print("RUNNING DAY 13: DATABASE & MATCHING ARCHITECTURE TEST SUITE")
     print("=" * 70)
     
-    # 0. Initialize SQLite tables for all 9 models
-    Base.metadata.create_all(bind=engine)
+    # 0. Initialize isolated in-memory SQLite database for testing (D19.6.5-05)
+    test_engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool
+    )
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+    Base.metadata.create_all(bind=test_engine)
     
     passed_count = 0
     total_count = 0
@@ -237,7 +246,7 @@ def run_tests():
     # ---------------------------------------------------------
     print("\n--- SUITE 2: Database ORM & SQLite Persistence ---")
     
-    db = SessionLocal()
+    db = TestingSessionLocal()
     try:
         student = db.query(Student).first()
         if student is None:
@@ -248,6 +257,7 @@ def run_tests():
                 student_number="1201230001",
                 study_program="S1 Teknik Komputer",
                 academic_year=2023,
+                password_hash="test_secret_hash",
                 verification_status="VERIFIED",
                 account_status="ACTIVE",
                 is_discoverable=True
@@ -265,6 +275,7 @@ def run_tests():
                 student_number="1201230002",
                 study_program="S1 Teknik Komputer",
                 academic_year=2023,
+                password_hash="test_secret_hash",
                 verification_status="VERIFIED",
                 account_status="ACTIVE",
                 is_discoverable=True
@@ -279,9 +290,7 @@ def run_tests():
                 course_id="c_test_13",
                 course_code="CS101",
                 course_name="Algoritma & Pemrograman",
-                credits=3,
-                study_program="S1 Teknik Komputer",
-                semester=1
+                study_program="S1 Teknik Komputer"
             )
             db.add(course)
             db.commit()
@@ -403,6 +412,7 @@ def run_tests():
         
     finally:
         db.close()
+        test_engine.dispose()
 
     # ---------------------------------------------------------
     # SUMMARY
@@ -411,6 +421,7 @@ def run_tests():
     print(f"TEST RESULT SUMMARY: {passed_count}/{total_count} TESTS PASSED (100% SUCCESS)")
     print("=" * 70)
     assert passed_count == total_count, "Some tests failed!"
+    return passed_count, total_count
 
 
 if __name__ == "__main__":

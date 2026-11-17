@@ -937,8 +937,8 @@ class TopKPoolBenchmarkItem(BaseModel):
     group_quality_score: float
     average_pair_score: float
     minimum_pair_score: float
-    quality_loss: float  # ((GQ_full - GQ_k) / GQ_full) * 100%
-    quality_retention: float  # (GQ_k / GQ_full) * 100%
+    quality_loss: Optional[float] = None  # ((GQ_full - GQ_k) / GQ_full) * 100%, None jika GQ_full <= 0
+    quality_retention: Optional[float] = None  # (GQ_k / GQ_full) * 100%, None jika GQ_full <= 0
     execution_time_ms: float
     is_identical_to_baseline: bool = False
 

@@ -23,7 +23,8 @@ from app.matching_evaluation import (
     check_hard_constraint_violations,
     generate_comprehensive_evaluation_report,
     evaluate_group_quality,
-    evaluate_matching_robustness
+    evaluate_matching_robustness,
+    benchmark_top_k_candidate_pool
 )
 from app.schemas import (
     ComprehensiveEvaluationReport,
@@ -1245,6 +1246,229 @@ class TestDay19IntegrityHardening(unittest.TestCase):
         self.assertIsNone(report.summary.topk_quality_retention)
         self.assertEqual(report.summary.overall_status, "PASSED")
         self.assertIn("kondisi tanpa kelompok", report.summary.recommendation)
+
+    # =========================================================================
+    # SUITE 6: DAY 19.6.5 INTEGRITY CLOSURE TESTS (D19.6.5-01 s/d D19.6.5-05)
+    # =========================================================================
+
+    def test_34_pairwise_vs_aggregate_score_mismatch_detected_in_evaluator_and_checker(self):
+        """D19.6.5-01: Verifikasi ketidakcocokan antara pairwise_scores (80.0) vs metadata agregat (90.0)."""
+        st1 = make_student("s_pw_mismatch", "PW Cand", "pw@t.ac.id")
+        c1 = make_intent("c_pw_mismatch", st1.student_id, self.course_a.course_id, learning_mode="OFFLINE")
+        c1.student = st1
+        c1.availabilities = [make_availability(c1.intent_id, "2026-11-25", "09:00", "12:00")]
+        cand_lookup = {c1.intent_id: c1, self.host_intent.intent_id: self.host_intent}
+
+        # 1. Pengecekan pada evaluate_group_quality
+        mock_eval_data = {
+            "group_size": 2,
+            "group_quality_score": 90.0,
+            "average_pair_score": 90.0,
+            "minimum_pair_score": 90.0,
+            "pairwise_scores": [{
+                "intent_a_id": self.host_intent.intent_id,
+                "intent_b_id": c1.intent_id,
+                "compatibility_score": 80.0,
+                "breakdown": {
+                    "topic": {"score": 80.0, "contribution": 24.0},
+                    "goal": {"score": 80.0, "contribution": 20.0},
+                    "style": {"score": 80.0, "contribution": 16.0},
+                    "date": {"score": 80.0, "contribution": 12.0},
+                    "mode": {"score": 80.0, "contribution": 8.0},
+                }
+            }]
+        }
+        res = evaluate_group_quality(mock_eval_data)
+        self.assertFalse(res.formula_consistency.is_valid)
+        self.assertGreaterEqual(res.formula_consistency.discrepancy, 10.0)
+        self.assertTrue(any("PERINGATAN INTEGRITAS" in note for note in res.evaluation_notes))
+
+        # 2. Pengecekan pada check_hard_constraint_violations
+        mock_formation = {
+            "formation_status": "READY",
+            "host_intent_id": self.host_intent.intent_id,
+            "group_size": 2,
+            "min_group_size_bound": 2,
+            "max_group_size_bound": 4,
+            "group_quality_score": 90.0,
+            "average_pair_score": 90.0,
+            "minimum_pair_score": 90.0,
+            "members": [self.host_intent, c1],
+            "pairwise_scores": [{
+                "intent_a_id": self.host_intent.intent_id,
+                "intent_b_id": c1.intent_id,
+                "compatibility_score": 80.0,
+            }],
+            "selected_schedule": {
+                "date": "2026-11-25",
+                "start_time": "09:00",
+                "end_time": "11:00",
+                "duration_minutes": 120
+            }
+        }
+        violations = check_hard_constraint_violations(
+            host_intent=self.host_intent,
+            formation_result=mock_formation,
+            candidate_lookup=cand_lookup,
+            min_score=60.0
+        )
+        self.assertTrue(any("group_quality_score yang dilaporkan" in v for v in violations))
+        self.assertTrue(any("average_pair_score yang dilaporkan" in v for v in violations))
+        self.assertTrue(any("minimum_pair_score yang dilaporkan" in v for v in violations))
+
+    def test_35_strict_intent_capacity_rejects_floats_strings_bools_none(self):
+        """D19.6.5-02: Memastikan nilai min/max group size bertipe float, string, bool, None, atau < 2 ditolak tanpa toleransi."""
+        invalid_bounds = [
+            (2.9, 4),      # float
+            ("2", 4),      # string
+            (None, 4),     # None
+            (True, 4),     # boolean True
+            (1, 4),        # < 2
+            (5, 3),        # min > max
+        ]
+        st_inv = make_student("s_cap_inv", "Cap Inv", "cap@t.ac.id")
+        cand = make_intent("c_cap_inv", st_inv.student_id, self.course_a.course_id, learning_mode="OFFLINE")
+        cand.student = st_inv
+        cand.availabilities = [make_availability(cand.intent_id, "2026-11-25", "09:00", "12:00")]
+        cand_lookup = {cand.intent_id: cand, self.host_intent.intent_id: self.host_intent}
+
+        for min_b, max_b in invalid_bounds:
+            cand.min_group_size = min_b
+            cand.max_group_size = max_b
+
+            mock_formation = {
+                "formation_status": "READY",
+                "host_intent_id": self.host_intent.intent_id,
+                "group_size": 2,
+                "min_group_size_bound": 2,
+                "max_group_size_bound": 4,
+                "group_quality_score": 80.0,
+                "average_pair_score": 80.0,
+                "minimum_pair_score": 80.0,
+                "members": [self.host_intent, cand],
+                "pairwise_scores": [{
+                    "intent_a_id": self.host_intent.intent_id,
+                    "intent_b_id": cand.intent_id,
+                    "compatibility_score": 80.0,
+                }],
+                "selected_schedule": {
+                    "date": "2026-11-25",
+                    "start_time": "09:00",
+                    "end_time": "11:00",
+                    "duration_minutes": 120
+                }
+            }
+            violations = check_hard_constraint_violations(
+                host_intent=self.host_intent,
+                formation_result=mock_formation,
+                candidate_lookup=cand_lookup,
+                min_score=60.0
+            )
+            self.assertTrue(
+                any("min_group_size" in v or "max_group_size" in v or "Kapasitas anggota tidak valid" in v for v in violations),
+                f"Gagal mendeteksi kapasitas invalid untuk min={min_b}, max={max_b}"
+            )
+
+    def test_36_capacity_resolver_error_without_default_fallback(self):
+        """D19.6.5-02: Memastikan eliminasi fallback default [2, 10] saat kapasitas anggota invalid."""
+        st_nf = make_student("s_no_fallback", "No Fallback", "nf@t.ac.id")
+        cand = make_intent("c_no_fallback", st_nf.student_id, self.course_a.course_id, learning_mode="OFFLINE")
+        cand.student = st_nf
+        cand.availabilities = [make_availability(cand.intent_id, "2026-11-25", "09:00", "12:00")]
+        cand.min_group_size = "invalid_string"
+        cand_lookup = {cand.intent_id: cand, self.host_intent.intent_id: self.host_intent}
+
+        mock_formation = {
+            "formation_status": "READY",
+            "host_intent_id": self.host_intent.intent_id,
+            "group_size": 2,
+            "min_group_size_bound": 2,
+            "max_group_size_bound": 10,
+            "group_quality_score": 85.0,
+            "average_pair_score": 85.0,
+            "minimum_pair_score": 85.0,
+            "members": [self.host_intent, cand],
+            "pairwise_scores": [{
+                "intent_a_id": self.host_intent.intent_id,
+                "intent_b_id": cand.intent_id,
+                "compatibility_score": 85.0,
+            }],
+            "selected_schedule": {
+                "date": "2026-11-25",
+                "start_time": "09:00",
+                "end_time": "11:00",
+                "duration_minutes": 120
+            }
+        }
+        violations = check_hard_constraint_violations(
+            host_intent=self.host_intent,
+            formation_result=mock_formation,
+            candidate_lookup=cand_lookup,
+            min_score=60.0
+        )
+        self.assertTrue(any("Kapasitas anggota tidak valid sehingga rentang kapasitas kelompok tidak dapat dihitung" in v for v in violations))
+        self.assertTrue(any("tidak dapat memverifikasi batas kapasitas" in v for v in violations))
+
+    def test_37_evaluate_group_quality_handles_malformed_and_none_pairwise_gracefully(self):
+        """D19.6.5-03: Sanitasi payload pairwise yang memuat None, non-dict, atau tipe data asing tanpa crash."""
+        malformed_data = {
+            "group_size": 2,
+            "group_quality_score": 80.0,
+            "average_pair_score": 80.0,
+            "minimum_pair_score": 80.0,
+            "pairwise_scores": [None, "bukan-dict", 12345, {"invalid_key": True}]
+        }
+        res = evaluate_group_quality(malformed_data)
+        self.assertFalse(res.is_breakdown_consistent)
+        self.assertIsNone(res.weakest_link)
+        self.assertIsNone(res.strongest_link)
+        self.assertEqual(res.distribution.count, 0)
+
+    def test_38_comprehensive_report_protection_on_malformed_candidate_payloads(self):
+        """D19.6.5-03: Generator laporan komprehensif terlindungi dari unhandled crash saat input malformed."""
+        from unittest.mock import patch
+
+        with patch("app.matching_evaluation.form_study_group", side_effect=RuntimeError("Simulated pipeline failure")):
+            report = generate_comprehensive_evaluation_report(
+                host_intent=self.host_intent,
+                candidate_intents=[],
+                stability_permutations=2,
+                min_score=60.0
+            )
+            self.assertEqual(report.summary.overall_status, "FAILED")
+            self.assertIn("Eksekusi form_study_group gagal dengan exception", report.summary.recommendation)
+
+    def test_39_topk_benchmark_items_retention_none_when_full_gq_zero(self):
+        """D19.6.5-04: Seluruh benchmark item memiliki retention=None dan loss=None saat Full Pool GQ = 0.0."""
+        bench_res = benchmark_top_k_candidate_pool(
+            host_intent=self.host_intent,
+            candidate_intents=[],
+            k_values=(5, 10, None),
+            min_score=60.0
+        )
+        self.assertEqual(bench_res.total_candidates, 0)
+        self.assertGreaterEqual(len(bench_res.benchmarks), 1)
+        for item in bench_res.benchmarks:
+            self.assertEqual(item.formation_status, "NO_COMPATIBLE_GROUP")
+            self.assertEqual(item.group_quality_score, 0.0)
+            self.assertIsNone(item.quality_retention)
+            self.assertIsNone(item.quality_loss)
+
+    def test_40_day13_test_suite_uses_isolated_in_memory_sqlite_without_side_effects(self):
+        """D19.6.5-05: Verifikasi eksekusi test Day 13 menggunakan in-memory SQLite dan tidak mengubah lafriend.db."""
+        import os
+        from tests.test_day13_matching_models import run_tests as run_day13_tests
+
+        db_path = os.path.join(os.path.dirname(__file__), "..", "lafriend.db")
+        mtime_before = os.path.getmtime(db_path) if os.path.exists(db_path) else None
+
+        passed, total = run_day13_tests()
+        self.assertEqual(passed, total)
+        self.assertEqual(total, 24)
+
+        if mtime_before is not None:
+            mtime_after = os.path.getmtime(db_path)
+            self.assertEqual(mtime_before, mtime_after)
 
 
 if __name__ == "__main__":
