@@ -10,9 +10,9 @@
 
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, Boolean, DateTime, ForeignKey, Text, Float, UniqueConstraint, Index, text
+from sqlalchemy import Column, String, Integer, Boolean, DateTime, ForeignKey, Text, Float, UniqueConstraint, Index, text, DDL, event
 from sqlalchemy.orm import relationship
-from app.database import Base
+from app.database import Base, HISTORICAL_ALLOCATION_TRIGGERS
 
 
 # ==============================================================================
@@ -235,6 +235,8 @@ class StudySession(Base):
     host = relationship("Student", back_populates="hosted_sessions", foreign_keys=[host_id])
     course = relationship("Course", back_populates="study_sessions")
     slots = relationship("SessionSlot", back_populates="session", cascade="all, delete-orphan")
+    # Catatan Day 21.1.2: cascade delete hanya diizinkan untuk anggota legacy (intent_id IS NULL);
+    # anggota yang memiliki intent_id teralokasi diproteksi secara immutable oleh SQLite triggers.
     members = relationship("SessionMember", back_populates="session", cascade="all, delete-orphan")
     invitations = relationship("Invitation", back_populates="session", cascade="all, delete-orphan")
     proposal = relationship("GroupProposal", back_populates="study_session")
@@ -447,4 +449,21 @@ class GroupProposal(Base):
     course = relationship("Course", foreign_keys=[course_id])
     invitations = relationship("Invitation", back_populates="group_proposal", cascade="all, delete-orphan")
     study_session = relationship("StudySession", back_populates="proposal", uselist=False)
+
+
+# ==============================================================================
+# DAY 21.1.2: SQLITE HISTORICAL ALLOCATION IMMUTABILITY TRIGGERS
+# ==============================================================================
+# Memastikan histori alokasi StudyIntent (SessionMember.intent_id IS NOT NULL)
+# bersifat immutable meskipun tabel dibuat langsung melalui Base.metadata.create_all().
+_TRIGGER_TABLE_MAP = {
+    "session_members": SessionMember.__table__,
+    "study_sessions": StudySession.__table__,
+}
+for _tbl_name, _trg_name, _trg_ddl in HISTORICAL_ALLOCATION_TRIGGERS:
+    event.listen(
+        _TRIGGER_TABLE_MAP[_tbl_name],
+        "after_create",
+        DDL(_trg_ddl).execute_if(dialect="sqlite"),
+    )
 

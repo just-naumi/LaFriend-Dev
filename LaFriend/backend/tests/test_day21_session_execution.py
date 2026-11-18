@@ -843,7 +843,7 @@ class TestDay21SessionExecution(unittest.TestCase):
         eng_a = self._create_legacy_day13_engine()
         try:
             with eng_a.connect() as conn:
-                conn.execute(text("ALTER TABLE study_sessions ADD COLUMN proposal_id VARCHAR(36)"))
+                conn.execute(text("ALTER TABLE study_sessions ADD COLUMN proposal_id VARCHAR(36) REFERENCES group_proposals(proposal_id)"))
                 conn.execute(text(
                     "INSERT INTO study_sessions (session_id, host_id, course_id, title, proposal_id) "
                     "VALUES ('s1', 'u1', 'c1', 'S1', 'prop_dup'), ('s2', 'u1', 'c1', 'S2', 'prop_dup')"
@@ -858,7 +858,7 @@ class TestDay21SessionExecution(unittest.TestCase):
         eng_b = self._create_legacy_day13_engine()
         try:
             with eng_b.connect() as conn:
-                conn.execute(text("ALTER TABLE session_members ADD COLUMN intent_id VARCHAR(36)"))
+                conn.execute(text("ALTER TABLE session_members ADD COLUMN intent_id VARCHAR(36) REFERENCES study_intents(intent_id)"))
                 conn.execute(text(
                     "INSERT INTO session_members (member_id, session_id, student_id, intent_id) "
                     "VALUES ('m1', 's1', 'u1', 'intent_dup'), ('m2', 's2', 'u2', 'intent_dup')"
@@ -905,7 +905,7 @@ class TestDay21SessionExecution(unittest.TestCase):
         eng_a = self._create_legacy_day13_engine()
         try:
             with eng_a.connect() as conn:
-                conn.execute(text("ALTER TABLE session_members ADD COLUMN intent_id VARCHAR(36)"))
+                conn.execute(text("ALTER TABLE session_members ADD COLUMN intent_id VARCHAR(36) REFERENCES study_intents(intent_id)"))
                 conn.execute(text(
                     "CREATE INDEX uq_session_member_intent ON session_members (intent_id) WHERE intent_id IS NOT NULL"
                 ))
@@ -920,7 +920,7 @@ class TestDay21SessionExecution(unittest.TestCase):
         eng_b = self._create_legacy_day13_engine()
         try:
             with eng_b.connect() as conn:
-                conn.execute(text("ALTER TABLE session_members ADD COLUMN intent_id VARCHAR(36)"))
+                conn.execute(text("ALTER TABLE session_members ADD COLUMN intent_id VARCHAR(36) REFERENCES study_intents(intent_id)"))
                 conn.execute(text(
                     "CREATE UNIQUE INDEX uq_session_member_intent ON session_members (intent_id)"
                 ))
@@ -949,7 +949,7 @@ class TestDay21SessionExecution(unittest.TestCase):
         eng_d = self._create_legacy_day13_engine()
         try:
             with eng_d.connect() as conn:
-                conn.execute(text("ALTER TABLE study_sessions ADD COLUMN proposal_id VARCHAR(36)"))
+                conn.execute(text("ALTER TABLE study_sessions ADD COLUMN proposal_id VARCHAR(36) REFERENCES group_proposals(proposal_id)"))
                 conn.execute(text(
                     "CREATE UNIQUE INDEX uq_session_proposal ON study_sessions (proposal_id) WHERE host_id IS NOT NULL"
                 ))
@@ -1060,6 +1060,457 @@ class TestDay21SessionExecution(unittest.TestCase):
                 with self.assertRaises(IntegrityError):
                     self.db.commit()
                 self.db.rollback()
+
+    def _enable_fk_pragma(self, engine):
+        """Mengaktifkan PRAGMA foreign_keys=ON pada engine SQLite uji agar penegakan FK diverifikasi nyata."""
+        from sqlalchemy import event
+
+        @event.listens_for(engine, "connect")
+        def _set_fk(dbapi_conn, _conn_record):
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA foreign_keys=ON")
+            cur.close()
+
+    def _create_day21_1_upgraded_engine(self, with_fk_pragma: bool = False):
+        """
+        Mensimulasikan database nyata hasil upgrade Day 21.1 (commit d6eb1b8):
+        - study_sessions.proposal_id sudah ada dengan FK REFERENCES group_proposals(proposal_id) (NO ACTION)
+        - session_members.intent_id sudah ada dengan FK REFERENCES study_intents(intent_id) (NO ACTION)
+        - session_members memiliki UniqueConstraint(session_id, student_id) bawaan tabel (sqlite_autoindex)
+        - Belum memiliki immutability triggers Day 21.1.2.
+        """
+        eng = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool
+        )
+        if with_fk_pragma:
+            self._enable_fk_pragma(eng)
+
+        with eng.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE students (
+                    student_id VARCHAR(36) PRIMARY KEY,
+                    full_name VARCHAR(100) NOT NULL,
+                    email VARCHAR(100) NOT NULL,
+                    student_number VARCHAR(20) NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL,
+                    verification_status VARCHAR(20) DEFAULT 'VERIFIED',
+                    account_status VARCHAR(20) DEFAULT 'ACTIVE',
+                    is_discoverable BOOLEAN DEFAULT 1,
+                    created_at TIMESTAMP,
+                    updated_at TIMESTAMP
+                );
+            """))
+            conn.execute(text("""
+                CREATE TABLE courses (
+                    course_id VARCHAR(36) PRIMARY KEY,
+                    course_code VARCHAR(20) NOT NULL,
+                    course_name VARCHAR(100) NOT NULL,
+                    study_program VARCHAR(50) NOT NULL
+                );
+            """))
+            conn.execute(text("""
+                CREATE TABLE study_intents (
+                    intent_id VARCHAR(36) PRIMARY KEY,
+                    student_id VARCHAR(36) NOT NULL,
+                    course_id VARCHAR(36) NOT NULL,
+                    topics TEXT NOT NULL,
+                    learning_goal VARCHAR(50) DEFAULT 'UNDERSTAND',
+                    collaboration_style VARCHAR(50) DEFAULT 'DISCUSSION',
+                    learning_mode VARCHAR(20) DEFAULT 'OFFLINE',
+                    earliest_date VARCHAR(20) NOT NULL,
+                    latest_date VARCHAR(20) NOT NULL,
+                    min_group_size INTEGER DEFAULT 2,
+                    max_group_size INTEGER DEFAULT 4,
+                    status VARCHAR(20) DEFAULT 'ACTIVE',
+                    created_at TIMESTAMP
+                );
+            """))
+            conn.execute(text("""
+                CREATE TABLE group_proposals (
+                    proposal_id VARCHAR(36) PRIMARY KEY,
+                    host_intent_id VARCHAR(36) NOT NULL,
+                    host_student_id VARCHAR(36) NOT NULL,
+                    course_id VARCHAR(36) NOT NULL,
+                    status VARCHAR(32) DEFAULT 'PENDING_RESPONSES',
+                    min_group_size_bound INTEGER DEFAULT 2,
+                    max_group_size_bound INTEGER DEFAULT 4,
+                    group_quality_score FLOAT DEFAULT 0.0,
+                    average_pair_score FLOAT DEFAULT 0.0,
+                    minimum_pair_score FLOAT DEFAULT 0.0,
+                    selected_schedule_json TEXT,
+                    proposal_snapshot_json TEXT,
+                    message TEXT,
+                    expires_at TIMESTAMP NOT NULL,
+                    created_at TIMESTAMP,
+                    updated_at TIMESTAMP,
+                    finalized_at TIMESTAMP
+                );
+            """))
+            # study_sessions hasil migrasi Day 21.1 (FK tanpa ON DELETE eksplisit -> NO ACTION)
+            conn.execute(text("""
+                CREATE TABLE study_sessions (
+                    session_id VARCHAR(36) PRIMARY KEY,
+                    host_id VARCHAR(36) NOT NULL,
+                    course_id VARCHAR(36) NOT NULL,
+                    title VARCHAR(150) NOT NULL,
+                    status VARCHAR(30) DEFAULT 'CONFIRMED',
+                    proposal_id VARCHAR(36) REFERENCES group_proposals(proposal_id)
+                );
+            """))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX uq_session_proposal ON study_sessions (proposal_id) WHERE proposal_id IS NOT NULL"
+            ))
+            # session_members hasil Day 21.1 (FK NO ACTION + table-level UniqueConstraint -> sqlite_autoindex)
+            conn.execute(text("""
+                CREATE TABLE session_members (
+                    member_id VARCHAR(36) PRIMARY KEY,
+                    session_id VARCHAR(36) NOT NULL REFERENCES study_sessions(session_id) ON DELETE CASCADE,
+                    student_id VARCHAR(36) NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
+                    intent_id VARCHAR(36) REFERENCES study_intents(intent_id),
+                    role VARCHAR(20) DEFAULT 'MEMBER',
+                    status VARCHAR(20) DEFAULT 'CONFIRMED',
+                    joined_at TIMESTAMP,
+                    CONSTRAINT uq_session_member_student UNIQUE (session_id, student_id)
+                );
+            """))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX uq_session_member_intent ON session_members (intent_id) WHERE intent_id IS NOT NULL"
+            ))
+            conn.commit()
+        return eng
+
+    def test_19_fk_migration_convergence_all_schema_variants(self):
+        """Day 21.1.2 (P1): Verifikasi konvergensi FK PRAGMA foreign_key_list dan penegakan aktual di semua varian skema."""
+        from app.database import _inspect_sqlite_foreign_keys
+
+        # --- Varian A: Database Baru (Fresh DB) -> ON DELETE RESTRICT + blokir delete parent ---
+        eng_fresh = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        self._enable_fk_pragma(eng_fresh)
+        try:
+            ensure_database_schema(eng_fresh)
+            with eng_fresh.connect() as conn:
+                fk_prop = _inspect_sqlite_foreign_keys(conn, "study_sessions", "proposal_id")
+                self.assertEqual(len(fk_prop), 1)
+                self.assertEqual(fk_prop[0]["ref_table"], "group_proposals")
+                self.assertEqual(fk_prop[0]["ref_column"], "proposal_id")
+                self.assertEqual(fk_prop[0]["on_delete"], "RESTRICT")
+
+                fk_intent = _inspect_sqlite_foreign_keys(conn, "session_members", "intent_id")
+                self.assertEqual(len(fk_intent), 1)
+                self.assertEqual(fk_intent[0]["ref_table"], "study_intents")
+                self.assertEqual(fk_intent[0]["ref_column"], "intent_id")
+                self.assertEqual(fk_intent[0]["on_delete"], "RESTRICT")
+        finally:
+            eng_fresh.dispose()
+
+        # --- Varian B: Database Legacy Day 13 -> migrasi menambah FK ON DELETE RESTRICT ---
+        eng_d13 = self._create_legacy_day13_engine()
+        try:
+            ensure_database_schema(eng_d13)
+            with eng_d13.connect() as conn:
+                fk_prop = _inspect_sqlite_foreign_keys(conn, "study_sessions", "proposal_id")
+                self.assertEqual(fk_prop[0]["on_delete"], "RESTRICT")
+                fk_intent = _inspect_sqlite_foreign_keys(conn, "session_members", "intent_id")
+                self.assertEqual(fk_intent[0]["on_delete"], "RESTRICT")
+        finally:
+            eng_d13.dispose()
+
+        # --- Varian C: Database Upgrade Day 21.1 (NO ACTION) -> diterima kontrak + blokir delete parent nyata ---
+        eng_d21_1 = self._create_day21_1_upgraded_engine(with_fk_pragma=True)
+        try:
+            ensure_database_schema(eng_d21_1)
+            with eng_d21_1.connect() as conn:
+                fk_prop = _inspect_sqlite_foreign_keys(conn, "study_sessions", "proposal_id")
+                self.assertEqual(fk_prop[0]["ref_table"], "group_proposals")
+                self.assertEqual(fk_prop[0]["on_delete"], "NO ACTION")
+
+                fk_intent = _inspect_sqlite_foreign_keys(conn, "session_members", "intent_id")
+                self.assertEqual(fk_intent[0]["ref_table"], "study_intents")
+                self.assertEqual(fk_intent[0]["on_delete"], "NO ACTION")
+
+                # Buktikan perilaku aktual: DELETE group_proposals dan study_intents yang direferensikan WAJIB ditolak
+                conn.execute(text(
+                    "INSERT INTO students (student_id, full_name, email, student_number, password_hash) "
+                    "VALUES ('u1', 'Andi', 'a@t.ac.id', '123', 'pw')"
+                ))
+                conn.execute(text(
+                    "INSERT INTO courses (course_id, course_code, course_name, study_program) "
+                    "VALUES ('c1', 'CS1', 'Algo', 'TK')"
+                ))
+                conn.execute(text(
+                    "INSERT INTO study_intents (intent_id, student_id, course_id, topics, earliest_date, latest_date) "
+                    "VALUES ('i1', 'u1', 'c1', 'Trees', '2026-11-20', '2026-11-30')"
+                ))
+                conn.execute(text(
+                    "INSERT INTO group_proposals (proposal_id, host_intent_id, host_student_id, course_id, expires_at) "
+                    "VALUES ('p1', 'i1', 'u1', 'c1', '2026-11-25 10:00:00')"
+                ))
+                conn.execute(text(
+                    "INSERT INTO study_sessions (session_id, host_id, course_id, title, proposal_id) "
+                    "VALUES ('s1', 'u1', 'c1', 'Sesi 1', 'p1')"
+                ))
+                conn.execute(text(
+                    "INSERT INTO session_members (member_id, session_id, student_id, intent_id, role, status) "
+                    "VALUES ('m1', 's1', 'u1', 'i1', 'HOST', 'CONFIRMED')"
+                ))
+                conn.commit()
+
+                # Penghapusan proposal yang direferensikan StudySession wajib ditolak FK NO ACTION
+                with self.assertRaises(IntegrityError):
+                    conn.execute(text("DELETE FROM group_proposals WHERE proposal_id = 'p1'"))
+                    conn.commit()
+                conn.rollback()
+
+                # Penghapusan StudyIntent yang direferensikan SessionMember wajib ditolak FK NO ACTION
+                with self.assertRaises(IntegrityError):
+                    conn.execute(text("DELETE FROM study_intents WHERE intent_id = 'i1'"))
+                    conn.commit()
+                conn.rollback()
+        finally:
+            eng_d21_1.dispose()
+
+        # --- Varian D: FK destruktif (SET NULL / CASCADE) -> WAJIB ditolak fail-closed ---
+        eng_bad_act = self._create_legacy_day13_engine()
+        try:
+            with eng_bad_act.connect() as conn:
+                conn.execute(text(
+                    "ALTER TABLE study_sessions ADD COLUMN proposal_id VARCHAR(36) "
+                    "REFERENCES group_proposals(proposal_id) ON DELETE SET NULL"
+                ))
+                conn.commit()
+            with self.assertRaises(RuntimeError) as ctx:
+                ensure_database_schema(eng_bad_act)
+            self.assertIn("SET NULL", str(ctx.exception))
+        finally:
+            eng_bad_act.dispose()
+
+        eng_bad_cascade = self._create_legacy_day13_engine()
+        try:
+            with eng_bad_cascade.connect() as conn:
+                conn.execute(text(
+                    "ALTER TABLE session_members ADD COLUMN intent_id VARCHAR(36) "
+                    "REFERENCES study_intents(intent_id) ON DELETE CASCADE"
+                ))
+                conn.commit()
+            with self.assertRaises(RuntimeError) as ctx:
+                ensure_database_schema(eng_bad_cascade)
+            self.assertIn("CASCADE", str(ctx.exception))
+        finally:
+            eng_bad_cascade.dispose()
+
+        # --- Varian E: Kolom ada tetapi TANPA Foreign Key -> WAJIB ditolak fail-closed ---
+        eng_no_fk = self._create_legacy_day13_engine()
+        try:
+            with eng_no_fk.connect() as conn:
+                conn.execute(text("ALTER TABLE study_sessions ADD COLUMN proposal_id VARCHAR(36)"))
+                conn.commit()
+            with self.assertRaises(RuntimeError) as ctx:
+                ensure_database_schema(eng_no_fk)
+            self.assertIn("tidak memiliki Foreign Key", str(ctx.exception))
+        finally:
+            eng_no_fk.dispose()
+
+        # --- Varian F: Foreign Key menunjuk ke tabel/kolom SALAH -> WAJIB ditolak fail-closed ---
+        eng_wrong_ref = self._create_legacy_day13_engine()
+        try:
+            with eng_wrong_ref.connect() as conn:
+                conn.execute(text(
+                    "ALTER TABLE session_members ADD COLUMN intent_id VARCHAR(36) "
+                    "REFERENCES courses(course_id) ON DELETE RESTRICT"
+                ))
+                conn.commit()
+            with self.assertRaises(RuntimeError) as ctx:
+                ensure_database_schema(eng_wrong_ref)
+            self.assertIn("tidak merujuk ke 'study_intents.intent_id'", str(ctx.exception))
+        finally:
+            eng_wrong_ref.dispose()
+
+    def test_20_historical_allocation_immutability_protection(self):
+        """Day 21.1.2 (P1): Membuktikan semua 6 skenario immutability histori alokasi StudyIntent (ORM & SQL)."""
+        eng = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        self._enable_fk_pragma(eng)
+        ensure_database_schema(eng)
+        LocalSession = sessionmaker(autocommit=False, autoflush=False, bind=eng)
+        db = LocalSession()
+
+        try:
+            course = Course(course_id="c_imm", course_code="CS901", course_name="OS", study_program="TK")
+            s_host = Student(
+                student_id="u_imm_host", full_name="Host", email="h@t.ac.id",
+                student_number="1001", password_hash="pw", verification_status="VERIFIED", account_status="ACTIVE"
+            )
+            s_mem = Student(
+                student_id="u_imm_mem", full_name="Member", email="m@t.ac.id",
+                student_number="1002", password_hash="pw", verification_status="VERIFIED", account_status="ACTIVE"
+            )
+            intent_alloc = StudyIntent(
+                intent_id="i_imm_alloc", student_id=s_host.student_id, course_id=course.course_id,
+                topics="Deadlock", learning_mode="ONLINE", earliest_date="2026-11-20", latest_date="2026-11-30",
+                min_group_size=2, max_group_size=4, status="MATCHED"
+            )
+            intent_other = StudyIntent(
+                intent_id="i_imm_other", student_id=s_mem.student_id, course_id=course.course_id,
+                topics="Scheduling", learning_mode="ONLINE", earliest_date="2026-11-20", latest_date="2026-11-30",
+                min_group_size=2, max_group_size=4, status="ACTIVE"
+            )
+            sess_alloc = StudySession(
+                session_id="sess_imm_alloc", host_id=s_host.student_id, course_id=course.course_id,
+                title="Sesi Teralokasi", status="CONFIRMED"
+            )
+            sess_other = StudySession(
+                session_id="sess_imm_other", host_id=s_mem.student_id, course_id=course.course_id,
+                title="Sesi Lain", status="CONFIRMED"
+            )
+            db.add_all([course, s_host, s_mem, intent_alloc, intent_other, sess_alloc, sess_other])
+            db.flush()
+
+            m_allocated = SessionMember(
+                member_id="m_imm_alloc", session_id=sess_alloc.session_id, student_id=s_host.student_id,
+                intent_id=intent_alloc.intent_id, role="HOST", status="CONFIRMED"
+            )
+            m_legacy_null = SessionMember(
+                member_id="m_imm_legacy", session_id=sess_alloc.session_id, student_id=s_mem.student_id,
+                intent_id=None, role="MEMBER", status="CONFIRMED"
+            )
+            db.add_all([m_allocated, m_legacy_null])
+            db.commit()
+
+            # 1. Hapus SessionMember dengan intent_id terisi -> DITOLAK (ORM delete, delete-orphan, & raw SQL)
+            db.delete(m_allocated)
+            with self.assertRaises(IntegrityError):
+                db.commit()
+            db.rollback()
+
+            sess_alloc = db.query(StudySession).filter_by(session_id="sess_imm_alloc").first()
+            m_allocated = db.query(SessionMember).filter_by(member_id="m_imm_alloc").first()
+            sess_alloc.members.remove(m_allocated)
+            with self.assertRaises(IntegrityError):
+                db.commit()
+            db.rollback()
+
+            with self.assertRaises(IntegrityError):
+                db.execute(text("DELETE FROM session_members WHERE member_id = 'm_imm_alloc'"))
+                db.commit()
+            db.rollback()
+
+            # 2. Hapus SessionMember legacy dengan intent_id=NULL -> DIIZINKAN (kompatibilitas Day 13)
+            m_legacy = db.query(SessionMember).filter_by(member_id="m_imm_legacy").first()
+            db.delete(m_legacy)
+            db.commit()
+            self.assertIsNone(db.query(SessionMember).filter_by(member_id="m_imm_legacy").first())
+
+            # 3. Hapus StudySession yang memiliki histori alokasi -> DITOLAK (ORM cascade & raw SQL)
+            sess_alloc = db.query(StudySession).filter_by(session_id="sess_imm_alloc").first()
+            db.delete(sess_alloc)
+            with self.assertRaises(IntegrityError):
+                db.commit()
+            db.rollback()
+
+            with self.assertRaises(IntegrityError):
+                db.execute(text("DELETE FROM study_sessions WHERE session_id = 'sess_imm_alloc'"))
+                db.commit()
+            db.rollback()
+
+            # Verifikasi histori alokasi tetap utuh di DB
+            self.assertIsNotNone(db.query(StudySession).filter_by(session_id="sess_imm_alloc").first())
+            self.assertIsNotNone(db.query(SessionMember).filter_by(member_id="m_imm_alloc").first())
+
+            # 4. Hapus StudyIntent yang sudah dialokasikan -> DITOLAK (FK ON DELETE RESTRICT)
+            intent_db = db.query(StudyIntent).filter_by(intent_id="i_imm_alloc").first()
+            db.delete(intent_db)
+            with self.assertRaises(IntegrityError):
+                db.commit()
+            db.rollback()
+
+            # 5. Ubah intent_id yang sudah dialokasikan (ganti nilai & kosongkan ke NULL) -> DITOLAK
+            m_allocated = db.query(SessionMember).filter_by(member_id="m_imm_alloc").first()
+            m_allocated.intent_id = "i_imm_other"
+            with self.assertRaises(IntegrityError):
+                db.commit()
+            db.rollback()
+
+            m_allocated = db.query(SessionMember).filter_by(member_id="m_imm_alloc").first()
+            m_allocated.intent_id = None
+            with self.assertRaises(IntegrityError):
+                db.commit()
+            db.rollback()
+
+            # Perubahan soft-status keanggotaan (tanpa mengubah intent_id) WAJIB tetap diizinkan
+            m_allocated = db.query(SessionMember).filter_by(member_id="m_imm_alloc").first()
+            m_allocated.status = "WITHDRAWN"
+            db.commit()
+            db.refresh(m_allocated)
+            self.assertEqual(m_allocated.status, "WITHDRAWN")
+            self.assertEqual(m_allocated.intent_id, "i_imm_alloc")
+
+            # 6. Gunakan kembali intent yang sudah dialokasikan di sesi lain -> DITOLAK
+            m_reuse = SessionMember(
+                member_id="m_imm_reuse", session_id="sess_imm_other", student_id=s_host.student_id,
+                intent_id="i_imm_alloc", role="MEMBER", status="CONFIRMED"
+            )
+            db.add(m_reuse)
+            with self.assertRaises(IntegrityError):
+                db.commit()
+            db.rollback()
+        finally:
+            db.close()
+            eng.dispose()
+
+    def test_21_migration_fails_closed_on_tampered_immutability_trigger(self):
+        """Day 21.1.2 (P1): Migrasi WAJIB menolak trigger immutability yang definisinya telah dimodifikasi/no-op."""
+        eng = self._create_legacy_day13_engine()
+        try:
+            with eng.connect() as conn:
+                conn.execute(text(
+                    "CREATE TRIGGER trg_session_members_prevent_allocated_delete "
+                    "BEFORE DELETE ON session_members BEGIN SELECT 1; END;"
+                ))
+                conn.commit()
+            with self.assertRaises(RuntimeError) as ctx:
+                ensure_database_schema(eng)
+            self.assertIn("Definisi trigger 'trg_session_members_prevent_allocated_delete' tidak sesuai kontrak", str(ctx.exception))
+        finally:
+            eng.dispose()
+
+    def test_22_legacy_index_redundancy_catalog_audit(self):
+        """Day 21.1.2 (P2): Audit katalog redundansi indeks pada DB baru, hasil migrasi Day 13, dan upgrade Day 21.1."""
+        from app.database import inspect_sqlite_unique_index_redundancy
+
+        # 1. Database Baru: ZERO redundansi pada session_members
+        eng_fresh = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        try:
+            ensure_database_schema(eng_fresh)
+            with eng_fresh.connect() as conn:
+                self.assertEqual(inspect_sqlite_unique_index_redundancy(conn, "session_members"), [])
+                self.assertEqual(inspect_sqlite_unique_index_redundancy(conn, "study_sessions"), [])
+        finally:
+            eng_fresh.dispose()
+
+        # 2. Database hasil migrasi Day 13: ZERO redundansi pada session_members
+        eng_d13 = self._create_legacy_day13_engine()
+        try:
+            ensure_database_schema(eng_d13)
+            with eng_d13.connect() as conn:
+                self.assertEqual(inspect_sqlite_unique_index_redundancy(conn, "session_members"), [])
+                self.assertEqual(inspect_sqlite_unique_index_redundancy(conn, "study_sessions"), [])
+        finally:
+            eng_d13.dispose()
+
+        # 3. Database hasil upgrade Day 21.1: mendeteksi redundansi sqlite_autoindex + named index tanpa rebuild destruktif
+        eng_d21_1 = self._create_day21_1_upgraded_engine()
+        try:
+            ensure_database_schema(eng_d21_1)
+            with eng_d21_1.connect() as conn:
+                red = inspect_sqlite_unique_index_redundancy(conn, "session_members")
+                self.assertEqual(len(red), 1)
+                self.assertEqual(red[0]["columns"], ["session_id", "student_id"])
+                idx_names = {item["name"] for item in red[0]["indexes"]}
+                self.assertIn("uq_session_member_student", idx_names)
+                self.assertTrue(any(name.startswith("sqlite_autoindex_session_members_") for name in idx_names))
+        finally:
+            eng_d21_1.dispose()
 
 
 if __name__ == "__main__":
