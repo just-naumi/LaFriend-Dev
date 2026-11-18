@@ -1583,5 +1583,530 @@ class TestDay21SessionExecution(unittest.TestCase):
             eng_comp.dispose()
 
 
+class TestDay21SessionExecutionAtomicity(unittest.TestCase):
+    """
+    Day 21.2 — Session Execution Transaction & Atomicity Acceptance Test Suite.
+    Membuktikan D21.2-01 s/d D21.2-06 melalui failure injection nyata pada lapisan
+    database/transaksi serta inspeksi langsung database menggunakan sesi DB independen.
+    """
+
+    def setUp(self):
+        from sqlalchemy import event
+
+        self.engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool
+        )
+
+        @event.listens_for(self.engine, "connect")
+        def _set_fk(dbapi_conn, _conn_record):
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA foreign_keys=ON")
+            cur.close()
+
+        ensure_database_schema(self.engine)
+        self.TestingSession = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
+        self.db = self.TestingSession()
+        self.original_overrides = dict(app.dependency_overrides)
+
+        def override_get_db():
+            session = self.TestingSession()
+            try:
+                yield session
+            finally:
+                session.close()
+
+        app.dependency_overrides[get_db] = override_get_db
+        self.client = TestClient(app, raise_server_exceptions=False)
+
+        self.course = Course(
+            course_id="c_d212_algo",
+            course_code="ACK2AAB4",
+            course_name="Algoritma Lanjut",
+            study_program="S1 Teknik Komputer"
+        )
+        self.andi = Student(
+            student_id="s_andi_d212",
+            full_name="Andi Atomik",
+            email="andi.d212@telkomuniversity.ac.id",
+            student_number="1201250201",
+            password_hash="hashed_pw",
+            verification_status="VERIFIED",
+            account_status="ACTIVE",
+            is_discoverable=True
+        )
+        self.budi = Student(
+            student_id="s_budi_d212",
+            full_name="Budi Atomik",
+            email="budi.d212@telkomuniversity.ac.id",
+            student_number="1201250202",
+            password_hash="hashed_pw",
+            verification_status="VERIFIED",
+            account_status="ACTIVE",
+            is_discoverable=True
+        )
+        self.citra = Student(
+            student_id="s_citra_d212",
+            full_name="Citra Atomik",
+            email="citra.d212@telkomuniversity.ac.id",
+            student_number="1201250203",
+            password_hash="hashed_pw",
+            verification_status="VERIFIED",
+            account_status="ACTIVE",
+            is_discoverable=True
+        )
+        self.intent_andi = StudyIntent(
+            intent_id="intent_andi_d212",
+            student_id=self.andi.student_id,
+            course_id=self.course.course_id,
+            topics="Dynamic Programming, Graph",
+            learning_mode="OFFLINE",
+            earliest_date="2026-11-20",
+            latest_date="2026-11-30",
+            min_group_size=3,
+            max_group_size=4,
+            status="ACTIVE"
+        )
+        self.intent_budi = StudyIntent(
+            intent_id="intent_budi_d212",
+            student_id=self.budi.student_id,
+            course_id=self.course.course_id,
+            topics="Dynamic Programming",
+            learning_mode="OFFLINE",
+            earliest_date="2026-11-20",
+            latest_date="2026-11-30",
+            min_group_size=3,
+            max_group_size=4,
+            status="ACTIVE"
+        )
+        self.intent_citra = StudyIntent(
+            intent_id="intent_citra_d212",
+            student_id=self.citra.student_id,
+            course_id=self.course.course_id,
+            topics="Graph",
+            learning_mode="OFFLINE",
+            earliest_date="2026-11-20",
+            latest_date="2026-11-30",
+            min_group_size=3,
+            max_group_size=4,
+            status="ACTIVE"
+        )
+        self.db.add_all([
+            self.course, self.andi, self.budi, self.citra,
+            self.intent_andi, self.intent_budi, self.intent_citra
+        ])
+        self.db.commit()
+        self.token_andi = create_token(self.andi.student_id, self.andi.email)
+
+    def tearDown(self):
+        app.dependency_overrides = self.original_overrides
+        self.db.close()
+        self.engine.dispose()
+
+    def _create_ready_proposal(self, proposal_id: str, expires_delta_hours: int = 24) -> GroupProposal:
+        sched = {
+            "date": "2026-11-24",
+            "start_time": "10:00",
+            "end_time": "12:00",
+            "duration_minutes": 120
+        }
+        proposal = GroupProposal(
+            proposal_id=proposal_id,
+            host_intent_id=self.intent_andi.intent_id,
+            host_student_id=self.andi.student_id,
+            course_id=self.course.course_id,
+            status="READY_FOR_SESSION",
+            min_group_size_bound=3,
+            max_group_size_bound=4,
+            group_quality_score=91.0,
+            average_pair_score=92.0,
+            minimum_pair_score=89.0,
+            selected_schedule_json=json.dumps(sched),
+            message="Sesi Atomicity Test",
+            expires_at=datetime.utcnow() + timedelta(hours=expires_delta_hours),
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+            finalized_at=datetime.utcnow()
+        )
+        inv_budi = Invitation(
+            invitation_id=f"inv_budi_{proposal_id}",
+            invitation_type="GROUP_PROPOSAL",
+            sender_id=self.andi.student_id,
+            recipient_id=self.budi.student_id,
+            target_intent_id=self.intent_budi.intent_id,
+            proposal_id=proposal_id,
+            status="ACCEPTED",
+            created_at=datetime.utcnow(),
+            responded_at=datetime.utcnow()
+        )
+        inv_citra = Invitation(
+            invitation_id=f"inv_citra_{proposal_id}",
+            invitation_type="GROUP_PROPOSAL",
+            sender_id=self.andi.student_id,
+            recipient_id=self.citra.student_id,
+            target_intent_id=self.intent_citra.intent_id,
+            proposal_id=proposal_id,
+            status="ACCEPTED",
+            created_at=datetime.utcnow(),
+            responded_at=datetime.utcnow()
+        )
+        self.db.add_all([proposal, inv_budi, inv_citra])
+        self.db.commit()
+        return proposal
+
+    def _assert_full_rollback_in_fresh_db_session(self, proposal_id: str):
+        """Memeriksa kondisi database langsung dari sesi baru bahwa TIDAK ADA satu pun perubahan parsial tersisa."""
+        verify_db = self.TestingSession()
+        try:
+            self.assertEqual(verify_db.query(StudySession).count(), 0, "StudySession tidak boleh tersisa pasca-rollback")
+            self.assertEqual(verify_db.query(SessionSlot).count(), 0, "SessionSlot tidak boleh tersisa pasca-rollback")
+            self.assertEqual(verify_db.query(SessionMember).count(), 0, "SessionMember tidak boleh tersisa pasca-rollback")
+
+            for iid in (self.intent_andi.intent_id, self.intent_budi.intent_id, self.intent_citra.intent_id):
+                intent_row = verify_db.query(StudyIntent).filter_by(intent_id=iid).first()
+                self.assertEqual(intent_row.status, "ACTIVE", f"StudyIntent {iid} wajib tetap ACTIVE pasca-rollback")
+
+            prop_row = verify_db.query(GroupProposal).filter_by(proposal_id=proposal_id).first()
+            self.assertEqual(prop_row.status, "READY_FOR_SESSION", "GroupProposal wajib tetap READY_FOR_SESSION pasca-rollback")
+        finally:
+            verify_db.close()
+
+    def test_d21_2_01_successful_execution_single_transaction_boundary(self):
+        """D21.2-01: Eksekusi normal menyimpan seluruh entitas & status dalam tepat 1 commit transaksi, dan jalur EXPIRED terisolasi."""
+        from sqlalchemy import event
+
+        proposal = self._create_ready_proposal("prop_d212_01")
+        commit_count = []
+
+        @event.listens_for(self.TestingSession, "after_commit")
+        def _count_commit(_session):
+            commit_count.append(1)
+
+        try:
+            r = self.client.post(
+                f"/api/v1/group-proposals/{proposal.proposal_id}/execute-session",
+                headers={"Authorization": f"Bearer {self.token_andi}"}
+            )
+        finally:
+            event.remove(self.TestingSession, "after_commit", _count_commit)
+
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(len(commit_count), 1, "Eksekusi sesi wajib terjadi dalam tepat 1 database commit")
+        session_id = r.json()["session_id"]
+
+        # Inspeksi database langsung melalui sesi independen
+        verify_db = self.TestingSession()
+        try:
+            sessions = verify_db.query(StudySession).all()
+            self.assertEqual(len(sessions), 1)
+            self.assertEqual(sessions[0].session_id, session_id)
+            self.assertEqual(sessions[0].proposal_id, proposal.proposal_id)
+            self.assertEqual(sessions[0].status, "CONFIRMED")
+
+            slots = verify_db.query(SessionSlot).filter_by(session_id=session_id).all()
+            self.assertEqual(len(slots), 1)
+            self.assertEqual(slots[0].status, "APPROVED")
+            self.assertEqual(slots[0].session_date, "2026-11-24")
+            self.assertEqual(slots[0].start_time, "10:00")
+            self.assertEqual(slots[0].end_time, "12:00")
+
+            members = verify_db.query(SessionMember).filter_by(session_id=session_id).all()
+            self.assertEqual(len(members), 3)
+            role_by_student = {m.student_id: (m.role, m.status, m.intent_id) for m in members}
+            self.assertEqual(role_by_student[self.andi.student_id], ("HOST", "CONFIRMED", self.intent_andi.intent_id))
+            self.assertEqual(role_by_student[self.budi.student_id], ("MEMBER", "CONFIRMED", self.intent_budi.intent_id))
+            self.assertEqual(role_by_student[self.citra.student_id], ("MEMBER", "CONFIRMED", self.intent_citra.intent_id))
+
+            for iid in (self.intent_andi.intent_id, self.intent_budi.intent_id, self.intent_citra.intent_id):
+                self.assertEqual(verify_db.query(StudyIntent).filter_by(intent_id=iid).first().status, "MATCHED")
+
+            self.assertEqual(
+                verify_db.query(GroupProposal).filter_by(proposal_id=proposal.proposal_id).first().status,
+                "SESSION_EXECUTED"
+            )
+        finally:
+            verify_db.close()
+
+    def test_d21_2_01b_expired_proposal_business_path_leaves_zero_session_artifacts(self):
+        """D21.2.1: Transisi bisnis EXPIRED terpisah dari pembuatan sesi dan tidak membuat StudySession/Slot/Member."""
+        proposal = self._create_ready_proposal("prop_d212_expired", expires_delta_hours=-2)
+
+        r = self.client.post(
+            f"/api/v1/group-proposals/{proposal.proposal_id}/execute-session",
+            headers={"Authorization": f"Bearer {self.token_andi}"}
+        )
+        self.assertEqual(r.status_code, 400)
+
+        verify_db = self.TestingSession()
+        try:
+            self.assertEqual(verify_db.query(StudySession).count(), 0)
+            self.assertEqual(verify_db.query(SessionSlot).count(), 0)
+            self.assertEqual(verify_db.query(SessionMember).count(), 0)
+            self.assertEqual(
+                verify_db.query(GroupProposal).filter_by(proposal_id=proposal.proposal_id).first().status,
+                "EXPIRED"
+            )
+            for iid in (self.intent_andi.intent_id, self.intent_budi.intent_id, self.intent_citra.intent_id):
+                self.assertEqual(verify_db.query(StudyIntent).filter_by(intent_id=iid).first().status, "ACTIVE")
+        finally:
+            verify_db.close()
+
+    def test_d21_2_02_session_slot_failure_after_session_flush_full_rollback(self):
+        """D21.2-02: Kegagalan INSERT SessionSlot setelah StudySession di-flush wajib membatalkan seluruh transaksi."""
+        from sqlalchemy import event
+
+        proposal = self._create_ready_proposal("prop_d212_02")
+        executed_statements = []
+
+        @event.listens_for(self.engine, "before_cursor_execute")
+        def _record_sql(_conn, _cursor, statement, _params, _ctx, _execmany):
+            executed_statements.append(statement)
+
+        # Suntikkan kegagalan nyata di level SQLite tepat pada INSERT session_slots
+        with self.engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TRIGGER trg_fault_slot_insert
+                BEFORE INSERT ON session_slots
+                BEGIN
+                    SELECT RAISE(ABORT, 'Simulated SessionSlot DB failure');
+                END;
+            """))
+            conn.commit()
+
+        try:
+            r = self.client.post(
+                f"/api/v1/group-proposals/{proposal.proposal_id}/execute-session",
+                headers={"Authorization": f"Bearer {self.token_andi}"}
+            )
+            self.assertIn(r.status_code, (409, 500))
+        finally:
+            event.remove(self.engine, "before_cursor_execute", _record_sql)
+            with self.engine.connect() as conn:
+                conn.execute(text("DROP TRIGGER IF EXISTS trg_fault_slot_insert"))
+                conn.commit()
+
+        # Pastikan INSERT study_sessions memang sempat di-flush ke SQLite sebelum kegagalan slot
+        self.assertTrue(
+            any("INSERT INTO study_sessions" in sql for sql in executed_statements),
+            "StudySession harus benar-benar di-flush terlebih dahulu untuk membuktikan rollback nyata"
+        )
+        self._assert_full_rollback_in_fresh_db_session(proposal.proposal_id)
+
+    def test_d21_2_03_session_member_failure_partial_insert_full_rollback(self):
+        """D21.2-03: Kegagalan pada anggota ke-3 (Citra) setelah StudySession, Slot, Host & Budi masuk wajib rollback penuh."""
+        from sqlalchemy import event
+
+        proposal = self._create_ready_proposal("prop_d212_03")
+        member_inserts = []
+
+        @event.listens_for(self.engine, "before_cursor_execute")
+        def _record_member_sql(_conn, _cursor, statement, _params, _ctx, _execmany):
+            if "INSERT INTO session_members" in statement:
+                member_inserts.append(statement)
+
+        # Suntikkan kegagalan nyata di level SQLite hanya pada anggota Citra (setelah Host & Budi berhasil di-insert)
+        with self.engine.connect() as conn:
+            conn.execute(text(f"""
+                CREATE TRIGGER trg_fault_member_citra
+                BEFORE INSERT ON session_members
+                WHEN NEW.student_id = '{self.citra.student_id}'
+                BEGIN
+                    SELECT RAISE(ABORT, 'Simulated SessionMember failure on candidate Citra');
+                END;
+            """))
+            conn.commit()
+
+        try:
+            r = self.client.post(
+                f"/api/v1/group-proposals/{proposal.proposal_id}/execute-session",
+                headers={"Authorization": f"Bearer {self.token_andi}"}
+            )
+            self.assertIn(r.status_code, (409, 500))
+        finally:
+            event.remove(self.engine, "before_cursor_execute", _record_member_sql)
+            with self.engine.connect() as conn:
+                conn.execute(text("DROP TRIGGER IF EXISTS trg_fault_member_citra"))
+                conn.commit()
+
+        # Pastikan INSERT session_members benar-benar sudah dieksekusi sebelum gagal di Citra
+        self.assertGreaterEqual(len(member_inserts), 1)
+        self._assert_full_rollback_in_fresh_db_session(proposal.proposal_id)
+
+    def test_d21_2_04_status_transition_failure_full_rollback(self):
+        """D21.2-04: Kegagalan saat update status StudyIntent (host/anggota) maupun GroupProposal wajib rollback seluruh sesi."""
+        fault_cases = [
+            (
+                "host_intent_update_failure",
+                "trg_fault_upd_host_intent",
+                f"""
+                CREATE TRIGGER trg_fault_upd_host_intent
+                BEFORE UPDATE OF status ON study_intents
+                WHEN NEW.intent_id = '{self.intent_andi.intent_id}' AND NEW.status = 'MATCHED'
+                BEGIN
+                    SELECT RAISE(ABORT, 'Simulated failure updating host StudyIntent status');
+                END;
+                """
+            ),
+            (
+                "candidate_intent_update_failure",
+                "trg_fault_upd_cand_intent",
+                f"""
+                CREATE TRIGGER trg_fault_upd_cand_intent
+                BEFORE UPDATE OF status ON study_intents
+                WHEN NEW.intent_id = '{self.intent_citra.intent_id}' AND NEW.status = 'MATCHED'
+                BEGIN
+                    SELECT RAISE(ABORT, 'Simulated failure updating candidate StudyIntent status');
+                END;
+                """
+            ),
+            (
+                "proposal_status_update_failure",
+                "trg_fault_upd_proposal",
+                """
+                CREATE TRIGGER trg_fault_upd_proposal
+                BEFORE UPDATE OF status ON group_proposals
+                WHEN NEW.status = 'SESSION_EXECUTED'
+                BEGIN
+                    SELECT RAISE(ABORT, 'Simulated failure updating GroupProposal status');
+                END;
+                """
+            ),
+        ]
+
+        for idx, (label, trg_name, trg_sql) in enumerate(fault_cases):
+            with self.subTest(fault_case=label):
+                proposal = self._create_ready_proposal(f"prop_d212_04_{idx}")
+                with self.engine.connect() as conn:
+                    conn.execute(text(trg_sql))
+                    conn.commit()
+                try:
+                    r = self.client.post(
+                        f"/api/v1/group-proposals/{proposal.proposal_id}/execute-session",
+                        headers={"Authorization": f"Bearer {self.token_andi}"}
+                    )
+                    self.assertIn(r.status_code, (409, 500))
+                finally:
+                    with self.engine.connect() as conn:
+                        conn.execute(text(f"DROP TRIGGER IF EXISTS {trg_name}"))
+                        conn.commit()
+
+                self._assert_full_rollback_in_fresh_db_session(proposal.proposal_id)
+
+    def test_d21_2_05_commit_failure_boundary_pre_vs_post_commit(self):
+        """D21.2-05: Membedakan kegagalan PRA-COMMIT (full rollback) vs PASCA-COMMIT (data committed & retry aman)."""
+        from unittest.mock import patch
+        from sqlalchemy.orm import Session as SASession
+        from sqlalchemy.exc import OperationalError
+        import app.session_execution_service as svc_mod
+
+        # --- Skenario A: Kegagalan tepat sebelum commit DB sungguhan (pre-commit boundary) ---
+        prop_pre = self._create_ready_proposal("prop_d212_05_pre")
+        orig_commit = SASession.commit
+
+        def failing_pre_commit(sess_self):
+            # Flush semua SQL terlebih dahulu ke transaksi terbuka, lalu gagal SEBELUM commit nyata
+            sess_self.flush()
+            raise OperationalError("simulated disk I/O failure at commit boundary", None, None)
+
+        with patch.object(SASession, "commit", new=failing_pre_commit):
+            r_pre = self.client.post(
+                f"/api/v1/group-proposals/{prop_pre.proposal_id}/execute-session",
+                headers={"Authorization": f"Bearer {self.token_andi}"}
+            )
+        self.assertEqual(r_pre.status_code, 500)
+        self._assert_full_rollback_in_fresh_db_session(prop_pre.proposal_id)
+
+        # --- Skenario B: Commit SUKSES di database, tetapi kegagalan terjadi pasca-commit saat membentuk/mengirim respons ---
+        prop_post = self._create_ready_proposal("prop_d212_05_post")
+        orig_formatter = svc_mod.format_study_session_response
+        call_counter = {"count": 0}
+
+        def fail_once_after_commit(session_obj, db_sess):
+            call_counter["count"] += 1
+            if call_counter["count"] == 1:
+                raise RuntimeError("Simulated response delivery failure after DB commit")
+            return orig_formatter(session_obj, db_sess)
+
+        with patch.object(svc_mod, "format_study_session_response", side_effect=fail_once_after_commit):
+            r_first = self.client.post(
+                f"/api/v1/group-proposals/{prop_post.proposal_id}/execute-session",
+                headers={"Authorization": f"Bearer {self.token_andi}"}
+            )
+            self.assertEqual(r_first.status_code, 500)
+
+            # Verifikasi DB secara jujur: commit SUDAH terjadi dan TIDAK dianggap rollback
+            verify_db = self.TestingSession()
+            try:
+                committed_sess = verify_db.query(StudySession).filter_by(proposal_id=prop_post.proposal_id).first()
+                self.assertIsNotNone(committed_sess)
+                committed_id = committed_sess.session_id
+                self.assertEqual(verify_db.query(SessionSlot).filter_by(session_id=committed_id).count(), 1)
+                self.assertEqual(verify_db.query(SessionMember).filter_by(session_id=committed_id).count(), 3)
+                self.assertEqual(
+                    verify_db.query(GroupProposal).filter_by(proposal_id=prop_post.proposal_id).first().status,
+                    "SESSION_EXECUTED"
+                )
+            finally:
+                verify_db.close()
+
+            # Retry setelah kegagalan pengiriman respons: wajib mengembalikan session_id yang persis sama
+            r_retry = self.client.post(
+                f"/api/v1/group-proposals/{prop_post.proposal_id}/execute-session",
+                headers={"Authorization": f"Bearer {self.token_andi}"}
+            )
+            self.assertEqual(r_retry.status_code, 201)
+            self.assertEqual(r_retry.json()["session_id"], committed_id)
+
+    def test_d21_2_06_retry_after_successful_execution_idempotent_and_db_backed(self):
+        """D21.2-06: Retry pasca-sukses mengembalikan sesi identik tanpa duplikasi; invariant DB uq_session_proposal juga teruji."""
+        proposal = self._create_ready_proposal("prop_d212_06")
+
+        # 1. Eksekusi pertama berhasil commit (misal client kehilangan response)
+        r1 = self.client.post(
+            f"/api/v1/group-proposals/{proposal.proposal_id}/execute-session",
+            headers={"Authorization": f"Bearer {self.token_andi}"}
+        )
+        self.assertEqual(r1.status_code, 201)
+        first_session_id = r1.json()["session_id"]
+
+        # 2. Client mengirim request ulang (retry normal)
+        r2 = self.client.post(
+            f"/api/v1/group-proposals/{proposal.proposal_id}/execute-session",
+            headers={"Authorization": f"Bearer {self.token_andi}"}
+        )
+        self.assertEqual(r2.status_code, 201)
+        self.assertEqual(r2.json()["session_id"], first_session_id)
+
+        # 3. Verifikasi langsung terhadap invariant database (uq_session_proposal) jika jalur service di-bypass
+        verify_db = self.TestingSession()
+        try:
+            dup_sess = StudySession(
+                session_id="sess_forced_dup",
+                proposal_id=proposal.proposal_id,
+                host_id=self.andi.student_id,
+                course_id=self.course.course_id,
+                title="Forced Duplicate Session",
+                status="CONFIRMED"
+            )
+            verify_db.add(dup_sess)
+            with self.assertRaises(IntegrityError):
+                verify_db.commit()
+            verify_db.rollback()
+
+            # Periksa seluruh tabel wajib sesuai spesifikasi D21.2-06
+            self.assertEqual(verify_db.query(StudySession).filter_by(proposal_id=proposal.proposal_id).count(), 1)
+            self.assertEqual(verify_db.query(SessionSlot).filter_by(session_id=first_session_id).count(), 1)
+            self.assertEqual(verify_db.query(SessionMember).filter_by(session_id=first_session_id).count(), 3)
+            for iid in (self.intent_andi.intent_id, self.intent_budi.intent_id, self.intent_citra.intent_id):
+                self.assertEqual(verify_db.query(StudyIntent).filter_by(intent_id=iid).first().status, "MATCHED")
+            self.assertEqual(
+                verify_db.query(GroupProposal).filter_by(proposal_id=proposal.proposal_id).first().status,
+                "SESSION_EXECUTED"
+            )
+        finally:
+            verify_db.close()
+
+
 if __name__ == "__main__":
     unittest.main()

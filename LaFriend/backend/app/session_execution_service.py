@@ -222,7 +222,7 @@ def execute_study_session_from_proposal_service(
             detail=f"Jadwal terpilih tidak valid: {str(err)}"
         )
 
-    # 10. EKSEKUSI ATOMIK DALAM TRANSAKSI DATABASE
+    # 10. EKSEKUSI ATOMIK DALAM SATU TRANSAKSI DATABASE (Transaction Boundary Day 21.2)
     try:
         course = db.query(Course).filter(Course.course_id == proposal.course_id).first()
         course_name = course.course_code if course else proposal.course_id
@@ -296,25 +296,29 @@ def execute_study_session_from_proposal_service(
         proposal.status = "SESSION_EXECUTED"
         proposal.updated_at = datetime.utcnow()
 
-        # Komit Transaksi Atomik
+        # Komit tunggal di akhir batas transaksi atomik
         db.commit()
-        db.refresh(new_session)
-        return format_study_session_response(new_session, db)
 
     except IntegrityError as ie:
         db.rollback()
         # Proteksi Konkurensi: Jika thread/request lain mendahului commit session untuk proposal_id yang sama
-        concurrent_session = db.query(StudySession).filter(StudySession.proposal_id == proposal.proposal_id).first()
+        concurrent_session = db.query(StudySession).filter(StudySession.proposal_id == proposal_id).first()
         if concurrent_session:
             return format_study_session_response(concurrent_session, db)
 
-        err_str = str(ie).lower()
-        if "uq_session_member_intent" in err_str or "intent_id" in err_str:
+        orig_err = str(getattr(ie, "orig", ie)).lower()
+        if (
+            "uq_session_member_intent" in orig_err
+            or "unique constraint failed: session_members.intent_id" in orig_err
+        ):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Salah satu Study Intent anggota atau host telah dialokasikan ke sesi belajar lain."
             )
-        if "uq_session_member_student" in err_str:
+        if (
+            "uq_session_member_student" in orig_err
+            or "unique constraint failed: session_members.session_id, session_members.student_id" in orig_err
+        ):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Terdapat duplikasi keanggotaan mahasiswa dalam sesi belajar yang sama."
@@ -333,6 +337,10 @@ def execute_study_session_from_proposal_service(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Gagal mengeksekusi sesi belajar: {str(exc)}"
         )
+
+    # Pasca-commit (di luar batas rollback transaksi): muat ulang & bentuk respons DTO
+    db.refresh(new_session)
+    return format_study_session_response(new_session, db)
 
 
 def get_study_session_detail_service(
