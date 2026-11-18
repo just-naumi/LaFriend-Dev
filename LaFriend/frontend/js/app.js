@@ -2357,3 +2357,388 @@ function renderSessionDetail(session) {
 }
 
 
+// ==============================================================================
+// 6C. DAY 23.4 & 23.5 — LIFECYCLE ACTION INTEGRATION, MODAL & ERROR HARDENING
+// ==============================================================================
+function setLifecycleButtonsDisabled(disabled, activeBtn) {
+  const buttons = document.querySelectorAll(
+    "#sessionDetailContent button[data-lifecycle-action], #btnRefreshDetail"
+  );
+  buttons.forEach((btn) => {
+    btn.disabled = Boolean(disabled);
+    if (disabled && btn === activeBtn) {
+      btn.dataset.loading = "true";
+    } else if (!disabled) {
+      delete btn.dataset.loading;
+    }
+  });
+}
+
+function attachMemberRowAction(actionsSlot, { session, member, isHost, isMemberHost, displayName }) {
+  const sessionStatus = (session.status || "").toUpperCase();
+  const memberStatus = (member.status || "").toUpperCase();
+
+  // Aturan visibilitas Host Remove:
+  // Hanya tampil jika pengguna adalah Host, sesi CONFIRMED, target bukan Host, dan target CONFIRMED.
+  if (!isHost || sessionStatus !== "CONFIRMED" || isMemberHost || memberStatus !== "CONFIRMED") {
+    return;
+  }
+
+  const btnRemove = createEl("button", "btn-la btn-la--outline-danger btn-la--sm");
+  btnRemove.type = "button";
+  btnRemove.dataset.lifecycleAction = "remove";
+  btnRemove.dataset.targetStudentId = member.student_id || "";
+  btnRemove.appendChild(createIcon("bi-person-dash-fill"));
+  btnRemove.appendChild(createEl("span", "", "Keluarkan"));
+
+  btnRemove.addEventListener("click", () => {
+    if (sessionDetailState.isActionPending) return;
+    openConfirmActionModal({
+      title: "Keluarkan Anggota?",
+      message: `Apakah kamu yakin ingin mengeluarkan ${displayName} dari sesi belajar ini? Anggota yang dikeluarkan tidak lagi dapat mengakses detail sesi.`,
+      confirmLabel: "Ya, Keluarkan",
+      confirmVariant: "btn-la--danger",
+      onConfirm: () => executeRemoveMemberAction(session.session_id, member.student_id, displayName, btnRemove),
+    });
+  });
+
+  actionsSlot.appendChild(btnRemove);
+}
+
+function renderLifecycleActionControls(container, { session, isHost, myMembership }) {
+  container.textContent = "";
+  const sessionStatus = (session.status || "").toUpperCase();
+  const myStatus = myMembership ? (myMembership.status || "").toUpperCase() : "";
+
+  // 1. HOST pada sesi CONFIRMED -> Complete & Cancel
+  if (isHost && sessionStatus === "CONFIRMED") {
+    const btnComplete = createEl("button", "btn-la btn-la--success");
+    btnComplete.type = "button";
+    btnComplete.id = "btnCompleteSession";
+    btnComplete.dataset.lifecycleAction = "complete";
+    btnComplete.appendChild(createIcon("bi-check-circle-fill"));
+    btnComplete.appendChild(createEl("span", "", "Selesaikan Sesi (Complete)"));
+    btnComplete.addEventListener("click", () => {
+      if (sessionDetailState.isActionPending) return;
+      openConfirmActionModal({
+        title: "Selesaikan Sesi Belajar?",
+        message: "Apakah kamu yakin ingin menyelesaikan sesi belajar ini? Setelah selesai, sesi tidak dapat dibatalkan kembali.",
+        confirmLabel: "Ya, Selesaikan",
+        confirmVariant: "btn-la--success",
+        onConfirm: () => executeCompleteSessionAction(session.session_id, btnComplete),
+      });
+    });
+
+    const btnCancel = createEl("button", "btn-la btn-la--outline-danger");
+    btnCancel.type = "button";
+    btnCancel.id = "btnCancelSession";
+    btnCancel.dataset.lifecycleAction = "cancel";
+    btnCancel.appendChild(createIcon("bi-x-circle-fill"));
+    btnCancel.appendChild(createEl("span", "", "Batalkan Sesi (Cancel)"));
+    btnCancel.addEventListener("click", () => {
+      if (sessionDetailState.isActionPending) return;
+      openConfirmActionModal({
+        title: "Batalkan Sesi Belajar?",
+        message: "Apakah kamu yakin ingin membatalkan sesi belajar ini? Setelah dibatalkan, sesi tidak dapat diaktifkan kembali dan riwayat anggota tetap tersimpan.",
+        confirmLabel: "Ya, Batalkan",
+        confirmVariant: "btn-la--danger",
+        onConfirm: () => executeCancelSessionAction(session.session_id, btnCancel),
+      });
+    });
+
+    container.appendChild(btnComplete);
+    container.appendChild(btnCancel);
+    return;
+  }
+
+  // 2. MEMBER CONFIRMED (non-Host) pada sesi CONFIRMED -> Withdraw
+  if (!isHost && myStatus === "CONFIRMED" && sessionStatus === "CONFIRMED") {
+    const btnWithdraw = createEl("button", "btn-la btn-la--outline-danger");
+    btnWithdraw.type = "button";
+    btnWithdraw.id = "btnWithdrawSession";
+    btnWithdraw.dataset.lifecycleAction = "withdraw";
+    btnWithdraw.appendChild(createIcon("bi-box-arrow-left"));
+    btnWithdraw.appendChild(createEl("span", "", "Mengundurkan Diri (Withdraw)"));
+    btnWithdraw.addEventListener("click", () => {
+      if (sessionDetailState.isActionPending) return;
+      openConfirmActionModal({
+        title: "Mengundurkan Diri dari Sesi?",
+        message: "Apakah kamu yakin ingin mengundurkan diri dari sesi belajar ini? Setelah mengundurkan diri, kamu tidak lagi dapat mengakses detail sesi ini.",
+        confirmLabel: "Ya, Mengundurkan Diri",
+        confirmVariant: "btn-la--danger",
+        onConfirm: () => executeWithdrawSessionAction(session.session_id, btnWithdraw),
+      });
+    });
+
+    container.appendChild(btnWithdraw);
+    return;
+  }
+
+  // 3. Kondisi informasional tanpa tombol mutasi (sesuai matriks visibilitas Day 23.4)
+  let noteText = "Tidak ada tindakan pengelolaan yang tersedia untuk status sesi saat ini.";
+  if (sessionStatus === "COMPLETED") {
+    noteText = "Sesi belajar ini telah selesai. Seluruh informasi dan histori anggota tetap dipertahankan.";
+  } else if (sessionStatus === "CANCELLED") {
+    noteText = "Sesi belajar ini telah dibatalkan oleh Host. Seluruh informasi dan histori anggota tetap dipertahankan.";
+  } else if (sessionStatus === "EXPIRED") {
+    noteText = "Sesi belajar ini telah kedaluwarsa dan tidak dapat diubah lagi.";
+  } else if (!isHost && myStatus === "ACCEPTED" && sessionStatus === "CONFIRMED") {
+    noteText = "Status keanggotaanmu saat ini adalah Menerima undangan (ACCEPTED). Aksi pengunduran diri hanya tersedia untuk anggota berstatus Aktif (CONFIRMED).";
+  }
+
+  container.appendChild(createEl("div", "lifecycle-status-note", noteText));
+}
+
+function openConfirmActionModal({ title, message, confirmLabel, confirmVariant, onConfirm }) {
+  const modal = document.getElementById("confirmActionModal");
+  const titleEl = document.getElementById("confirmModalTitle");
+  const msgEl = document.getElementById("confirmModalMessage");
+  const btnCancel = document.getElementById("btnConfirmCancel");
+  const btnProceed = document.getElementById("btnConfirmProceed");
+
+  if (!modal || !titleEl || !msgEl || !btnCancel || !btnProceed) {
+    if (window.confirm(message)) {
+      onConfirm();
+    }
+    return;
+  }
+
+  titleEl.textContent = title || "Konfirmasi Tindakan";
+  msgEl.textContent = message || "";
+  btnProceed.className = `btn-la ${confirmVariant || "btn-la--primary"} btn-la--sm`;
+  btnProceed.textContent = confirmLabel || "Lanjutkan";
+  btnProceed.disabled = false;
+  btnCancel.disabled = false;
+  modal.classList.remove("d-none");
+
+  function cleanup() {
+    modal.classList.add("d-none");
+    btnCancel.removeEventListener("click", handleCancel);
+    btnProceed.removeEventListener("click", handleProceed);
+    modal.removeEventListener("click", handleBackdrop);
+    document.removeEventListener("keydown", handleEsc);
+  }
+
+  function handleCancel() {
+    if (sessionDetailState.isActionPending) return;
+    cleanup();
+  }
+
+  function handleBackdrop(e) {
+    if (e.target === modal && !sessionDetailState.isActionPending) {
+      cleanup();
+    }
+  }
+
+  function handleEsc(e) {
+    if (e.key === "Escape" && !sessionDetailState.isActionPending) {
+      cleanup();
+    }
+  }
+
+  async function handleProceed() {
+    if (sessionDetailState.isActionPending) return;
+    btnCancel.disabled = true;
+    btnProceed.disabled = true;
+    btnProceed.dataset.loading = "true";
+    btnProceed.textContent = "";
+    btnProceed.appendChild(createEl("span", "la-spinner la-spinner--sm"));
+    btnProceed.appendChild(createEl("span", "", "Memproses..."));
+
+    try {
+      await onConfirm();
+    } finally {
+      delete btnProceed.dataset.loading;
+      cleanup();
+    }
+  }
+
+  btnCancel.addEventListener("click", handleCancel);
+  btnProceed.addEventListener("click", handleProceed);
+  modal.addEventListener("click", handleBackdrop);
+  document.addEventListener("keydown", handleEsc);
+}
+
+async function executeCompleteSessionAction(sessionId, triggerBtn) {
+  if (sessionDetailState.isActionPending) return;
+  const alertContainer = document.getElementById("detailAlertContainer");
+  sessionDetailState.isActionPending = true;
+  setLifecycleButtonsDisabled(true, triggerBtn);
+
+  try {
+    const updatedSession = await app.sessions.complete(sessionId);
+    sessionDetailState.session = updatedSession;
+    renderInlineAlert(alertContainer, "success", "Sesi belajar berhasil ditandai sebagai selesai (COMPLETED).");
+    renderSessionDetail(updatedSession);
+  } catch (err) {
+    await handleLifecycleActionError(err);
+  } finally {
+    sessionDetailState.isActionPending = false;
+    setLifecycleButtonsDisabled(false);
+  }
+}
+
+async function executeCancelSessionAction(sessionId, triggerBtn) {
+  if (sessionDetailState.isActionPending) return;
+  const alertContainer = document.getElementById("detailAlertContainer");
+  sessionDetailState.isActionPending = true;
+  setLifecycleButtonsDisabled(true, triggerBtn);
+
+  try {
+    const updatedSession = await app.sessions.cancel(sessionId);
+    sessionDetailState.session = updatedSession;
+    renderInlineAlert(alertContainer, "success", "Sesi belajar berhasil dibatalkan (CANCELLED).");
+    renderSessionDetail(updatedSession);
+  } catch (err) {
+    await handleLifecycleActionError(err);
+  } finally {
+    sessionDetailState.isActionPending = false;
+    setLifecycleButtonsDisabled(false);
+  }
+}
+
+async function executeWithdrawSessionAction(sessionId, triggerBtn) {
+  if (sessionDetailState.isActionPending) return;
+  const detailContainer = document.getElementById("sessionDetailContent");
+  const alertContainer = document.getElementById("detailAlertContainer");
+  const headerSub = document.getElementById("detailHeaderSub");
+  sessionDetailState.isActionPending = true;
+  setLifecycleButtonsDisabled(true, triggerBtn);
+  let withdrewSuccessfully = false;
+
+  try {
+    // PENTING (Day 22 & 23.4 Privacy Contract):
+    // Response withdraw adalah SessionWithdrawResponse minimal:
+    // { session_id, session_status, membership_status }
+    // JANGAN memperlakukannya sebagai StudySessionResponse!
+    const withdrawRes = await app.sessions.withdraw(sessionId);
+    const membershipStatus = (withdrawRes && withdrawRes.membership_status) || "WITHDRAWN";
+    withdrewSuccessfully = true;
+
+    // Hapus state detail privat dari memori & DOM frontend segera
+    sessionDetailState.session = null;
+    if (headerSub) headerSub.textContent = "Pengunduran diri berhasil";
+    renderInlineAlert(alertContainer, "success", "");
+
+    if (detailContainer) {
+      renderStatePanel(detailContainer, {
+        icon: "bi-check-circle-fill",
+        title: "Berhasil Mengundurkan Diri",
+        description: `Status keanggotaanmu kini ${getMembershipStatusMeta(membershipStatus).label}. Mengalihkan kembali ke Sesi Belajarku...`,
+        actions: [{ label: "Kembali ke Sesi Belajarku", href: "sessions.html", variantClass: "btn-la--primary" }],
+      });
+    }
+
+    sessionStorage.setItem(
+      SESSION_FLASH_KEY,
+      JSON.stringify({
+        variant: "success",
+        message: "Kamu berhasil mengundurkan diri dari sesi belajar.",
+      })
+    );
+
+    setTimeout(() => {
+      window.location.replace("sessions.html");
+    }, 650);
+  } catch (err) {
+    await handleLifecycleActionError(err);
+  } finally {
+    if (!withdrewSuccessfully) {
+      sessionDetailState.isActionPending = false;
+      setLifecycleButtonsDisabled(false);
+    }
+  }
+}
+
+async function executeRemoveMemberAction(sessionId, targetStudentId, displayName, triggerBtn) {
+  if (sessionDetailState.isActionPending) return;
+  const alertContainer = document.getElementById("detailAlertContainer");
+  sessionDetailState.isActionPending = true;
+  setLifecycleButtonsDisabled(true, triggerBtn);
+
+  try {
+    const updatedSession = await app.sessions.removeMember(sessionId, targetStudentId);
+    sessionDetailState.session = updatedSession;
+    renderInlineAlert(alertContainer, "success", `${displayName} berhasil dikeluarkan dari sesi belajar.`);
+    renderSessionDetail(updatedSession);
+  } catch (err) {
+    await handleLifecycleActionError(err);
+  } finally {
+    sessionDetailState.isActionPending = false;
+    setLifecycleButtonsDisabled(false);
+  }
+}
+
+async function handleLifecycleActionError(err) {
+  const alertContainer = document.getElementById("detailAlertContainer");
+
+  // 401 -> Token tidak valid/kedaluwarsa -> bersihkan auth dan kembali ke login
+  if (err.status === 401) {
+    app.handleUnauthorized();
+    return;
+  }
+
+  // 403 -> Akses ditolak (JANGAN hapus token!)
+  if (err.status === 403) {
+    renderInlineAlert(
+      alertContainer,
+      "danger",
+      err.message || "Kamu tidak memiliki izin untuk melakukan tindakan ini."
+    );
+    await loadSessionDetail({ preserveAlert: true });
+    return;
+  }
+
+  // 404 -> Resource tidak ditemukan
+  if (err.status === 404) {
+    renderInlineAlert(
+      alertContainer,
+      "warning",
+      err.message || "Sesi atau anggota yang dimaksud tidak ditemukan."
+    );
+    await loadSessionDetail({ preserveAlert: true });
+    return;
+  }
+
+  // 409 -> Konflik state (mis. concurrent Complete vs Cancel, atau Cancel vs Withdraw)
+  // JANGAN ulangi mutasi secara otomatis; segarkan detail terbaru dari backend.
+  if (err.status === 409) {
+    renderInlineAlert(
+      alertContainer,
+      "warning",
+      `${err.message || "Status sesi telah berubah."} Menampilkan data terbaru dari server.`
+    );
+    await loadSessionDetail({ preserveAlert: true });
+    return;
+  }
+
+  // 400 / 422 -> Aturan bisnis atau input tidak valid
+  if (err.status === 400 || err.status === 422) {
+    renderInlineAlert(
+      alertContainer,
+      "danger",
+      err.message || "Permintaan tidak valid untuk kondisi sesi saat ini."
+    );
+    return;
+  }
+
+  // Network error
+  if (err.isNetworkError || err.status === 0) {
+    renderInlineAlert(
+      alertContainer,
+      "warning",
+      "Koneksi ke server terputus. Periksa jaringan internetmu lalu coba lagi."
+    );
+    return;
+  }
+
+  // 500+ -> Pesan generik tanpa detail internal server
+  renderInlineAlert(
+    alertContainer,
+    "danger",
+    "Terjadi kesalahan pada server saat memproses tindakan. Silakan coba beberapa saat lagi."
+  );
+}
+
+
+
