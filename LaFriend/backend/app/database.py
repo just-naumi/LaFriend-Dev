@@ -336,40 +336,81 @@ def _validate_sqlite_foreign_key(
     expected_ref_table: str,
     expected_ref_column: str,
     allowed_on_delete: tuple[str, ...] = ("RESTRICT", "NO ACTION"),
+    allowed_on_update: tuple[str, ...] = ("NO ACTION", "RESTRICT"),
 ) -> dict:
     """
-    Validasi fail-closed atas metadata Foreign Key SQLite (Day 21.1.2).
+    Validasi fail-closed atas metadata Foreign Key SQLite (Day 21.1.2 Hardening).
     Kontrak konvergensi FK:
-    - Database baru & migrasi dari Day 13 menetapkan ON DELETE RESTRICT secara eksplisit.
-    - Database hasil upgrade Day 21.1 yang telah memiliki ON DELETE NO ACTION diterima sebagai
-      kompatibilitas setara karena pada SQLite non-deferred keduanya menolak penghapusan parent
-      secara langsung (FOREIGN KEY constraint failed) tanpa risiko rebuild tabel destruktif.
-    - Aksi penghapusan destruktif/mutatif (CASCADE, SET NULL, SET DEFAULT), FK hilang, atau
-      target tabel/kolom yang salah WAJIB gagal eksplisit dengan RuntimeError.
+    - Tepat satu definisi Foreign Key tunggal (exact cardinality = 1, bukan komposit)
+      untuk kolom lokal tersebut.
+    - Target tabel dan kolom tujuan harus cocok persis.
+    - ON DELETE harus termasuk aksi non-destruktif yang diizinkan (RESTRICT / NO ACTION).
+    - ON UPDATE harus termasuk aksi non-mutatif yang diizinkan (NO ACTION / RESTRICT).
+    - FK hilang, FK ganda, FK komposit, target salah, atau aksi CASCADE/SET NULL/SET DEFAULT
+      WAJIB gagal eksplisit dengan RuntimeError.
     """
-    fk_list = _inspect_sqlite_foreign_keys(conn, table_name, from_column)
+    from sqlalchemy import text
+
+    all_rows = conn.execute(text(f'PRAGMA foreign_key_list("{table_name}")')).fetchall()
+    fk_list = [
+        {
+            "id": row[0],
+            "seq": row[1],
+            "ref_table": row[2],
+            "from_column": row[3],
+            "ref_column": row[4],
+            "on_update": (row[5] or "").upper(),
+            "on_delete": (row[6] or "").upper(),
+            "match": row[7],
+        }
+        for row in all_rows
+        if row[3] == from_column
+    ]
+
     if not fk_list:
         raise RuntimeError(
             f"Validasi migrasi FK gagal (fail-closed): Kolom '{table_name}.{from_column}' "
             f"tidak memiliki Foreign Key ke '{expected_ref_table}.{expected_ref_column}'."
         )
 
-    allowed_set = {act.upper() for act in allowed_on_delete}
-    for fk in fk_list:
-        if fk["ref_table"] == expected_ref_table and fk["ref_column"] == expected_ref_column:
-            if fk["on_delete"] not in allowed_set:
-                raise RuntimeError(
-                    f"Validasi migrasi FK gagal (fail-closed): Foreign Key '{table_name}.{from_column}' "
-                    f"ke '{expected_ref_table}.{expected_ref_column}' memiliki ON DELETE '{fk['on_delete']}', "
-                    f"tidak sesuai kontrak yang diizinkan {sorted(allowed_set)}."
-                )
-            return fk
+    if len(fk_list) != 1:
+        raise RuntimeError(
+            f"Validasi migrasi FK gagal (fail-closed): Kolom '{table_name}.{from_column}' "
+            f"harus memiliki tepat 1 definisi Foreign Key, ditemukan {len(fk_list)}: {fk_list}."
+        )
 
-    raise RuntimeError(
-        f"Validasi migrasi FK gagal (fail-closed): Foreign Key pada '{table_name}.{from_column}' "
-        f"tidak merujuk ke '{expected_ref_table}.{expected_ref_column}'. "
-        f"Definisi aktual: {fk_list}."
-    )
+    fk = fk_list[0]
+    same_id_rows = [row for row in all_rows if row[0] == fk["id"]]
+    if len(same_id_rows) != 1:
+        raise RuntimeError(
+            f"Validasi migrasi FK gagal (fail-closed): Foreign Key pada '{table_name}.{from_column}' "
+            f"merupakan bagian dari composite FK (id={fk['id']}, jumlah kolom={len(same_id_rows)})."
+        )
+
+    if fk["ref_table"] != expected_ref_table or fk["ref_column"] != expected_ref_column:
+        raise RuntimeError(
+            f"Validasi migrasi FK gagal (fail-closed): Foreign Key pada '{table_name}.{from_column}' "
+            f"tidak merujuk ke '{expected_ref_table}.{expected_ref_column}'. "
+            f"Definisi aktual: {fk}."
+        )
+
+    allowed_del_set = {act.upper() for act in allowed_on_delete}
+    if fk["on_delete"] not in allowed_del_set:
+        raise RuntimeError(
+            f"Validasi migrasi FK gagal (fail-closed): Foreign Key '{table_name}.{from_column}' "
+            f"ke '{expected_ref_table}.{expected_ref_column}' memiliki ON DELETE '{fk['on_delete']}', "
+            f"tidak sesuai kontrak yang diizinkan {sorted(allowed_del_set)}."
+        )
+
+    allowed_upd_set = {act.upper() for act in allowed_on_update}
+    if fk["on_update"] not in allowed_upd_set:
+        raise RuntimeError(
+            f"Validasi migrasi FK gagal (fail-closed): Foreign Key '{table_name}.{from_column}' "
+            f"ke '{expected_ref_table}.{expected_ref_column}' memiliki ON UPDATE '{fk['on_update']}', "
+            f"tidak sesuai kontrak yang diizinkan {sorted(allowed_upd_set)}."
+        )
+
+    return fk
 
 
 def _normalize_trigger_sql(ddl_sql: str) -> str:

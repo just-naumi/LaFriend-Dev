@@ -1512,6 +1512,76 @@ class TestDay21SessionExecution(unittest.TestCase):
         finally:
             eng_d21_1.dispose()
 
+    def test_23_fk_validator_enforces_exact_cardinality_and_on_update_contract(self):
+        """Day 21.1.2 Hardening: FK validator wajib menegakkan exact cardinality = 1, non-composite, dan kontrak ON UPDATE."""
+        # Skenario A: 2 FK pada kolom yang sama (1 valid + 1 tambahan dengan target berbeda) -> DITOLAK
+        eng_multi = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        try:
+            with eng_multi.connect() as conn:
+                conn.execute(text("CREATE TABLE group_proposals (proposal_id VARCHAR(36) PRIMARY KEY)"))
+                conn.execute(text("CREATE TABLE courses (course_id VARCHAR(36) PRIMARY KEY)"))
+                conn.execute(text("""
+                    CREATE TABLE study_sessions (
+                        session_id VARCHAR(36) PRIMARY KEY,
+                        host_id VARCHAR(36) NOT NULL,
+                        course_id VARCHAR(36) NOT NULL,
+                        title VARCHAR(150) NOT NULL,
+                        proposal_id VARCHAR(36),
+                        FOREIGN KEY (proposal_id) REFERENCES group_proposals(proposal_id) ON DELETE RESTRICT,
+                        FOREIGN KEY (proposal_id) REFERENCES courses(course_id) ON DELETE CASCADE
+                    );
+                """))
+                conn.commit()
+            with self.assertRaises(RuntimeError) as ctx:
+                ensure_database_schema(eng_multi)
+            self.assertIn("tepat 1 definisi Foreign Key", str(ctx.exception))
+        finally:
+            eng_multi.dispose()
+
+        # Skenario B: FK dengan ON UPDATE CASCADE / SET NULL -> DITOLAK
+        for bad_upd in ("CASCADE", "SET NULL"):
+            with self.subTest(bad_on_update=bad_upd):
+                eng_upd = self._create_legacy_day13_engine()
+                try:
+                    with eng_upd.connect() as conn:
+                        conn.execute(text(
+                            f"ALTER TABLE session_members ADD COLUMN intent_id VARCHAR(36) "
+                            f"REFERENCES study_intents(intent_id) ON DELETE RESTRICT ON UPDATE {bad_upd}"
+                        ))
+                        conn.commit()
+                    with self.assertRaises(RuntimeError) as ctx:
+                        ensure_database_schema(eng_upd)
+                    self.assertIn("ON UPDATE", str(ctx.exception))
+                finally:
+                    eng_upd.dispose()
+
+        # Skenario C: Composite FK melibatkan proposal_id -> DITOLAK
+        eng_comp = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        try:
+            with eng_comp.connect() as conn:
+                conn.execute(text("""
+                    CREATE TABLE group_proposals (
+                        proposal_id VARCHAR(36) PRIMARY KEY,
+                        course_id VARCHAR(36)
+                    );
+                """))
+                conn.execute(text("""
+                    CREATE TABLE study_sessions (
+                        session_id VARCHAR(36) PRIMARY KEY,
+                        host_id VARCHAR(36) NOT NULL,
+                        course_id VARCHAR(36) NOT NULL,
+                        title VARCHAR(150) NOT NULL,
+                        proposal_id VARCHAR(36),
+                        FOREIGN KEY (proposal_id, course_id) REFERENCES group_proposals(proposal_id, course_id) ON DELETE RESTRICT
+                    );
+                """))
+                conn.commit()
+            with self.assertRaises(RuntimeError) as ctx:
+                ensure_database_schema(eng_comp)
+            self.assertIn("composite FK", str(ctx.exception))
+        finally:
+            eng_comp.dispose()
+
 
 if __name__ == "__main__":
     unittest.main()
