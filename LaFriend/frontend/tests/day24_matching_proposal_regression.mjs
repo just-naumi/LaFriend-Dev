@@ -241,6 +241,7 @@ function bootDay24Sandbox({ pageScript = "", search = "", fetchImpl, elementIds 
       renderMatchingPreviewResult: typeof renderMatchingPreviewResult !== "undefined" ? renderMatchingPreviewResult : null,
       executeCreateProposal: typeof executeCreateProposal !== "undefined" ? executeCreateProposal : null,
       invitationsPageState: typeof invitationsPageState !== "undefined" ? invitationsPageState : null,
+      loadCurrentInvitationsTab: typeof loadCurrentInvitationsTab !== "undefined" ? loadCurrentInvitationsTab : null,
       renderInboxList: typeof renderInboxList !== "undefined" ? renderInboxList : null,
       renderSentGroupedList: typeof renderSentGroupedList !== "undefined" ? renderSentGroupedList : null,
       executeInvitationResponse: typeof executeInvitationResponse !== "undefined" ? executeInvitationResponse : null,
@@ -558,6 +559,9 @@ test("24.2: Invitations inbox buttons only for PENDING, DECLINE->REJECTED mappin
     },
   ];
 
+  env.invitationsPageState.proposalStatusById = {
+    "PROP-1": { status: "PENDING_RESPONSES", sessionId: null },
+  };
   env.renderInboxList();
   const listBox = env.document.getElementById("invitationsListContainer");
   assert.equal(listBox.querySelectorAll('button[data-inv-action="accept"]').length, 1);
@@ -577,6 +581,83 @@ test("24.2: Invitations inbox buttons only for PENDING, DECLINE->REJECTED mappin
   assert.match(listBox.textContent, /Diterima: 1/);
   assert.match(listBox.textContent, /Menunggu: 1/);
   assert.doesNotMatch(listBox.textContent, /@secret\.edu/);
+});
+
+// ==============================================================================
+// 4B. DAY 24.5: INBOX TERMINAL-STATE SYNC (PENDING + NOT_FORMED/CANCELLED/EXPIRED) & DEDUP
+// ==============================================================================
+test("24.5: Inbox deduplicates proposal detail fetches & hides Accept/Decline for PENDING on NOT_FORMED/terminal proposals", async () => {
+  const proposalDetailCalls = [];
+  const env = bootDay24Sandbox({
+    pageScript: INVITATIONS_JS,
+    elementIds: ["invitationsAlertContainer", "invitationsListContainer", "invitationsCountPill", "btnRefreshInvitations"],
+    fetchImpl: async (url) => {
+      if (url.endsWith("/invitations/inbox")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            // Dua item PENDING pada proposal NOT_FORMED yang sama -> wajib deduplikasi 1x GET detail
+            { invitation_id: "INV-NF-1", proposal_id: "PROP-NOT-FORMED", status: "PENDING", created_at: "2026-11-18T10:00:00Z", sender: { full_name: "Host A" } },
+            { invitation_id: "INV-NF-2", proposal_id: "PROP-NOT-FORMED", status: "PENDING", created_at: "2026-11-18T10:01:00Z", sender: { full_name: "Host A" } },
+            // PENDING pada proposal CANCELLED -> read-only
+            { invitation_id: "INV-CANC", proposal_id: "PROP-CANCELLED", status: "PENDING", created_at: "2026-11-18T09:50:00Z", sender: { full_name: "Host B" } },
+            // PENDING pada proposal EXPIRED -> read-only
+            { invitation_id: "INV-EXP", proposal_id: "PROP-EXPIRED", status: "PENDING", created_at: "2026-11-18T09:40:00Z", sender: { full_name: "Host C" } },
+            // PENDING pada proposal yang gagal di-fetch (500) -> fail-closed read-only
+            { invitation_id: "INV-ERR", proposal_id: "PROP-ERR-500", status: "PENDING", created_at: "2026-11-18T09:30:00Z", sender: { full_name: "Host D" } },
+            // PENDING pada proposal QUORUM_REACHED -> tombol Terima/Tolak tetap tampil
+            { invitation_id: "INV-OK", proposal_id: "PROP-QUORUM", status: "PENDING", created_at: "2026-11-18T10:05:00Z", sender: { full_name: "Host E" } },
+          ],
+        };
+      }
+      if (url.includes("/group-proposals/")) {
+        const pid = url.split("/group-proposals/")[1];
+        proposalDetailCalls.push(pid);
+        if (pid === "PROP-NOT-FORMED") {
+          return { ok: true, status: 200, json: async () => sampleProposal({ proposal_id: pid, status: "NOT_FORMED" }) };
+        }
+        if (pid === "PROP-CANCELLED") {
+          return { ok: true, status: 200, json: async () => sampleProposal({ proposal_id: pid, status: "CANCELLED" }) };
+        }
+        if (pid === "PROP-EXPIRED") {
+          return { ok: true, status: 200, json: async () => sampleProposal({ proposal_id: pid, status: "EXPIRED" }) };
+        }
+        if (pid === "PROP-ERR-500") {
+          return { ok: false, status: 500, json: async () => ({ detail: "Internal error" }) };
+        }
+        if (pid === "PROP-QUORUM") {
+          return { ok: true, status: 200, json: async () => sampleProposal({ proposal_id: pid, status: "QUORUM_REACHED" }) };
+        }
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    },
+  });
+
+  env.invitationsPageState.activeTab = "inbox";
+  await env.loadCurrentInvitationsTab();
+
+  // Deduplikasi: PROP-NOT-FORMED hanya di-fetch 1 kali meskipun ada 2 item PENDING dengan proposal_id sama
+  assert.equal(proposalDetailCalls.filter((id) => id === "PROP-NOT-FORMED").length, 1);
+  assert.equal(proposalDetailCalls.length, 5);
+
+  const listBox = env.document.getElementById("invitationsListContainer");
+  const cards = listBox.querySelectorAll("article");
+  assert.equal(cards.length, 6);
+
+  // Hanya 1 kartu (PROP-QUORUM) yang boleh memiliki tombol Terima & Tolak
+  assert.equal(listBox.querySelectorAll('button[data-inv-action="accept"]').length, 1);
+  assert.equal(listBox.querySelectorAll('button[data-inv-action="decline"]').length, 1);
+
+  // Kartu NOT_FORMED tampil read-only dengan label Tidak Terbentuk & tetap memiliki link Lihat Proposal
+  const nfCard = cards.find((c) => c.dataset.invitationId === "INV-NF-1");
+  assert.ok(nfCard);
+  assert.equal(nfCard.querySelectorAll("button[data-inv-action]").length, 0);
+  assert.match(nfCard.textContent, /Tidak Terbentuk/);
+  const detailLink = nfCard.querySelector(".btn-detail-link");
+  assert.ok(detailLink);
+  assert.equal(detailLink.tagName, "A");
+  assert.equal(detailLink.href, "proposal-detail.html?id=PROP-NOT-FORMED");
 });
 
 // ==============================================================================
@@ -627,45 +708,70 @@ test("24.2–24.3 Layer 2: Complete ProposalStatus (7) x InvitationStatus (5) ma
     assert.equal(box.querySelectorAll("button[data-proposal-action]").length, 0);
   }
 
-  // --- INVITEE MATRIX ---
+  // --- EXHAUSTIVE 35-COMBINATION INVITEE MATRIX (7 ProposalStatus x 5 InvitationStatus) + UNKNOWN FALLBACK ---
   env.proposalDetailState.user = { student_id: "stu-budi", full_name: "Budi Santoso" };
 
-  // Invitee PENDING on PENDING_RESPONSES & QUORUM_REACHED -> Accept + Decline, ZERO Host buttons
-  for (const pStat of ["PENDING_RESPONSES", "QUORUM_REACHED"]) {
-    env.renderProposalDetail(sampleProposal({ status: pStat }), course);
-    assert.ok(box.querySelector("#btnAcceptProposalInvite"));
-    assert.ok(box.querySelector("#btnDeclineProposalInvite"));
-    assert.equal(box.querySelector("#btnFinalizeProposal"), null);
-    assert.equal(box.querySelector("#btnCancelProposal"), null);
-    assert.equal(box.querySelector("#btnExecuteSession"), null);
-  }
+  const ALL_PROPOSAL_STATUSES = [
+    "PENDING_RESPONSES",
+    "QUORUM_REACHED",
+    "READY_FOR_SESSION",
+    "SESSION_EXECUTED",
+    "NOT_FORMED",
+    "CANCELLED",
+    "EXPIRED",
+  ];
+  const ALL_INVITATION_STATUSES = ["PENDING", "ACCEPTED", "REJECTED", "WITHDRAWN", "EXPIRED"];
+  let combinationsChecked = 0;
 
-  // Invitee ACCEPTED across PENDING_RESPONSES / QUORUM_REACHED / READY_FOR_SESSION -> contextual note, 0 buttons
-  for (const [pStat, expectedPattern] of [
-    ["PENDING_RESPONSES", /Menunggu anggota lain/i],
-    ["QUORUM_REACHED", /Menunggu Host memfinalisasi/i],
-    ["READY_FOR_SESSION", /Menunggu Host mengeksekusi/i],
-  ]) {
-    const p = sampleProposal({ status: pStat });
-    p.invitations[0].status = "ACCEPTED";
-    env.renderProposalDetail(p, course);
-    assert.equal(box.querySelectorAll("button[data-proposal-action]").length, 0);
-    assert.match(box.textContent, expectedPattern);
-  }
+  for (const pStat of ALL_PROPOSAL_STATUSES) {
+    for (const invStat of ALL_INVITATION_STATUSES) {
+      combinationsChecked += 1;
+      const p = sampleProposal({
+        status: pStat,
+        session_id: pStat === "SESSION_EXECUTED" ? "SESS-FINAL-99" : null,
+      });
+      p.invitations[0].status = invStat;
+      env.renderProposalDetail(p, course);
 
-  // Invitee ACCEPTED + SESSION_EXECUTED -> Buka Detail Sesi CTA
-  const pExec = sampleProposal({ status: "SESSION_EXECUTED", session_id: "SESS-FINAL-99" });
-  pExec.invitations[0].status = "ACCEPTED";
-  env.renderProposalDetail(pExec, course);
-  assert.ok(box.querySelector("#btnOpenExecutedSession"));
+      // Invitee NEVER receives Host controls in any of the 35 combinations
+      assert.equal(box.querySelector("#btnFinalizeProposal"), null, `Host Finalize leaked on ${pStat}+${invStat}`);
+      assert.equal(box.querySelector("#btnCancelProposal"), null, `Host Cancel leaked on ${pStat}+${invStat}`);
+      assert.equal(box.querySelector("#btnExecuteSession"), null, `Host Execute leaked on ${pStat}+${invStat}`);
 
-  // Invitee REJECTED / WITHDRAWN / EXPIRED -> 0 mutation buttons
-  for (const invStat of ["REJECTED", "WITHDRAWN", "EXPIRED"]) {
-    const p = sampleProposal({ status: "PENDING_RESPONSES" });
-    p.invitations[0].status = invStat;
-    env.renderProposalDetail(p, course);
-    assert.equal(box.querySelectorAll("button[data-proposal-action]").length, 0);
+      const actionButtons = box.querySelectorAll("button[data-proposal-action]");
+      const canRespond = invStat === "PENDING" && (pStat === "PENDING_RESPONSES" || pStat === "QUORUM_REACHED");
+      if (canRespond) {
+        assert.equal(actionButtons.length, 2, `Expected Accept+Decline on ${pStat}+${invStat}`);
+        assert.ok(box.querySelector("#btnAcceptProposalInvite"));
+        assert.ok(box.querySelector("#btnDeclineProposalInvite"));
+      } else {
+        assert.equal(actionButtons.length, 0, `Expected 0 mutation buttons (read-only) on ${pStat}+${invStat}`);
+      }
+
+      if (invStat === "ACCEPTED" && pStat === "SESSION_EXECUTED") {
+        const openLink = box.querySelector("#btnOpenExecutedSession");
+        assert.ok(openLink, "ACCEPTED + SESSION_EXECUTED must display Open Session CTA");
+        assert.equal(openLink.href, "session-detail.html?id=SESS-FINAL-99");
+      } else {
+        assert.equal(box.querySelector("#btnOpenExecutedSession"), null, `Unexpected Open Session CTA on ${pStat}+${invStat}`);
+      }
+
+      if (invStat === "ACCEPTED" && pStat === "PENDING_RESPONSES") {
+        assert.match(box.textContent, /Menunggu anggota lain/i);
+      } else if (invStat === "ACCEPTED" && pStat === "QUORUM_REACHED") {
+        assert.match(box.textContent, /Menunggu Host memfinalisasi/i);
+      } else if (invStat === "ACCEPTED" && pStat === "READY_FOR_SESSION") {
+        assert.match(box.textContent, /Menunggu Host mengeksekusi/i);
+      }
+    }
   }
+  assert.equal(combinationsChecked, 35);
+
+  // Unknown / unexpected status combination -> safe read-only fallback with 0 mutation buttons
+  const pUnknown = sampleProposal({ status: "UNKNOWN_PROPOSAL_STATE" });
+  pUnknown.invitations[0].status = "UNKNOWN_INV_STATE";
+  env.renderProposalDetail(pUnknown, course);
+  assert.equal(box.querySelectorAll("button[data-proposal-action]").length, 0);
 });
 
 // ==============================================================================
@@ -774,3 +880,4 @@ test("24.3: Execute redirect, timeout no-auto-retry + refresh recovery, 409 refr
   await Promise.all([f1, f2]);
   assert.equal(finalizeCalls, 1);
 });
+

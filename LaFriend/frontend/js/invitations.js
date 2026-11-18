@@ -12,12 +12,15 @@
 // 4. Privasi ketat: tidak pernah merender email, NIM, student_id, atau intent_id.
 // ==============================================================================
 
+const _RESPONSIVE_PROPOSAL_STATUSES = new Set(["PENDING_RESPONSES", "QUORUM_REACHED"]);
+
 const invitationsPageState = {
   user: null,
   activeTab: "inbox", // "inbox" | "sent"
   inboxStatusFilter: "",
   inboxItems: [],
   sentItems: [],
+  proposalStatusById: {},
   isLoading: false,
   isRespondPending: false,
   requestSeq: 0,
@@ -129,7 +132,12 @@ async function loadCurrentInvitationsTab({ preserveAlert = false } = {}) {
     if (isInbox) {
       const data = await app.invitations.getInbox("");
       if (seq !== invitationsPageState.requestSeq) return;
-      invitationsPageState.inboxItems = Array.isArray(data) ? data : [];
+      const items = Array.isArray(data) ? data : [];
+      const syncRes = await syncPendingInboxProposalStatuses(items, seq);
+      if (seq !== invitationsPageState.requestSeq) return;
+      if (syncRes.unauthorized) return;
+      invitationsPageState.inboxItems = items;
+      invitationsPageState.proposalStatusById = syncRes.statusMap;
       renderInboxList();
     } else {
       const data = await app.invitations.getSent("");
@@ -171,6 +179,70 @@ async function loadCurrentInvitationsTab({ preserveAlert = false } = {}) {
       invitationsPageState.isLoading = false;
     }
   }
+}
+
+// Day 24.5: Sinkronisasi status proposal untuk setiap proposal_id unik pada undangan PENDING
+// agar undangan PENDING pada proposal NOT_FORMED / CANCELLED / EXPIRED / READY_FOR_SESSION /
+// SESSION_EXECUTED tidak menampilkan tombol Terima/Tolak (tetap zero backend changes).
+async function syncPendingInboxProposalStatuses(inboxItems, seq) {
+  const statusMap = {};
+  const uniqueProposalIds = [
+    ...new Set(
+      inboxItems
+        .filter((inv) => (inv.status || "").toUpperCase() === "PENDING" && Boolean(inv.proposal_id))
+        .map((inv) => inv.proposal_id)
+    ),
+  ];
+
+  if (uniqueProposalIds.length === 0) {
+    return { statusMap, unauthorized: false };
+  }
+
+  const settled = await Promise.allSettled(
+    uniqueProposalIds.map(async (pid) => {
+      const proposal = await app.proposals.getDetail(pid);
+      return { pid, proposal };
+    })
+  );
+
+  if (seq !== invitationsPageState.requestSeq) {
+    return { statusMap, unauthorized: false };
+  }
+
+  for (let i = 0; i < settled.length; i += 1) {
+    const pid = uniqueProposalIds[i];
+    const outcome = settled[i];
+    if (outcome.status === "fulfilled") {
+      const prop = outcome.value.proposal || {};
+      const propStatus = (prop.status || "").toUpperCase();
+      statusMap[pid] = {
+        status: propStatus,
+        sessionId: prop.session_id || null,
+      };
+      // Jika backend melakukan lazy-expire pada GET detail proposal, sinkronkan status undangan terbaru
+      if (Array.isArray(prop.invitations)) {
+        const updatedById = new Map(prop.invitations.map((pInv) => [pInv.invitation_id, pInv.status]));
+        inboxItems.forEach((item) => {
+          if (item.proposal_id === pid && updatedById.has(item.invitation_id)) {
+            item.status = updatedById.get(item.invitation_id);
+          }
+        });
+      }
+    } else {
+      const err = outcome.reason || {};
+      if (err.status === 401) {
+        app.handleUnauthorized();
+        return { statusMap, unauthorized: true };
+      }
+      // Fail-closed: jika status proposal gagal diverifikasi, jangan tampilkan tombol mutasi
+      statusMap[pid] = {
+        status: "UNAVAILABLE",
+        errorStatus: err.status || 0,
+      };
+    }
+  }
+
+  return { statusMap, unauthorized: false };
 }
 
 function renderInboxList() {
@@ -241,7 +313,29 @@ function renderInboxList() {
       card.appendChild(createEl("div", "invitation-message-box", inv.message.trim()));
     }
 
-    if (invStatus === "ACCEPTED") {
+    // Evaluasi apakah undangan PENDING benar-benar masih dapat direspons berdasarkan status proposal
+    const proposalMeta = inv.proposal_id ? invitationsPageState.proposalStatusById[inv.proposal_id] : null;
+    const isStandalonePending = invStatus === "PENDING" && !inv.proposal_id;
+    const isResponsiveProposal = Boolean(proposalMeta && _RESPONSIVE_PROPOSAL_STATUSES.has(proposalMeta.status));
+    const canRespondPending = invStatus === "PENDING" && (isStandalonePending || isResponsiveProposal);
+
+    if (invStatus === "PENDING" && inv.proposal_id && !canRespondPending) {
+      const propStatusCode = proposalMeta ? proposalMeta.status : "UNAVAILABLE";
+      const propMetaBadge =
+        propStatusCode === "UNAVAILABLE"
+          ? { label: "Status Proposal Belum Terverifikasi", badgeClass: "s-badge--neutral" }
+          : getProposalStatusMeta(propStatusCode);
+
+      const propBadgeRow = createEl("div", "badge-row");
+      propBadgeRow.appendChild(createEl("span", `s-badge ${propMetaBadge.badgeClass}`, `Proposal: ${propMetaBadge.label}`));
+      card.appendChild(propBadgeRow);
+
+      const readOnlyMsg =
+        propStatusCode === "UNAVAILABLE"
+          ? "Status proposal terkait tidak dapat diverifikasi saat ini. Buka Lihat Proposal untuk memeriksa status terbaru."
+          : `Proposal ini sudah berstatus ${propMetaBadge.label} dan tidak lagi menerima respons undangan.`;
+      card.appendChild(createEl("div", "la-helper-text", readOnlyMsg));
+    } else if (invStatus === "ACCEPTED") {
       card.appendChild(
         createEl(
           "div",
@@ -255,7 +349,7 @@ function renderInboxList() {
 
     const actionsRow = createEl("div", "invitation-actions-row");
 
-    if (invStatus === "PENDING") {
+    if (canRespondPending) {
       const btnAccept = createEl("button", "btn-la btn-la--success btn-la--sm");
       btnAccept.type = "button";
       btnAccept.dataset.invAction = "accept";
@@ -484,3 +578,4 @@ async function executeInvitationResponse(invitationId, decision, reason, trigger
     setInvitationActionButtonsDisabled(false);
   }
 }
+
