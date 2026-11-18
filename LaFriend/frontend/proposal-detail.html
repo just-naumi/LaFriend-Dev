@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Detail Proposal Kelompok — LaFriend</title>
+
+  <!-- Google Fonts: Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Bootstrap Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="css/style.css?v=5.0">
+  <link rel="stylesheet" href="css/sessions.css?v=1.0">
+  <link rel="stylesheet" href="css/matching.css?v=1.0">
+</head>
+<body>
+
+  <div class="app-viewport sessions-viewport" id="proposalDetailPageRoot">
+
+    <!-- HEADER -->
+    <header class="sessions-header">
+      <div class="sessions-topbar">
+        <div class="sessions-topbar-left">
+          <a href="invitations.html" class="icon-circle-btn" id="btnBackToInvitations" title="Kembali ke Undangan" aria-label="Kembali ke Undangan">
+            <i class="bi bi-arrow-left"></i>
+          </a>
+          <div class="sessions-title-wrap">
+            <h1 class="sessions-page-title">Detail Proposal</h1>
+            <div class="sessions-page-sub" id="proposalHeaderSub">Memuat informasi proposal...</div>
+          </div>
+        </div>
+        <button type="button" class="sessions-refresh-btn" id="btnRefreshProposal" title="Muat ulang detail proposal">
+          <i class="bi bi-arrow-clockwise"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- KONTEN UTAMA -->
+    <main class="sessions-body">
+      <div id="proposalAlertContainer" class="d-none" role="alert" aria-live="polite"></div>
+      <div id="proposalDetailContent" aria-live="polite"></div>
+    </main>
+
+    <!-- MODAL KONFIRMASI IN-FRAME -->
+    <div id="confirmActionModal" class="confirm-modal-backdrop d-none" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
+      <div class="confirm-modal-card">
+        <h2 class="confirm-modal-title" id="confirmModalTitle">Konfirmasi Tindakan</h2>
+        <p class="confirm-modal-message" id="confirmModalMessage"></p>
+        <div id="confirmModalReasonWrap" class="confirm-reason-wrap d-none">
+          <textarea id="confirmModalReasonInput" class="la-textarea" rows="2" placeholder="Alasan (opsional)..."></textarea>
+        </div>
+        <div class="confirm-modal-actions">
+          <button type="button" class="btn-la btn-la--secondary btn-la--sm" id="btnConfirmCancel">Batal</button>
+          <button type="button" class="btn-la btn-la--primary btn-la--sm" id="btnConfirmProceed">Lanjutkan</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="js/app.js?v=5.0"></script>
+  <script src="js/proposal-detail.js?v=1.0"></script>
+</body>
+</html>
