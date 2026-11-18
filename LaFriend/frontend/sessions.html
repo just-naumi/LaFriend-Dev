@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sesi Belajarku — LaFriend</title>
+
+  <!-- Google Fonts: Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Bootstrap Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="css/style.css?v=4.0">
+  <link rel="stylesheet" href="css/sessions.css?v=1.0">
+</head>
+<body>
+
+  <div class="app-viewport sessions-viewport" id="sessionsPageRoot">
+
+    <!-- HEADER: Judul, Kembali ke Dashboard, Identitas Pengguna -->
+    <header class="sessions-header">
+      <div class="sessions-topbar">
+        <div class="sessions-topbar-left">
+          <a href="dashboard.html" class="icon-circle-btn" id="btnBackToDashboard" title="Kembali ke Dashboard" aria-label="Kembali ke Dashboard">
+            <i class="bi bi-arrow-left"></i>
+          </a>
+          <div class="sessions-title-wrap">
+            <h1 class="sessions-page-title">Sesi Belajarku</h1>
+            <div class="sessions-page-sub">Kelola sesi belajar aktif &amp; riwayatmu</div>
+          </div>
+        </div>
+        <span class="sessions-count-pill" id="sessionsCountPill">0 sesi</span>
+      </div>
+
+      <div class="sessions-user-strip">
+        <div class="sessions-user-identity">
+          <div class="sessions-mini-avatar" id="sessionsUserAvatar">M</div>
+          <span class="sessions-user-name" id="sessionsUserName">Mahasiswa</span>
+        </div>
+        <button type="button" class="sessions-refresh-btn" id="btnRefreshSessions" title="Muat ulang daftar sesi">
+          <i class="bi bi-arrow-clockwise"></i>
+          <span>Segarkan</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- FILTER STATUS SESI -->
+    <nav class="status-filter-bar" id="sessionStatusFilterBar" aria-label="Filter status sesi">
+      <button type="button" class="filter-pill-btn active" data-status="">Semua</button>
+      <button type="button" class="filter-pill-btn" data-status="CONFIRMED">Terkonfirmasi</button>
+      <button type="button" class="filter-pill-btn" data-status="COMPLETED">Selesai</button>
+      <button type="button" class="filter-pill-btn" data-status="CANCELLED">Dibatalkan</button>
+      <button type="button" class="filter-pill-btn" data-status="EXPIRED">Kedaluwarsa</button>
+    </nav>
+
+    <!-- KONTEN UTAMA DAFTAR SESI -->
+    <main class="sessions-body">
+      <div id="sessionsFlashContainer" class="d-none" role="status" aria-live="polite"></div>
+      <div id="sessionsListContainer" aria-live="polite"></div>
+    </main>
+
+  </div>
+
+  <script src="js/app.js?v=4.0"></script>
+</body>
+</html>

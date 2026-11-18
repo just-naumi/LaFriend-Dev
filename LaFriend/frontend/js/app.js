@@ -1584,3 +1584,776 @@ function escapeHtml(str) {
   }[tag] || tag));
 }
 
+
+// ==============================================================================
+// 6. DAY 23 — STUDY SESSION LIST & DETAIL PRESENTATION LAYER
+// ==============================================================================
+const SESSION_FLASH_KEY = "lafriend_session_flash";
+
+const SESSION_STATUS_META = {
+  CONFIRMED: { label: "Terkonfirmasi", badgeClass: "s-badge--confirmed" },
+  COMPLETED: { label: "Selesai", badgeClass: "s-badge--completed" },
+  CANCELLED: { label: "Dibatalkan", badgeClass: "s-badge--cancelled" },
+  EXPIRED: { label: "Kedaluwarsa", badgeClass: "s-badge--expired" },
+  DRAFT: { label: "Draf", badgeClass: "s-badge--neutral" },
+  OPEN: { label: "Terbuka", badgeClass: "s-badge--pending" },
+  CONFIRMATION_PENDING: { label: "Menunggu Konfirmasi", badgeClass: "s-badge--pending" },
+};
+
+const SLOT_STATUS_META = {
+  PROPOSED: { label: "Menunggu persetujuan", badgeClass: "s-badge--pending" },
+  APPROVED: { label: "Disetujui", badgeClass: "s-badge--confirmed" },
+  REJECTED: { label: "Ditolak", badgeClass: "s-badge--cancelled" },
+  SUPERSEDED: { label: "Digantikan", badgeClass: "s-badge--neutral" },
+};
+
+const MEMBERSHIP_STATUS_META = {
+  INVITED: { label: "Diundang", badgeClass: "s-badge--pending" },
+  ACCEPTED: { label: "Menerima undangan", badgeClass: "s-badge--member" },
+  CONFIRMED: { label: "Aktif", badgeClass: "s-badge--confirmed" },
+  DECLINED: { label: "Menolak", badgeClass: "s-badge--neutral" },
+  WITHDRAWN: { label: "Mengundurkan diri", badgeClass: "s-badge--cancelled" },
+  REMOVED: { label: "Dikeluarkan", badgeClass: "s-badge--cancelled" },
+};
+
+const LEARNING_GOAL_LABELS = {
+  UNDERSTAND: "Pemahaman Materi",
+  PRACTICE: "Latihan Soal",
+  EXAM_PREP: "Persiapan Ujian",
+  ASSIGNMENT: "Pengerjaan Tugas",
+  DISCUSSION: "Diskusi",
+  KNOWLEDGE_SHARING: "Berbagi Ilmu",
+};
+
+const COLLAB_STYLE_LABELS = {
+  DISCUSSION: "Diskusi Aktif",
+  PRACTICE: "Latihan Bersama",
+  TEACHING: "Saling Mengajar",
+  FOCUS_STUDY: "Fokus Mandiri Bersama",
+};
+
+const LEARNING_MODE_LABELS = {
+  ONLINE: "Online",
+  OFFLINE: "Offline",
+  HYBRID: "Hybrid",
+};
+
+const ID_MONTHS = [
+  "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+  "Juli", "Agustus", "September", "Oktober", "November", "Desember",
+];
+
+// Helper pembuat elemen DOM aman (seluruh teks database melalui textContent)
+function createEl(tag, className, text) {
+  const el = document.createElement(tag);
+  if (className) el.className = className;
+  if (text !== undefined && text !== null) el.textContent = String(text);
+  return el;
+}
+
+function createIcon(iconClass) {
+  const i = document.createElement("i");
+  i.className = `bi ${iconClass}`;
+  i.setAttribute("aria-hidden", "true");
+  return i;
+}
+
+function getSessionStatusMeta(statusCode) {
+  const key = (statusCode || "").toUpperCase();
+  return SESSION_STATUS_META[key] || { label: key || "Tidak Diketahui", badgeClass: "s-badge--neutral" };
+}
+
+function getSlotStatusMeta(statusCode) {
+  const key = (statusCode || "").toUpperCase();
+  return SLOT_STATUS_META[key] || { label: key || "Tidak Diketahui", badgeClass: "s-badge--neutral" };
+}
+
+function getMembershipStatusMeta(statusCode) {
+  const key = (statusCode || "").toUpperCase();
+  return MEMBERSHIP_STATUS_META[key] || { label: key || "Tidak Diketahui", badgeClass: "s-badge--neutral" };
+}
+
+function formatSessionDateIndo(dateStr) {
+  if (!dateStr || typeof dateStr !== "string") return "Jadwal belum ditentukan";
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr.trim());
+  if (!m) return dateStr;
+  const year = parseInt(m[1], 10);
+  const monthIdx = parseInt(m[2], 10) - 1;
+  const day = parseInt(m[3], 10);
+  if (monthIdx < 0 || monthIdx > 11) return dateStr;
+  return `${day} ${ID_MONTHS[monthIdx]} ${year}`;
+}
+
+function getPrimarySlot(slots) {
+  if (!Array.isArray(slots) || slots.length === 0) return null;
+  const approved = slots.find((s) => (s.status || "").toUpperCase() === "APPROVED");
+  return approved || slots[0];
+}
+
+function countActiveMembers(members) {
+  if (!Array.isArray(members)) return 0;
+  return members.filter((m) => {
+    const st = (m.status || "").toUpperCase();
+    return st === "CONFIRMED" || st === "ACCEPTED";
+  }).length;
+}
+
+function countConfirmedMembers(members) {
+  if (!Array.isArray(members)) return 0;
+  return members.filter((m) => (m.status || "").toUpperCase() === "CONFIRMED").length;
+}
+
+function renderInlineAlert(container, variant, message) {
+  if (!container) return;
+  container.textContent = "";
+  if (!message) {
+    container.classList.add("d-none");
+    return;
+  }
+  const iconMap = {
+    success: "bi-check-circle-fill",
+    warning: "bi-exclamation-triangle-fill",
+    danger: "bi-x-circle-fill",
+    info: "bi-info-circle-fill",
+  };
+  const box = createEl("div", `session-alert session-alert--${variant || "info"}`);
+  box.appendChild(createIcon(iconMap[variant] || "bi-info-circle-fill"));
+  box.appendChild(createEl("span", "", message));
+  container.appendChild(box);
+  container.classList.remove("d-none");
+}
+
+function renderStatePanel(container, { icon, iconVariant, title, description, actions = [] }) {
+  container.textContent = "";
+  const card = createEl("div", "state-card");
+
+  if (icon === "spinner") {
+    card.appendChild(createEl("div", "la-spinner"));
+  } else {
+    const circle = createEl(
+      "div",
+      `state-icon-circle${iconVariant ? ` state-icon-circle--${iconVariant}` : ""}`
+    );
+    circle.appendChild(createIcon(icon || "bi-info-circle"));
+    card.appendChild(circle);
+  }
+
+  card.appendChild(createEl("div", "state-title", title));
+  if (description) {
+    card.appendChild(createEl("p", "state-desc", description));
+  }
+
+  if (actions.length > 0) {
+    const actionsWrap = createEl("div", "state-actions");
+    actions.forEach((act) => {
+      if (act.href) {
+        const link = createEl("a", `btn-la ${act.variantClass || "btn-la--primary"} btn-la--sm`, act.label);
+        link.href = act.href;
+        actionsWrap.appendChild(link);
+      } else {
+        const btn = createEl("button", `btn-la ${act.variantClass || "btn-la--primary"} btn-la--sm`, act.label);
+        btn.type = "button";
+        if (typeof act.onClick === "function") {
+          btn.addEventListener("click", act.onClick);
+        }
+        actionsWrap.appendChild(btn);
+      }
+    });
+    card.appendChild(actionsWrap);
+  }
+
+  container.appendChild(card);
+}
+
+
+// ==============================================================================
+// 6A. HALAMAN DAFTAR SESI SAYA (sessions.html — Day 23.2)
+// ==============================================================================
+const sessionsPageState = {
+  activeStatus: "",
+  isLoading: false,
+  requestSeq: 0,
+};
+
+function initSessionsPage() {
+  const user = app.requireAuth();
+  if (!user) return;
+
+  const userNameEl = document.getElementById("sessionsUserName");
+  const avatarEl = document.getElementById("sessionsUserAvatar");
+  if (userNameEl) userNameEl.textContent = user.full_name || "Mahasiswa";
+  if (avatarEl) {
+    const initial = (user.full_name || "M").trim().charAt(0).toUpperCase() || "M";
+    avatarEl.textContent = initial;
+  }
+
+  // Tampilkan flash message bila baru kembali dari aksi withdraw
+  const flashContainer = document.getElementById("sessionsFlashContainer");
+  const flashRaw = sessionStorage.getItem(SESSION_FLASH_KEY);
+  if (flashRaw) {
+    sessionStorage.removeItem(SESSION_FLASH_KEY);
+    try {
+      const parsed = JSON.parse(flashRaw);
+      renderInlineAlert(flashContainer, parsed.variant || "success", parsed.message || "");
+    } catch {
+      renderInlineAlert(flashContainer, "success", flashRaw);
+    }
+  }
+
+  // Bind status filter pills
+  const filterBar = document.getElementById("sessionStatusFilterBar");
+  if (filterBar) {
+    filterBar.addEventListener("click", (e) => {
+      const btn = e.target.closest(".filter-pill-btn");
+      if (!btn) return;
+      const newStatus = btn.dataset.status || "";
+      if (newStatus === sessionsPageState.activeStatus && !sessionsPageState.isLoading) {
+        return;
+      }
+      sessionsPageState.activeStatus = newStatus;
+      filterBar.querySelectorAll(".filter-pill-btn").forEach((pill) => {
+        pill.classList.toggle("active", pill === btn);
+      });
+      loadMySessionsList(user);
+    });
+  }
+
+  // Tombol segarkan
+  const btnRefresh = document.getElementById("btnRefreshSessions");
+  if (btnRefresh) {
+    btnRefresh.addEventListener("click", () => loadMySessionsList(user));
+  }
+
+  loadMySessionsList(user);
+}
+
+async function loadMySessionsList(user) {
+  const container = document.getElementById("sessionsListContainer");
+  const countPill = document.getElementById("sessionsCountPill");
+  if (!container) return;
+
+  const seq = ++sessionsPageState.requestSeq;
+  sessionsPageState.isLoading = true;
+
+  renderStatePanel(container, {
+    icon: "spinner",
+    title: "Memuat Sesi Belajar...",
+    description: "Mengambil daftar sesi terbarumu dari server.",
+  });
+
+  try {
+    const sessions = await app.sessions.listMySessions(sessionsPageState.activeStatus);
+    if (seq !== sessionsPageState.requestSeq) return; // Abaikan response usang
+
+    const list = Array.isArray(sessions) ? sessions : [];
+    if (countPill) {
+      countPill.textContent = `${list.length} sesi`;
+    }
+
+    if (list.length === 0) {
+      const isFiltered = Boolean(sessionsPageState.activeStatus);
+      const statusLabel = isFiltered ? getSessionStatusMeta(sessionsPageState.activeStatus).label : "";
+      renderStatePanel(container, {
+        icon: "bi-calendar2-x",
+        title: isFiltered ? `Belum Ada Sesi ${statusLabel}` : "Belum Ada Sesi Belajar",
+        description: isFiltered
+          ? `Tidak ditemukan sesi belajar dengan status "${statusLabel}". Coba lihat filter lain atau buat Study Intent baru.`
+          : "Kamu belum tergabung dalam sesi belajar aktif maupun riwayat sesi. Buat Study Intent sekarang untuk mulai berkolaborasi!",
+        actions: isFiltered
+          ? [
+              {
+                label: "Lihat Semua Sesi",
+                variantClass: "btn-la--secondary",
+                onClick: () => {
+                  const allBtn = document.querySelector('#sessionStatusFilterBar .filter-pill-btn[data-status=""]');
+                  if (allBtn) allBtn.click();
+                },
+              },
+              { label: "Buat Study Intent", href: "create-intent.html", variantClass: "btn-la--primary" },
+            ]
+          : [{ label: "Buat Study Intent", href: "create-intent.html", variantClass: "btn-la--primary" }],
+      });
+      return;
+    }
+
+    renderMySessionsCards(container, list, user);
+  } catch (err) {
+    if (seq !== sessionsPageState.requestSeq) return;
+    if (countPill) countPill.textContent = "0 sesi";
+
+    if (err.status === 401) {
+      app.handleUnauthorized();
+      return;
+    }
+
+    if (err.isNetworkError || err.status === 0) {
+      renderStatePanel(container, {
+        icon: "bi-wifi-off",
+        iconVariant: "warning",
+        title: "Koneksi Bermasalah",
+        description: "Tidak dapat terhubung ke server LaFriend. Periksa koneksi jaringanmu lalu coba lagi.",
+        actions: [{ label: "Coba Lagi", variantClass: "btn-la--primary", onClick: () => loadMySessionsList(user) }],
+      });
+      return;
+    }
+
+    renderStatePanel(container, {
+      icon: "bi-exclamation-octagon",
+      iconVariant: "danger",
+      title: "Gagal Memuat Daftar Sesi",
+      description: err.status >= 500
+        ? "Terjadi kesalahan pada server saat memuat daftar sesi. Silakan coba beberapa saat lagi."
+        : (err.message || "Terjadi kesalahan saat mengambil daftar sesi belajar."),
+      actions: [{ label: "Coba Lagi", variantClass: "btn-la--primary", onClick: () => loadMySessionsList(user) }],
+    });
+  } finally {
+    if (seq === sessionsPageState.requestSeq) {
+      sessionsPageState.isLoading = false;
+    }
+  }
+}
+
+function renderMySessionsCards(container, sessions, user) {
+  container.textContent = "";
+  const fragment = document.createDocumentFragment();
+
+  sessions.forEach((session) => {
+    const isHost = session.host_id === user.student_id;
+    const statusMeta = getSessionStatusMeta(session.status);
+    const primarySlot = getPrimarySlot(session.slots);
+    const activeCount = countActiveMembers(session.members);
+
+    const card = createEl("article", "session-card");
+    card.dataset.sessionId = session.session_id || "";
+
+    // Baris atas: badge status + badge role
+    const topRow = createEl("div", "session-card-top");
+    const badgesLeft = createEl("div", "badge-row");
+    badgesLeft.appendChild(createEl("span", `s-badge ${statusMeta.badgeClass}`, statusMeta.label));
+    badgesLeft.appendChild(
+      createEl("span", `s-badge ${isHost ? "s-badge--host" : "s-badge--member"}`, isHost ? "HOST" : "MEMBER")
+    );
+    topRow.appendChild(badgesLeft);
+    card.appendChild(topRow);
+
+    // Judul & Mata Kuliah
+    card.appendChild(createEl("h2", "session-card-title", session.title || "Sesi Belajar"));
+
+    const courseParts = [];
+    if (session.course && session.course.course_code) courseParts.push(session.course.course_code);
+    if (session.course && session.course.course_name) courseParts.push(session.course.course_name);
+    const modeLabel = LEARNING_MODE_LABELS[(session.learning_mode || "").toUpperCase()] || session.learning_mode || "-";
+    const styleLabel = COLLAB_STYLE_LABELS[(session.collaboration_style || "").toUpperCase()] || session.collaboration_style || "-";
+    const courseLine = courseParts.length > 0
+      ? `${courseParts.join(" · ")} · ${modeLabel}`
+      : `${styleLabel} · ${modeLabel}`;
+    card.appendChild(createEl("div", "session-card-course", courseLine));
+
+    // Meta chips: tanggal, jam, mode
+    const metaGrid = createEl("div", "session-meta-grid");
+
+    const dateChip = createEl("div", "session-meta-chip");
+    dateChip.appendChild(createIcon("bi-calendar-event"));
+    dateChip.appendChild(
+      createEl("span", "", primarySlot ? formatSessionDateIndo(primarySlot.session_date) : "Jadwal belum tersedia")
+    );
+    metaGrid.appendChild(dateChip);
+
+    if (primarySlot && primarySlot.start_time && primarySlot.end_time) {
+      const timeChip = createEl("div", "session-meta-chip");
+      timeChip.appendChild(createIcon("bi-clock"));
+      const extraSlots = Array.isArray(session.slots) && session.slots.length > 1
+        ? ` (+${session.slots.length - 1} slot)`
+        : "";
+      timeChip.appendChild(createEl("span", "", `${primarySlot.start_time}–${primarySlot.end_time}${extraSlots}`));
+      metaGrid.appendChild(timeChip);
+    }
+
+    const modeChip = createEl("div", "session-meta-chip");
+    modeChip.appendChild(createIcon(session.learning_mode === "ONLINE" ? "bi-camera-video" : "bi-geo-alt"));
+    modeChip.appendChild(createEl("span", "", modeLabel));
+    metaGrid.appendChild(modeChip);
+
+    card.appendChild(metaGrid);
+
+    // Footer: jumlah anggota + tombol Lihat Detail
+    const footer = createEl("div", "session-card-footer");
+    const memberSummary = createEl("div", "session-member-summary");
+    memberSummary.appendChild(createIcon("bi-people-fill"));
+    memberSummary.appendChild(
+      createEl("span", "", `${activeCount} anggota aktif · ${isHost ? "Host" : "Member"}`)
+    );
+    footer.appendChild(memberSummary);
+
+    const detailBtn = createEl("a", "btn-detail-link");
+    detailBtn.href = `session-detail.html?id=${encodeURIComponent(session.session_id)}`;
+    detailBtn.appendChild(createEl("span", "", "Lihat Detail"));
+    detailBtn.appendChild(createIcon("bi-arrow-right"));
+    footer.appendChild(detailBtn);
+
+    card.appendChild(footer);
+    fragment.appendChild(card);
+  });
+
+  container.appendChild(fragment);
+}
+
+
+// ==============================================================================
+// 6B. HALAMAN DETAIL SESI & VISUALISASI KEANGGOTAAN (session-detail.html — Day 23.3)
+// ==============================================================================
+const sessionDetailState = {
+  sessionId: "",
+  user: null,
+  session: null,
+  isActionPending: false,
+  requestSeq: 0,
+};
+
+function initSessionDetailPage() {
+  const user = app.requireAuth();
+  if (!user) return;
+
+  sessionDetailState.user = user;
+  const params = new URLSearchParams(window.location.search);
+  const sessionId = (params.get("id") || "").trim();
+  sessionDetailState.sessionId = sessionId;
+
+  const btnRefresh = document.getElementById("btnRefreshDetail");
+  if (btnRefresh) {
+    btnRefresh.addEventListener("click", () => {
+      if (!sessionDetailState.isActionPending) {
+        loadSessionDetail({ preserveAlert: false });
+      }
+    });
+  }
+
+  if (!sessionId) {
+    const headerSub = document.getElementById("detailHeaderSub");
+    if (headerSub) headerSub.textContent = "ID sesi tidak valid";
+    const container = document.getElementById("sessionDetailContent");
+    if (container) {
+      renderStatePanel(container, {
+        icon: "bi-search",
+        iconVariant: "warning",
+        title: "Sesi Tidak Ditemukan",
+        description: "Tautan detail sesi tidak menyertakan ID sesi yang valid.",
+        actions: [{ label: "Kembali ke Sesi Belajarku", href: "sessions.html", variantClass: "btn-la--primary" }],
+      });
+    }
+    return;
+  }
+
+  loadSessionDetail({ preserveAlert: false });
+}
+
+async function loadSessionDetail({ preserveAlert = false } = {}) {
+  const container = document.getElementById("sessionDetailContent");
+  const alertContainer = document.getElementById("detailAlertContainer");
+  const headerSub = document.getElementById("detailHeaderSub");
+  if (!container) return;
+
+  if (!preserveAlert && alertContainer) {
+    renderInlineAlert(alertContainer, "info", "");
+  }
+
+  const seq = ++sessionDetailState.requestSeq;
+  renderStatePanel(container, {
+    icon: "spinner",
+    title: "Memuat Detail Sesi...",
+    description: "Mengambil informasi terbaru dari server.",
+  });
+
+  try {
+    const session = await app.sessions.getDetail(sessionDetailState.sessionId);
+    if (seq !== sessionDetailState.requestSeq) return;
+
+    sessionDetailState.session = session;
+    renderSessionDetail(session);
+  } catch (err) {
+    if (seq !== sessionDetailState.requestSeq) return;
+    sessionDetailState.session = null;
+
+    if (err.status === 401) {
+      app.handleUnauthorized();
+      return;
+    }
+
+    if (err.status === 403) {
+      // PENTING: HTTP 403 bukan logout; jangan hapus token!
+      // Jangan pula mencoba membaca detail melalui endpoint alternatif.
+      if (headerSub) headerSub.textContent = "Akses ditolak";
+      renderStatePanel(container, {
+        icon: "bi-shield-lock",
+        iconVariant: "danger",
+        title: "Akses Ditolak",
+        description: err.message || "Kamu tidak lagi memiliki hak akses untuk melihat detail sesi belajar ini.",
+        actions: [{ label: "Kembali ke Sesi Belajarku", href: "sessions.html", variantClass: "btn-la--primary" }],
+      });
+      return;
+    }
+
+    if (err.status === 404) {
+      if (headerSub) headerSub.textContent = "Sesi tidak ditemukan";
+      renderStatePanel(container, {
+        icon: "bi-question-circle",
+        iconVariant: "warning",
+        title: "Sesi Tidak Ditemukan",
+        description: err.message || "Sesi belajar yang kamu cari tidak ditemukan atau sudah tidak tersedia.",
+        actions: [{ label: "Kembali ke Sesi Belajarku", href: "sessions.html", variantClass: "btn-la--primary" }],
+      });
+      return;
+    }
+
+    if (err.isNetworkError || err.status === 0) {
+      if (headerSub) headerSub.textContent = "Koneksi bermasalah";
+      renderStatePanel(container, {
+        icon: "bi-wifi-off",
+        iconVariant: "warning",
+        title: "Koneksi Bermasalah",
+        description: "Tidak dapat terhubung ke server. Periksa koneksimu lalu coba muat ulang.",
+        actions: [
+          { label: "Coba Lagi", variantClass: "btn-la--primary", onClick: () => loadSessionDetail({ preserveAlert: false }) },
+          { label: "Kembali ke Sesi Belajarku", href: "sessions.html", variantClass: "btn-la--secondary" },
+        ],
+      });
+      return;
+    }
+
+    if (headerSub) headerSub.textContent = "Gagal memuat sesi";
+    renderStatePanel(container, {
+      icon: "bi-exclamation-octagon",
+      iconVariant: "danger",
+      title: "Gagal Memuat Detail Sesi",
+      description: err.status >= 500
+        ? "Terjadi kesalahan pada server. Silakan coba beberapa saat lagi."
+        : (err.message || "Terjadi kesalahan saat mengambil detail sesi belajar."),
+      actions: [
+        { label: "Coba Lagi", variantClass: "btn-la--primary", onClick: () => loadSessionDetail({ preserveAlert: false }) },
+        { label: "Kembali ke Sesi Belajarku", href: "sessions.html", variantClass: "btn-la--secondary" },
+      ],
+    });
+  }
+}
+
+function renderSessionDetail(session) {
+  const container = document.getElementById("sessionDetailContent");
+  const headerSub = document.getElementById("detailHeaderSub");
+  const user = sessionDetailState.user;
+  if (!container || !session || !user) return;
+
+  const members = Array.isArray(session.members) ? session.members : [];
+  const slots = Array.isArray(session.slots) ? session.slots : [];
+  const isHost = session.host_id === user.student_id;
+  const myMembership = members.find((m) => m.student_id === user.student_id) || null;
+  const statusMeta = getSessionStatusMeta(session.status);
+  const confirmedCount = countConfirmedMembers(members);
+
+  if (headerSub) {
+    headerSub.textContent = `${statusMeta.label} · ${isHost ? "Host" : "Member"}`;
+  }
+
+  container.textContent = "";
+  const fragment = document.createDocumentFragment();
+
+  // --- BAGIAN A: SESSION OVERVIEW ---
+  const overviewCard = createEl("section", "detail-section-card");
+  overviewCard.setAttribute("aria-label", "Ringkasan Sesi");
+
+  const badgeRow = createEl("div", "badge-row");
+  badgeRow.appendChild(createEl("span", `s-badge ${statusMeta.badgeClass}`, statusMeta.label));
+  badgeRow.appendChild(
+    createEl("span", `s-badge ${isHost ? "s-badge--host" : "s-badge--member"}`, isHost ? "Kamu adalah HOST" : "Kamu adalah MEMBER")
+  );
+  overviewCard.appendChild(badgeRow);
+
+  overviewCard.appendChild(createEl("h2", "detail-hero-title", session.title || "Sesi Belajar"));
+
+  if (session.course) {
+    const cLabel = [session.course.course_code, session.course.course_name].filter(Boolean).join(" — ");
+    if (cLabel) {
+      overviewCard.appendChild(createEl("div", "detail-course-line", cLabel));
+    }
+  }
+
+  if (session.description && session.description.trim()) {
+    overviewCard.appendChild(createEl("p", "detail-description", session.description.trim()));
+  }
+
+  const kvGrid = createEl("div", "detail-kv-grid");
+  const kvItems = [
+    {
+      label: "Tujuan Belajar",
+      value: LEARNING_GOAL_LABELS[(session.learning_goal || "").toUpperCase()] || session.learning_goal || "-",
+    },
+    {
+      label: "Gaya Kolaborasi",
+      value: COLLAB_STYLE_LABELS[(session.collaboration_style || "").toUpperCase()] || session.collaboration_style || "-",
+    },
+    {
+      label: "Mode Belajar",
+      value: LEARNING_MODE_LABELS[(session.learning_mode || "").toUpperCase()] || session.learning_mode || "-",
+    },
+    {
+      label: "Ukuran Grup",
+      value: `${session.min_group_size}–${session.max_group_size} mahasiswa (${confirmedCount} aktif)`,
+    },
+  ];
+  if (session.location && session.location.trim()) {
+    kvItems.push({ label: "Lokasi / Tautan", value: session.location.trim(), full: true });
+  }
+
+  kvItems.forEach((item) => {
+    const box = createEl("div", `detail-kv-item${item.full ? " detail-kv-item--full" : ""}`);
+    box.appendChild(createEl("div", "detail-kv-label", item.label));
+    box.appendChild(createEl("div", "detail-kv-value", item.value));
+    kvGrid.appendChild(box);
+  });
+  overviewCard.appendChild(kvGrid);
+  fragment.appendChild(overviewCard);
+
+  // --- BAGIAN B: SCHEDULE INFORMATION ---
+  const scheduleCard = createEl("section", "detail-section-card");
+  scheduleCard.setAttribute("aria-label", "Informasi Jadwal");
+
+  const schedHeader = createEl("div", "detail-section-header");
+  const schedTitle = createEl("div", "detail-section-title");
+  schedTitle.appendChild(createIcon("bi-calendar3"));
+  schedTitle.appendChild(createEl("span", "", "Jadwal Sesi"));
+  schedHeader.appendChild(schedTitle);
+  schedHeader.appendChild(createEl("span", "s-badge s-badge--neutral", `${slots.length} slot`));
+  scheduleCard.appendChild(schedHeader);
+
+  if (slots.length === 0) {
+    scheduleCard.appendChild(createEl("div", "lifecycle-status-note", "Belum ada slot jadwal tercatat untuk sesi ini."));
+  } else {
+    const slotList = createEl("div", "slot-list");
+    slots.forEach((slot) => {
+      const slotMeta = getSlotStatusMeta(slot.status);
+      const row = createEl("div", "slot-item-row");
+
+      const info = createEl("div", "slot-item-info");
+      info.appendChild(createEl("div", "slot-item-date", formatSessionDateIndo(slot.session_date)));
+      info.appendChild(createEl("div", "slot-item-time", `${slot.start_time || "--:--"} – ${slot.end_time || "--:--"}`));
+      row.appendChild(info);
+
+      row.appendChild(createEl("span", `s-badge ${slotMeta.badgeClass}`, slotMeta.label));
+      slotList.appendChild(row);
+    });
+    scheduleCard.appendChild(slotList);
+  }
+  fragment.appendChild(scheduleCard);
+
+  // --- BAGIAN C: MEMBERS (STRICT PRIVACY: tanpa intent_id, email, atau NIM) ---
+  const membersCard = createEl("section", "detail-section-card");
+  membersCard.setAttribute("aria-label", "Daftar Anggota");
+
+  const memHeader = createEl("div", "detail-section-header");
+  const memTitle = createEl("div", "detail-section-title");
+  memTitle.appendChild(createIcon("bi-people-fill"));
+  memTitle.appendChild(createEl("span", "", "Anggota Sesi"));
+  memHeader.appendChild(memTitle);
+  memHeader.appendChild(createEl("span", "s-badge s-badge--neutral", `${members.length} tercatat`));
+  membersCard.appendChild(memHeader);
+
+  if (members.length === 0) {
+    membersCard.appendChild(createEl("div", "lifecycle-status-note", "Belum ada anggota tercatat."));
+  } else {
+    const memberList = createEl("div", "member-list");
+    members.forEach((member) => {
+      const memberStatus = (member.status || "").toUpperCase();
+      const memberRole = (member.role || "MEMBER").toUpperCase();
+      const memMeta = getMembershipStatusMeta(memberStatus);
+      const isMe = member.student_id === user.student_id;
+      const isMemberHost = memberRole === "HOST" || member.student_id === session.host_id;
+      const displayName = (member.student && member.student.full_name) ? member.student.full_name : "Mahasiswa";
+      const isInactive = memberStatus === "WITHDRAWN" || memberStatus === "REMOVED" || memberStatus === "DECLINED";
+
+      const row = createEl("div", `member-item-row${isInactive ? " member-item-row--inactive" : ""}`);
+      row.dataset.studentId = member.student_id || "";
+
+      const left = createEl("div", "member-item-left");
+      left.appendChild(createEl("div", "member-avatar", displayName.trim().charAt(0).toUpperCase() || "M"));
+
+      const info = createEl("div", "member-info");
+      const nameRow = createEl("div", "member-name-row");
+      nameRow.appendChild(createEl("span", "member-name", displayName));
+      if (isMe) {
+        nameRow.appendChild(createEl("span", "s-badge s-badge--you", "Kamu"));
+      }
+      info.appendChild(nameRow);
+
+      const memBadges = createEl("div", "badge-row");
+      memBadges.appendChild(
+        createEl("span", `s-badge ${isMemberHost ? "s-badge--host" : "s-badge--member"}`, isMemberHost ? "HOST" : "MEMBER")
+      );
+      memBadges.appendChild(createEl("span", `s-badge ${memMeta.badgeClass}`, memMeta.label));
+      info.appendChild(memBadges);
+
+      left.appendChild(info);
+      row.appendChild(left);
+
+      // Slot tombol aksi tingkat anggota (diisi pada Day 23.4 untuk Host Remove)
+      const actionsSlot = createEl("div", "member-item-actions");
+      if (typeof attachMemberRowAction === "function") {
+        attachMemberRowAction(actionsSlot, { session, member, isHost, isMemberHost, displayName });
+      }
+      if (actionsSlot.childNodes.length > 0) {
+        row.appendChild(actionsSlot);
+      }
+
+      memberList.appendChild(row);
+    });
+    membersCard.appendChild(memberList);
+  }
+  fragment.appendChild(membersCard);
+
+  // --- BAGIAN D: LIFECYCLE INFORMATION & CONTROLS ---
+  const lifecycleCard = createEl("section", "detail-section-card");
+  lifecycleCard.setAttribute("aria-label", "Status dan Pengelolaan Sesi");
+
+  const lcHeader = createEl("div", "detail-section-header");
+  const lcTitle = createEl("div", "detail-section-title");
+  lcTitle.appendChild(createIcon("bi-sliders"));
+  lcTitle.appendChild(createEl("span", "", "Pengelolaan Sesi"));
+  lcHeader.appendChild(lcTitle);
+  lcHeader.appendChild(createEl("span", `s-badge ${statusMeta.badgeClass}`, statusMeta.label));
+  lifecycleCard.appendChild(lcHeader);
+
+  // Informasi kebijakan Quorum Option A (Explicit Host Control):
+  // Jika anggota CONFIRMED < min_group_size saat sesi masih CONFIRMED, tampilkan info saja tanpa auto-cancel.
+  if (session.status === "CONFIRMED" && confirmedCount < session.min_group_size) {
+    const quorumBox = createEl("div", "session-alert session-alert--warning");
+    quorumBox.appendChild(createIcon("bi-info-circle-fill"));
+    quorumBox.appendChild(
+      createEl(
+        "span",
+        "",
+        `Jumlah anggota aktif (${confirmedCount}) saat ini berada di bawah batas minimum grup (${session.min_group_size}). Sesi tetap berstatus Terkonfirmasi sampai Host menentukan tindakan selanjutnya.`
+      )
+    );
+    lifecycleCard.appendChild(quorumBox);
+  }
+
+  const actionsContainer = createEl("div", "lifecycle-actions-stack");
+  actionsContainer.id = "lifecycleActionsSlot";
+
+  if (typeof renderLifecycleActionControls === "function") {
+    renderLifecycleActionControls(actionsContainer, { session, user, isHost, myMembership });
+  } else {
+    actionsContainer.appendChild(
+      createEl(
+        "div",
+        "lifecycle-status-note",
+        `Status sesi saat ini: ${statusMeta.label}.`
+      )
+    );
+  }
+
+  lifecycleCard.appendChild(actionsContainer);
+  fragment.appendChild(lifecycleCard);
+
+  container.appendChild(fragment);
+}
+
+
