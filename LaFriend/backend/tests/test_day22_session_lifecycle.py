@@ -843,8 +843,6 @@ class TestDay22LifecycleConcurrencyAndLockRecovery(unittest.TestCase):
     def test_13_real_sqlite_lock_recovery_exhaustion_and_wall_clock_budget(self):
         """Day 22.4: Lock fisik SQLite nyata (DELETE & WAL) pulih saat dilepas, fail-closed 409 saat exhausted, & patuh batas wall-clock budget."""
         import time
-        from unittest.mock import patch
-        import app.session_lifecycle_service as lc_mod
 
         # A. Lock dilepas setelah rollback pertama -> complete berhasil (uji pada DELETE & WAL)
         for journal_mode in ("DELETE", "WAL"):
@@ -894,40 +892,69 @@ class TestDay22LifecycleConcurrencyAndLockRecovery(unittest.TestCase):
                     lock_conn_a.close()
                     eng_a.dispose()
 
-        # B. Lock ditahan hingga batas waktu wall-clock/retry habis -> fail-closed HTTP 409 cepat & status tetap CONFIRMED
-        db_file_b, db_url_b, eng_b = self._create_file_db(busy_timeout_ms=40, journal_mode="DELETE")
-        lock_conn_b = sqlite3.connect(str(db_file_b), isolation_level=None, timeout=5.0)
+        # B. Pengujian konfigurasi produksi aktual (persis database.py: default timeout 5000ms, mode DELETE, TANPA patch budget):
+        # Membuktikan _sqlite_bounded_busy_timeout benar-benar memotong penantian default 5 detik SQLite
+        # agar total wall-clock request tetap di bawah anggaran 2 detik dan busy_timeout koneksi dipulihkan ke 5000ms.
+        self._counter += 1
+        prod_db_file = Path(self._tmpdir.name) / f"lafriend_d22_prod_bt_{self._counter}.db"
+        prod_db_url = f"sqlite:///{prod_db_file.as_posix()}"
+        # Persis seperti database.py: connect_args={"check_same_thread": False} tanpa override timeout (default Python sqlite3 = 5000ms)
+        eng_prod = create_engine(prod_db_url, connect_args={"check_same_thread": False})
+
+        @event.listens_for(eng_prod, "connect")
+        def _prod_fk(dbapi_conn, _conn_record):
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA foreign_keys=ON")
+            cur.close()
+
+        ensure_database_schema(eng_prod)
+        lock_conn_b = sqlite3.connect(str(prod_db_file), isolation_level=None, timeout=5.0)
         try:
-            self._seed_confirmed_session(eng_b, "SESS-LOCK-EXH")
-            SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng_b)
+            self._seed_confirmed_session(eng_prod, "SESS-LOCK-PROD-2S")
+            SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng_prod)
+
+            # Pastikan engine memang memiliki default busy_timeout 5000ms (5 detik) sebelum eksekusi
+            with eng_prod.connect() as chk_conn:
+                default_bt = chk_conn.execute(text("PRAGMA busy_timeout")).scalar()
+                self.assertGreaterEqual(int(default_bt), 5000)
+
             lock_conn_b.execute("BEGIN IMMEDIATE")
             t0 = time.monotonic()
             try:
                 db = SessionFactory()
                 try:
                     mem = db.query(Student).filter_by(student_id="s_mem").first()
-                    # Verifikasi wall-clock budget (mis. 0.09s) memotong retry secara deterministik tanpa menggantung
-                    with patch.object(lc_mod, "_LOCK_RETRY_TIME_BUDGET_SECONDS", 0.09):
-                        with self.assertRaises(HTTPException) as ctx:
-                            withdraw_from_study_session_service(db, "SESS-LOCK-EXH", mem)
+                    with self.assertRaises(HTTPException) as ctx:
+                        withdraw_from_study_session_service(db, "SESS-LOCK-PROD-2S", mem)
                     self.assertEqual(ctx.exception.status_code, 409)
                 finally:
                     db.close()
             finally:
                 lock_conn_b.execute("ROLLBACK")
             elapsed = time.monotonic() - t0
-            self.assertLess(elapsed, 1.5, f"Lock exhaustion tidak boleh menggantung melampaui retry budget: {elapsed:.3f}s")
 
-            v_eng, v_db = self._open_verify_session(db_url_b)
+            # Bukti nyata Pilihan A: meskipun driver sqlite3 default 5.0s, total eksekusi selesai < 2.5s (jauh di bawah 5.0s!)
+            self.assertLess(
+                elapsed,
+                2.5,
+                f"Hard wall-clock budget 2s wajib membatasi tunggu SQLite default 5s, aktual: {elapsed:.3f}s",
+            )
+
+            # Pastikan PRAGMA busy_timeout koneksi pool dipulihkan ke nilai awal (5000ms)
+            with eng_prod.connect() as chk_after:
+                restored_bt = chk_after.execute(text("PRAGMA busy_timeout")).scalar()
+                self.assertEqual(int(restored_bt), int(default_bt))
+
+            v_eng, v_db = self._open_verify_session(prod_db_url)
             try:
-                self.assertEqual(v_db.query(StudySession).filter_by(session_id="SESS-LOCK-EXH").first().status, "CONFIRMED")
-                self.assertEqual(v_db.query(SessionMember).filter_by(session_id="SESS-LOCK-EXH", student_id="s_mem").first().status, "CONFIRMED")
+                self.assertEqual(v_db.query(StudySession).filter_by(session_id="SESS-LOCK-PROD-2S").first().status, "CONFIRMED")
+                self.assertEqual(v_db.query(SessionMember).filter_by(session_id="SESS-LOCK-PROD-2S", student_id="s_mem").first().status, "CONFIRMED")
             finally:
                 v_db.close()
                 v_eng.dispose()
         finally:
             lock_conn_b.close()
-            eng_b.dispose()
+            eng_prod.dispose()
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@
 #    untuk SQLite lock contention, serta sanitasi error HTTP 500 (server-side logging).
 # ==============================================================================
 
+from contextlib import contextmanager
 import logging
 import time
 from datetime import datetime
@@ -35,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 _MAX_SQLITE_LOCK_RETRIES = 4
 _LOCK_RETRY_TIME_BUDGET_SECONDS = 2.0
+_PER_ATTEMPT_BUSY_TIMEOUT_MS = 450
 _ACTIVE_DETAIL_MEMBER_STATUSES = ("CONFIRMED", "ACCEPTED")
 _GENERIC_INTERNAL_ERROR_DETAIL = "Terjadi kesalahan internal saat memproses permintaan sesi belajar."
 
@@ -71,6 +73,56 @@ def _compute_lock_retry_delay(attempt: int, started_at: float) -> Optional[float
     if remaining <= 0.0:
         return None
     return min(0.015 * (attempt + 1), remaining)
+
+
+@contextmanager
+def _sqlite_bounded_busy_timeout(db: Session, started_at: float):
+    """
+    Menegakkan batas wall-clock nyata pada koneksi SQLite per percobaan dengan
+    membatasi PRAGMA busy_timeout <= min(existing_timeout, _PER_ATTEMPT_BUSY_TIMEOUT_MS, remaining_ms),
+    lalu mengembalikan nilai busy_timeout semula saat keluar blok.
+    Menjamin request tidak pernah menunggu 5 detik (default sqlite3) ketika anggaran 2 detik ditetapkan.
+    """
+    bind = db.get_bind()
+    if bind is None or bind.dialect.name != "sqlite":
+        yield
+        return
+
+    remaining_s = _LOCK_RETRY_TIME_BUDGET_SECONDS - (time.monotonic() - started_at)
+    if remaining_s <= 0.0:
+        raise OperationalError("SQLite lock budget exceeded before statement", {}, Exception("database is locked"))
+
+    cap_ms = max(1, min(_PER_ATTEMPT_BUSY_TIMEOUT_MS, int(remaining_s * 1000)))
+    sa_conn = db.connection()
+    raw_conn = getattr(sa_conn.connection, "dbapi_connection", None)
+    if raw_conn is None:
+        yield
+        return
+
+    orig_bt: Optional[int] = None
+    cur = raw_conn.cursor()
+    try:
+        cur.execute("PRAGMA busy_timeout")
+        row = cur.fetchone()
+        orig_bt = int(row[0]) if row and row[0] is not None else None
+        effective_ms = max(1, min(orig_bt, cap_ms) if (orig_bt is not None and orig_bt > 0) else cap_ms)
+        cur.execute(f"PRAGMA busy_timeout = {effective_ms}")
+    finally:
+        cur.close()
+
+    try:
+        yield
+    finally:
+        if orig_bt is not None and not sa_conn.closed and not sa_conn.invalidated:
+            try:
+                restore_cur = raw_conn.cursor()
+                try:
+                    restore_cur.execute(f"PRAGMA busy_timeout = {orig_bt}")
+                finally:
+                    restore_cur.close()
+            except Exception:
+                # Koneksi fisik telah ditutup (mis. NullPool pada commit/rollback)
+                pass
 
 
 def _get_session_or_404(db: Session, session_id: str) -> StudySession:
@@ -133,66 +185,67 @@ def _transition_session_status_atomic(
     started_at = time.monotonic()
     for attempt in range(_MAX_SQLITE_LOCK_RETRIES):
         try:
-            session = _get_session_or_404(db, session_id)
+            with _sqlite_bounded_busy_timeout(db, started_at):
+                session = _get_session_or_404(db, session_id)
 
-            # 1. Otorisasi Host wajib mendahului idempotency agar non-host tidak dapat mengintip state
-            if session.host_id != current_student.student_id:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Hanya host sesi belajar yang berhak melakukan {action_label}."
-                )
+                # 1. Otorisasi Host wajib mendahului idempotency agar non-host tidak dapat mengintip state
+                if session.host_id != current_student.student_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"Hanya host sesi belajar yang berhak melakukan {action_label}."
+                    )
 
-            # 2. Idempotency jalur cepat jika sudah berada pada target_status
-            if session.status == target_status:
-                return format_study_session_response(session, db)
+                # 2. Idempotency jalur cepat jika sudah berada pada target_status
+                if session.status == target_status:
+                    return format_study_session_response(session, db)
 
-            # 3. Validasi State Machine: hanya status CONFIRMED yang boleh bertransisi
-            if session.status != "CONFIRMED":
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=(
-                        f"Tidak dapat melakukan {action_label} pada sesi berstatus '{session.status}'. "
-                        f"Transisi hanya diizinkan dari status 'CONFIRMED'."
+                # 3. Validasi State Machine: hanya status CONFIRMED yang boleh bertransisi
+                if session.status != "CONFIRMED":
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=(
+                            f"Tidak dapat melakukan {action_label} pada sesi berstatus '{session.status}'. "
+                            f"Transisi hanya diizinkan dari status 'CONFIRMED'."
+                        )
+                    )
+
+                # 4. Atomic Conditional Update (anti race condition)
+                updated_rows = (
+                    db.query(StudySession)
+                    .filter(
+                        StudySession.session_id == session_id,
+                        StudySession.host_id == current_student.student_id,
+                        StudySession.status == "CONFIRMED",
+                    )
+                    .update(
+                        {
+                            StudySession.status: target_status,
+                            StudySession.updated_at: datetime.utcnow(),
+                        },
+                        synchronize_session="fetch",
                     )
                 )
 
-            # 4. Atomic Conditional Update (anti race condition)
-            updated_rows = (
-                db.query(StudySession)
-                .filter(
-                    StudySession.session_id == session_id,
-                    StudySession.host_id == current_student.student_id,
-                    StudySession.status == "CONFIRMED",
-                )
-                .update(
-                    {
-                        StudySession.status: target_status,
-                        StudySession.updated_at: datetime.utcnow(),
-                    },
-                    synchronize_session="fetch",
-                )
-            )
+                if updated_rows == 1:
+                    db.commit()
+                    db.expire_all()
+                    fresh = _get_session_or_404(db, session_id)
+                    return format_study_session_response(fresh, db)
 
-            if updated_rows == 1:
-                db.commit()
+                # Rowcount == 0 berarti transaksi konkuren lain lebih dulu mengubah status sesi
+                db.rollback()
                 db.expire_all()
                 fresh = _get_session_or_404(db, session_id)
-                return format_study_session_response(fresh, db)
+                if fresh.status == target_status:
+                    return format_study_session_response(fresh, db)
 
-            # Rowcount == 0 berarti transaksi konkuren lain lebih dulu mengubah status sesi
-            db.rollback()
-            db.expire_all()
-            fresh = _get_session_or_404(db, session_id)
-            if fresh.status == target_status:
-                return format_study_session_response(fresh, db)
-
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f"Konflik transisi status: sesi belajar telah berubah menjadi '{fresh.status}' "
-                    f"sebelum {action_label} selesai."
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"Konflik transisi status: sesi belajar telah berubah menjadi '{fresh.status}' "
+                        f"sebelum {action_label} selesai."
+                    )
                 )
-            )
 
         except OperationalError as oe:
             db.rollback()
@@ -276,115 +329,116 @@ def withdraw_from_study_session_service(
     started_at = time.monotonic()
     for attempt in range(_MAX_SQLITE_LOCK_RETRIES):
         try:
-            session = _get_session_or_404(db, session_id)
+            with _sqlite_bounded_busy_timeout(db, started_at):
+                session = _get_session_or_404(db, session_id)
 
-            # 1. Host tidak boleh withdraw dari sesinya sendiri
-            if session.host_id == current_student.student_id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Host tidak dapat mengundurkan diri dari sesi belajar. Gunakan pembatalan sesi (cancel)."
+                # 1. Host tidak boleh withdraw dari sesinya sendiri
+                if session.host_id == current_student.student_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Host tidak dapat mengundurkan diri dari sesi belajar. Gunakan pembatalan sesi (cancel)."
+                    )
+
+                # 2. Pastikan pemanggil tercatat sebagai anggota sesi ini
+                member = (
+                    db.query(SessionMember)
+                    .filter(
+                        SessionMember.session_id == session_id,
+                        SessionMember.student_id == current_student.student_id,
+                    )
+                    .first()
+                )
+                if not member:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Anda bukan anggota sesi belajar ini."
+                    )
+                if member.role == "HOST":
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Host tidak dapat mengundurkan diri dari sesi belajar. Gunakan pembatalan sesi (cancel)."
+                    )
+
+                # 3. Sesi terminal (COMPLETED / CANCELLED) atau non-CONFIRMED tidak menerima perubahan keanggotaan
+                if session.status != "CONFIRMED":
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Tidak dapat mengundurkan diri karena sesi belajar berstatus '{session.status}'."
+                    )
+
+                # 4. Idempotency (mengembalikan response minimal tanpa detail privat sesi) & konflik status anggota
+                if member.status == "WITHDRAWN":
+                    return SessionWithdrawResponse(
+                        session_id=session.session_id,
+                        session_status=session.status,
+                        membership_status="WITHDRAWN",
+                    )
+                if member.status != "CONFIRMED":
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Anggota berstatus '{member.status}' tidak dapat melakukan withdraw."
+                    )
+
+                # 5. Atomic Conditional Update (memastikan sesi & member masih CONFIRMED secara atomik di DB)
+                session_still_confirmed = (
+                    db.query(StudySession.session_id)
+                    .filter(
+                        StudySession.session_id == session_id,
+                        StudySession.status == "CONFIRMED",
+                    )
+                    .exists()
+                )
+                updated_rows = (
+                    db.query(SessionMember)
+                    .filter(
+                        SessionMember.session_id == session_id,
+                        SessionMember.student_id == current_student.student_id,
+                        SessionMember.role == "MEMBER",
+                        SessionMember.status == "CONFIRMED",
+                        session_still_confirmed,
+                    )
+                    .update({SessionMember.status: "WITHDRAWN"}, synchronize_session="fetch")
                 )
 
-            # 2. Pastikan pemanggil tercatat sebagai anggota sesi ini
-            member = (
-                db.query(SessionMember)
-                .filter(
-                    SessionMember.session_id == session_id,
-                    SessionMember.student_id == current_student.student_id,
-                )
-                .first()
-            )
-            if not member:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Anda bukan anggota sesi belajar ini."
-                )
-            if member.role == "HOST":
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Host tidak dapat mengundurkan diri dari sesi belajar. Gunakan pembatalan sesi (cancel)."
-                )
+                if updated_rows == 1:
+                    db.commit()
+                    db.expire_all()
+                    fresh_session = _get_session_or_404(db, session_id)
+                    return SessionWithdrawResponse(
+                        session_id=fresh_session.session_id,
+                        session_status=fresh_session.status,
+                        membership_status="WITHDRAWN",
+                    )
 
-            # 3. Sesi terminal (COMPLETED / CANCELLED) atau non-CONFIRMED tidak menerima perubahan keanggotaan
-            if session.status != "CONFIRMED":
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Tidak dapat mengundurkan diri karena sesi belajar berstatus '{session.status}'."
-                )
-
-            # 4. Idempotency (mengembalikan response minimal tanpa detail privat sesi) & konflik status anggota
-            if member.status == "WITHDRAWN":
-                return SessionWithdrawResponse(
-                    session_id=session.session_id,
-                    session_status=session.status,
-                    membership_status="WITHDRAWN",
-                )
-            if member.status != "CONFIRMED":
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Anggota berstatus '{member.status}' tidak dapat melakukan withdraw."
-                )
-
-            # 5. Atomic Conditional Update (memastikan sesi & member masih CONFIRMED secara atomik di DB)
-            session_still_confirmed = (
-                db.query(StudySession.session_id)
-                .filter(
-                    StudySession.session_id == session_id,
-                    StudySession.status == "CONFIRMED",
-                )
-                .exists()
-            )
-            updated_rows = (
-                db.query(SessionMember)
-                .filter(
-                    SessionMember.session_id == session_id,
-                    SessionMember.student_id == current_student.student_id,
-                    SessionMember.role == "MEMBER",
-                    SessionMember.status == "CONFIRMED",
-                    session_still_confirmed,
-                )
-                .update({SessionMember.status: "WITHDRAWN"}, synchronize_session="fetch")
-            )
-
-            if updated_rows == 1:
-                db.commit()
+                # Rowcount == 0: cek penyebab konflik dari state terbaru di database
+                db.rollback()
                 db.expire_all()
                 fresh_session = _get_session_or_404(db, session_id)
-                return SessionWithdrawResponse(
-                    session_id=fresh_session.session_id,
-                    session_status=fresh_session.status,
-                    membership_status="WITHDRAWN",
+                if fresh_session.status != "CONFIRMED":
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Tidak dapat mengundurkan diri karena sesi belajar telah berubah menjadi '{fresh_session.status}'."
+                    )
+                fresh_member = (
+                    db.query(SessionMember)
+                    .filter(
+                        SessionMember.session_id == session_id,
+                        SessionMember.student_id == current_student.student_id,
+                    )
+                    .first()
                 )
+                if fresh_member and fresh_member.status == "WITHDRAWN":
+                    return SessionWithdrawResponse(
+                        session_id=fresh_session.session_id,
+                        session_status=fresh_session.status,
+                        membership_status="WITHDRAWN",
+                    )
 
-            # Rowcount == 0: cek penyebab konflik dari state terbaru di database
-            db.rollback()
-            db.expire_all()
-            fresh_session = _get_session_or_404(db, session_id)
-            if fresh_session.status != "CONFIRMED":
+                actual_m_status = fresh_member.status if fresh_member else "MISSING"
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Tidak dapat mengundurkan diri karena sesi belajar telah berubah menjadi '{fresh_session.status}'."
+                    detail=f"Konflik perubahan keanggotaan: status anggota saat ini adalah '{actual_m_status}'."
                 )
-            fresh_member = (
-                db.query(SessionMember)
-                .filter(
-                    SessionMember.session_id == session_id,
-                    SessionMember.student_id == current_student.student_id,
-                )
-                .first()
-            )
-            if fresh_member and fresh_member.status == "WITHDRAWN":
-                return SessionWithdrawResponse(
-                    session_id=fresh_session.session_id,
-                    session_status=fresh_session.status,
-                    membership_status="WITHDRAWN",
-                )
-
-            actual_m_status = fresh_member.status if fresh_member else "MISSING"
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Konflik perubahan keanggotaan: status anggota saat ini adalah '{actual_m_status}'."
-            )
 
         except OperationalError as oe:
             db.rollback()
@@ -438,110 +492,111 @@ def remove_member_from_study_session_service(
     started_at = time.monotonic()
     for attempt in range(_MAX_SQLITE_LOCK_RETRIES):
         try:
-            session = _get_session_or_404(db, session_id)
+            with _sqlite_bounded_busy_timeout(db, started_at):
+                session = _get_session_or_404(db, session_id)
 
-            # 1. Otorisasi Host
-            if session.host_id != current_student.student_id:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Hanya host sesi belajar yang berhak mengeluarkan anggota."
+                # 1. Otorisasi Host
+                if session.host_id != current_student.student_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Hanya host sesi belajar yang berhak mengeluarkan anggota."
+                    )
+
+                # 2. Host tidak dapat mengeluarkan dirinya sendiri
+                if target_student_id == session.host_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Host tidak dapat mengeluarkan dirinya sendiri dari sesi belajar. Gunakan pembatalan sesi (cancel)."
+                    )
+
+                # 3. Sesi terminal (COMPLETED / CANCELLED) atau non-CONFIRMED tidak menerima perubahan keanggotaan
+                if session.status != "CONFIRMED":
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Anggota tidak dapat dikeluarkan karena sesi belajar berstatus '{session.status}'."
+                    )
+
+                # 4. Cari anggota target
+                target_member = (
+                    db.query(SessionMember)
+                    .filter(
+                        SessionMember.session_id == session_id,
+                        SessionMember.student_id == target_student_id,
+                    )
+                    .first()
+                )
+                if not target_member:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"Mahasiswa '{target_student_id}' bukan anggota sesi belajar ini."
+                    )
+                if target_member.role == "HOST":
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Host tidak dapat dikeluarkan dari sesi belajar."
+                    )
+
+                # 5. Idempotency & konflik status anggota
+                if target_member.status == "REMOVED":
+                    return format_study_session_response(session, db)
+                if target_member.status != "CONFIRMED":
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Anggota berstatus '{target_member.status}' tidak dapat dikeluarkan (remove)."
+                    )
+
+                # 6. Atomic Conditional Update
+                session_still_confirmed = (
+                    db.query(StudySession.session_id)
+                    .filter(
+                        StudySession.session_id == session_id,
+                        StudySession.status == "CONFIRMED",
+                    )
+                    .exists()
+                )
+                updated_rows = (
+                    db.query(SessionMember)
+                    .filter(
+                        SessionMember.session_id == session_id,
+                        SessionMember.student_id == target_student_id,
+                        SessionMember.role == "MEMBER",
+                        SessionMember.status == "CONFIRMED",
+                        session_still_confirmed,
+                    )
+                    .update({SessionMember.status: "REMOVED"}, synchronize_session="fetch")
                 )
 
-            # 2. Host tidak dapat mengeluarkan dirinya sendiri
-            if target_student_id == session.host_id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Host tidak dapat mengeluarkan dirinya sendiri dari sesi belajar. Gunakan pembatalan sesi (cancel)."
-                )
+                if updated_rows == 1:
+                    db.commit()
+                    db.expire_all()
+                    fresh_session = _get_session_or_404(db, session_id)
+                    return format_study_session_response(fresh_session, db)
 
-            # 3. Sesi terminal (COMPLETED / CANCELLED) atau non-CONFIRMED tidak menerima perubahan keanggotaan
-            if session.status != "CONFIRMED":
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Anggota tidak dapat dikeluarkan karena sesi belajar berstatus '{session.status}'."
-                )
-
-            # 4. Cari anggota target
-            target_member = (
-                db.query(SessionMember)
-                .filter(
-                    SessionMember.session_id == session_id,
-                    SessionMember.student_id == target_student_id,
-                )
-                .first()
-            )
-            if not target_member:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Mahasiswa '{target_student_id}' bukan anggota sesi belajar ini."
-                )
-            if target_member.role == "HOST":
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Host tidak dapat dikeluarkan dari sesi belajar."
-                )
-
-            # 5. Idempotency & konflik status anggota
-            if target_member.status == "REMOVED":
-                return format_study_session_response(session, db)
-            if target_member.status != "CONFIRMED":
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Anggota berstatus '{target_member.status}' tidak dapat dikeluarkan (remove)."
-                )
-
-            # 6. Atomic Conditional Update
-            session_still_confirmed = (
-                db.query(StudySession.session_id)
-                .filter(
-                    StudySession.session_id == session_id,
-                    StudySession.status == "CONFIRMED",
-                )
-                .exists()
-            )
-            updated_rows = (
-                db.query(SessionMember)
-                .filter(
-                    SessionMember.session_id == session_id,
-                    SessionMember.student_id == target_student_id,
-                    SessionMember.role == "MEMBER",
-                    SessionMember.status == "CONFIRMED",
-                    session_still_confirmed,
-                )
-                .update({SessionMember.status: "REMOVED"}, synchronize_session="fetch")
-            )
-
-            if updated_rows == 1:
-                db.commit()
+                # Rowcount == 0: evaluasi konflik dari state terbaru di database
+                db.rollback()
                 db.expire_all()
                 fresh_session = _get_session_or_404(db, session_id)
-                return format_study_session_response(fresh_session, db)
+                if fresh_session.status != "CONFIRMED":
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Anggota tidak dapat dikeluarkan karena sesi belajar telah berubah menjadi '{fresh_session.status}'."
+                    )
+                fresh_target = (
+                    db.query(SessionMember)
+                    .filter(
+                        SessionMember.session_id == session_id,
+                        SessionMember.student_id == target_student_id,
+                    )
+                    .first()
+                )
+                if fresh_target and fresh_target.status == "REMOVED":
+                    return format_study_session_response(fresh_session, db)
 
-            # Rowcount == 0: evaluasi konflik dari state terbaru di database
-            db.rollback()
-            db.expire_all()
-            fresh_session = _get_session_or_404(db, session_id)
-            if fresh_session.status != "CONFIRMED":
+                actual_m_status = fresh_target.status if fresh_target else "MISSING"
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Anggota tidak dapat dikeluarkan karena sesi belajar telah berubah menjadi '{fresh_session.status}'."
+                    detail=f"Konflik perubahan keanggotaan: status anggota saat ini adalah '{actual_m_status}'."
                 )
-            fresh_target = (
-                db.query(SessionMember)
-                .filter(
-                    SessionMember.session_id == session_id,
-                    SessionMember.student_id == target_student_id,
-                )
-                .first()
-            )
-            if fresh_target and fresh_target.status == "REMOVED":
-                return format_study_session_response(fresh_session, db)
-
-            actual_m_status = fresh_target.status if fresh_target else "MISSING"
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Konflik perubahan keanggotaan: status anggota saat ini adalah '{actual_m_status}'."
-            )
 
         except OperationalError as oe:
             db.rollback()
