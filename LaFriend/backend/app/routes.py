@@ -48,6 +48,7 @@ from app.session_execution_service import (
     get_my_study_sessions_service
 )
 from app.session_lifecycle_service import (
+    SessionWithdrawResponse,
     get_authorized_study_session_detail_service,
     complete_study_session_service,
     cancel_study_session_service,
@@ -1030,7 +1031,7 @@ def cancel_study_session_endpoint(
 
 @api_router.post(
     "/sessions/{session_id}/withdraw",
-    response_model=StudySessionResponse,
+    response_model=SessionWithdrawResponse,
     status_code=status.HTTP_200_OK,
     tags=["Study Sessions"]
 )
@@ -1042,6 +1043,7 @@ def withdraw_from_study_session_endpoint(
     """
     Day 22.3: Anggota sesi (non-host) mengundurkan diri (CONFIRMED -> WITHDRAWN).
     Kebijakan Quorum Option A: tidak otomatis mengubah status StudySession.
+    Mengembalikan SessionWithdrawResponse minimal tanpa detail privat sesi.
     """
     return withdraw_from_study_session_service(
         db=db, session_id=session_id, current_student=current_student

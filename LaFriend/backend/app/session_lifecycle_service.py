@@ -6,18 +6,23 @@
 # 1. Otorisasi ketat akses detail sesi (Host & anggota aktif CONFIRMED/ACCEPTED).
 # 2. Session State Machine: CONFIRMED -> COMPLETED / CANCELLED (Host only, atomic, idempotent).
 # 3. Membership Lifecycle: CONFIRMED -> WITHDRAWN (self) / REMOVED (Host), soft-status only.
+#    - Withdraw mengembalikan SessionWithdrawResponse minimal (tanpa detail privat sesi)
+#      agar mantan anggota tidak dapat membypass larangan GET detail sesi.
 # 4. Kebijakan Quorum Option A (Explicit Host Control): withdraw/remove tidak otomatis
 #    mengubah status StudySession meskipun anggota CONFIRMED < min_group_size.
 # 5. Perlindungan penuh histori alokasi StudyIntent Day 21 (immutable provenance,
 #    tanpa hard delete, tanpa mengembalikan StudyIntent ke ACTIVE).
-# 6. Concurrency safety via atomic conditional UPDATE + bounded retry SQLite lock contention.
+# 6. Concurrency safety via atomic conditional UPDATE + bounded retry & wall-clock budget
+#    untuk SQLite lock contention, serta sanitasi error HTTP 500 (server-side logging).
 # ==============================================================================
 
+import logging
 import time
 from datetime import datetime
 from typing import Optional
 
 from fastapi import HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
@@ -26,8 +31,24 @@ from app.schemas import StudySessionResponse
 from app.session_execution_service import format_study_session_response
 
 
-_MAX_SQLITE_LOCK_RETRIES = 6
+logger = logging.getLogger(__name__)
+
+_MAX_SQLITE_LOCK_RETRIES = 4
+_LOCK_RETRY_TIME_BUDGET_SECONDS = 2.0
 _ACTIVE_DETAIL_MEMBER_STATUSES = ("CONFIRMED", "ACCEPTED")
+_GENERIC_INTERNAL_ERROR_DETAIL = "Terjadi kesalahan internal saat memproses permintaan sesi belajar."
+
+
+class SessionWithdrawResponse(BaseModel):
+    """
+    Response aksi minimal untuk endpoint POST /api/v1/sessions/{session_id}/withdraw.
+    Secara ketat hanya memuat identitas sesi, status sesi, dan status keanggotaan
+    (tanpa location, slot jadwal, daftar anggota, email, NIM, atau profil mahasiswa lain)
+    untuk mencegah mantan anggota WITHDRAWN mengakses detail privat sesi.
+    """
+    session_id: str
+    session_status: str
+    membership_status: str
 
 
 def _is_sqlite_lock_error(exc: OperationalError) -> bool:
@@ -35,6 +56,21 @@ def _is_sqlite_lock_error(exc: OperationalError) -> bool:
     orig = getattr(exc, "orig", None)
     msg = str(orig if orig is not None else exc).lower()
     return "database is locked" in msg or "database table is locked" in msg
+
+
+def _compute_lock_retry_delay(attempt: int, started_at: float) -> Optional[float]:
+    """
+    Menentukan apakah percobaan ulang lock contention masih berada di dalam batas
+    jumlah retry (_MAX_SQLITE_LOCK_RETRIES) DAN anggaran waktu wall-clock
+    (_LOCK_RETRY_TIME_BUDGET_SECONDS). Mengembalikan delay tidur (detik) atau None jika habis.
+    """
+    if attempt >= _MAX_SQLITE_LOCK_RETRIES - 1:
+        return None
+    elapsed = time.monotonic() - started_at
+    remaining = _LOCK_RETRY_TIME_BUDGET_SECONDS - elapsed
+    if remaining <= 0.0:
+        return None
+    return min(0.015 * (attempt + 1), remaining)
 
 
 def _get_session_or_404(db: Session, session_id: str) -> StudySession:
@@ -94,6 +130,7 @@ def _transition_session_status_atomic(
     - Menggunakan atomic conditional UPDATE + rowcount check untuk keamanan concurrency.
     - Tidak pernah menghapus data anggota maupun mengubah status StudyIntent/GroupProposal.
     """
+    started_at = time.monotonic()
     for attempt in range(_MAX_SQLITE_LOCK_RETRIES):
         try:
             session = _get_session_or_404(db, session_id)
@@ -160,26 +197,29 @@ def _transition_session_status_atomic(
         except OperationalError as oe:
             db.rollback()
             if _is_sqlite_lock_error(oe):
-                if attempt < _MAX_SQLITE_LOCK_RETRIES - 1:
+                delay = _compute_lock_retry_delay(attempt, started_at)
+                if delay is not None:
                     db.expire_all()
-                    time.sleep(0.015 * (attempt + 1))
+                    time.sleep(delay)
                     continue
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=f"Database sedang sibuk memproses {action_label}. Silakan coba kembali."
                 )
+            logger.exception("OperationalError non-lock saat %s pada session_id=%s", action_label, session_id)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Gagal memproses {action_label}: {str(oe)}"
+                detail=_GENERIC_INTERNAL_ERROR_DETAIL,
             )
         except HTTPException:
             db.rollback()
             raise
-        except Exception as exc:
+        except Exception:
             db.rollback()
+            logger.exception("Unexpected error saat %s pada session_id=%s", action_label, session_id)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Gagal memproses {action_label}: {str(exc)}"
+                detail=_GENERIC_INTERNAL_ERROR_DETAIL,
             )
 
     raise HTTPException(
@@ -222,15 +262,18 @@ def withdraw_from_study_session_service(
     db: Session,
     session_id: str,
     current_student: Student,
-) -> StudySessionResponse:
+) -> SessionWithdrawResponse:
     """
     Day 22.3: Anggota mengundurkan diri dari sesi belajar (CONFIRMED -> WITHDRAWN).
+    - Mengembalikan SessionWithdrawResponse minimal (tanpa location, slot, daftar anggota,
+      atau profil mahasiswa lain) baik pada withdraw pertama maupun replay idempotent.
     - Host dilarang melakukan withdraw (HTTP 400; Host wajib cancel sesi).
     - Hanya diizinkan selama StudySession.status == 'CONFIRMED' (jika terminal -> HTTP 409).
     - Kebijakan Quorum Option A: TIDAK mengubah StudySession.status meskipun anggota CONFIRMED < min_group_size.
     - Soft-status only: TIDAK menghapus SessionMember, TIDAK mengubah intent_id, TIDAK mengembalikan StudyIntent ke ACTIVE.
     - Atomic conditional UPDATE dengan EXISTS (session status='CONFIRMED') mencegah race condition dengan cancel/complete/remove.
     """
+    started_at = time.monotonic()
     for attempt in range(_MAX_SQLITE_LOCK_RETRIES):
         try:
             session = _get_session_or_404(db, session_id)
@@ -269,9 +312,13 @@ def withdraw_from_study_session_service(
                     detail=f"Tidak dapat mengundurkan diri karena sesi belajar berstatus '{session.status}'."
                 )
 
-            # 4. Idempotency & konflik status anggota
+            # 4. Idempotency (mengembalikan response minimal tanpa detail privat sesi) & konflik status anggota
             if member.status == "WITHDRAWN":
-                return format_study_session_response(session, db)
+                return SessionWithdrawResponse(
+                    session_id=session.session_id,
+                    session_status=session.status,
+                    membership_status="WITHDRAWN",
+                )
             if member.status != "CONFIRMED":
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -303,7 +350,11 @@ def withdraw_from_study_session_service(
                 db.commit()
                 db.expire_all()
                 fresh_session = _get_session_or_404(db, session_id)
-                return format_study_session_response(fresh_session, db)
+                return SessionWithdrawResponse(
+                    session_id=fresh_session.session_id,
+                    session_status=fresh_session.status,
+                    membership_status="WITHDRAWN",
+                )
 
             # Rowcount == 0: cek penyebab konflik dari state terbaru di database
             db.rollback()
@@ -323,7 +374,11 @@ def withdraw_from_study_session_service(
                 .first()
             )
             if fresh_member and fresh_member.status == "WITHDRAWN":
-                return format_study_session_response(fresh_session, db)
+                return SessionWithdrawResponse(
+                    session_id=fresh_session.session_id,
+                    session_status=fresh_session.status,
+                    membership_status="WITHDRAWN",
+                )
 
             actual_m_status = fresh_member.status if fresh_member else "MISSING"
             raise HTTPException(
@@ -334,26 +389,29 @@ def withdraw_from_study_session_service(
         except OperationalError as oe:
             db.rollback()
             if _is_sqlite_lock_error(oe):
-                if attempt < _MAX_SQLITE_LOCK_RETRIES - 1:
+                delay = _compute_lock_retry_delay(attempt, started_at)
+                if delay is not None:
                     db.expire_all()
-                    time.sleep(0.015 * (attempt + 1))
+                    time.sleep(delay)
                     continue
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Database sedang sibuk memproses pengunduran diri anggota. Silakan coba kembali."
                 )
+            logger.exception("OperationalError non-lock saat withdraw pada session_id=%s", session_id)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Gagal memproses withdraw: {str(oe)}"
+                detail=_GENERIC_INTERNAL_ERROR_DETAIL,
             )
         except HTTPException:
             db.rollback()
             raise
-        except Exception as exc:
+        except Exception:
             db.rollback()
+            logger.exception("Unexpected error saat withdraw pada session_id=%s", session_id)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Gagal memproses withdraw: {str(exc)}"
+                detail=_GENERIC_INTERNAL_ERROR_DETAIL,
             )
 
     raise HTTPException(
@@ -377,6 +435,7 @@ def remove_member_from_study_session_service(
     - Soft-status only: TIDAK menghapus SessionMember, TIDAK mengubah intent_id, TIDAK mengembalikan StudyIntent ke ACTIVE.
     - Atomic conditional UPDATE dengan EXISTS (session status='CONFIRMED') mencegah race condition dengan cancel/complete/withdraw.
     """
+    started_at = time.monotonic()
     for attempt in range(_MAX_SQLITE_LOCK_RETRIES):
         try:
             session = _get_session_or_404(db, session_id)
@@ -487,26 +546,29 @@ def remove_member_from_study_session_service(
         except OperationalError as oe:
             db.rollback()
             if _is_sqlite_lock_error(oe):
-                if attempt < _MAX_SQLITE_LOCK_RETRIES - 1:
+                delay = _compute_lock_retry_delay(attempt, started_at)
+                if delay is not None:
                     db.expire_all()
-                    time.sleep(0.015 * (attempt + 1))
+                    time.sleep(delay)
                     continue
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Database sedang sibuk memproses pengeluaran anggota. Silakan coba kembali."
                 )
+            logger.exception("OperationalError non-lock saat remove anggota pada session_id=%s", session_id)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Gagal memproses remove anggota: {str(oe)}"
+                detail=_GENERIC_INTERNAL_ERROR_DETAIL,
             )
         except HTTPException:
             db.rollback()
             raise
-        except Exception as exc:
+        except Exception:
             db.rollback()
+            logger.exception("Unexpected error saat remove anggota pada session_id=%s", session_id)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Gagal memproses remove anggota: {str(exc)}"
+                detail=_GENERIC_INTERNAL_ERROR_DETAIL,
             )
 
     raise HTTPException(

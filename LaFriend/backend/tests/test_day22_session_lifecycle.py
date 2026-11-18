@@ -323,30 +323,41 @@ class TestDay22SessionAndMembershipLifecycle(unittest.TestCase):
         )
 
     def test_05_member_withdraw_option_a_explicit_host_control_and_immutable_intent(self):
-        """Day 22.3: Member withdraw membuat CONFIRMED < min_group_size (2 -> 1), sesi TETAP CONFIRMED (Option A), intent tetap terkunci."""
+        """Day 22.3: Member withdraw mengembalikan response aksi minimal (privacy-safe), quorum turun di bawah min_group_size namun sesi TETAP CONFIRMED (Option A)."""
         # Exact Option A scenario: min_group_size=2, 1 Host (Andi) + 1 Member (Budi)
         sid, _ = self._execute_session_via_day21(include_citra=False, min_group_size=2)
+        expected_minimal_keys = {"session_id", "session_status", "membership_status"}
 
         r_wd = self.client.post(f"/api/v1/sessions/{sid}/withdraw", headers={"Authorization": f"Bearer {self.tok_budi}"})
         self.assertEqual(r_wd.status_code, 200)
         body = r_wd.json()
+        # Privacy guard: response withdraw pertama HANYA memuat field minimal (tanpa location, slots, members, email, NIM)
+        self.assertEqual(set(body.keys()), expected_minimal_keys)
+        self.assertEqual(body, {"session_id": sid, "session_status": "CONFIRMED", "membership_status": "WITHDRAWN"})
 
-        # Invariant 1 & 2 (Option A): StudySession.status TETAP CONFIRMED meski CONFIRMED members = 1 < min_group_size (2)
-        self.assertEqual(body["status"], "CONFIRMED")
-        member_statuses = {m["student_id"]: (m["status"], m["intent_id"]) for m in body["members"]}
-        self.assertEqual(member_statuses[self.andi.student_id], ("CONFIRMED", self.i_andi.intent_id))
-        self.assertEqual(member_statuses[self.budi.student_id], ("WITHDRAWN", self.i_budi.intent_id))
-
-        # Replay withdraw saat sesi masih CONFIRMED -> idempotent 200 OK
+        # Replay withdraw saat sesi masih CONFIRMED -> idempotent 200 OK dengan response minimal identik (tidak membocorkan detail sesi)
         r_wd2 = self.client.post(f"/api/v1/sessions/{sid}/withdraw", headers={"Authorization": f"Bearer {self.tok_budi}"})
         self.assertEqual(r_wd2.status_code, 200)
-        self.assertEqual(r_wd2.json()["status"], "CONFIRMED")
+        body2 = r_wd2.json()
+        self.assertEqual(set(body2.keys()), expected_minimal_keys)
+        self.assertEqual(body2, {"session_id": sid, "session_status": "CONFIRMED", "membership_status": "WITHDRAWN"})
 
-        # Invariant 5, 6, 8: StudyIntent Budi tetap MATCHED, row tidak dihapus, & tidak bisa dialokasikan ulang
+        # Verifikasi Quorum Option A & Provenance langsung melalui database (bukan dari response withdraw)
         v_db = self.TestingSession()
         try:
+            db_sess = v_db.query(StudySession).filter_by(session_id=sid).first()
+            self.assertEqual(db_sess.status, "CONFIRMED")
+
+            members = v_db.query(SessionMember).filter_by(session_id=sid).all()
+            self.assertEqual(len(members), 2)
+            member_statuses = {m.student_id: (m.status, m.intent_id) for m in members}
+            self.assertEqual(member_statuses[self.andi.student_id], ("CONFIRMED", self.i_andi.intent_id))
+            self.assertEqual(member_statuses[self.budi.student_id], ("WITHDRAWN", self.i_budi.intent_id))
+            confirmed_count = sum(1 for m in members if m.status == "CONFIRMED")
+            self.assertLess(confirmed_count, db_sess.min_group_size)
+
+            # Invariant 5, 6, 8: StudyIntent Budi tetap MATCHED & tidak bisa dialokasikan ulang
             self.assertEqual(v_db.query(StudyIntent).filter_by(intent_id=self.i_budi.intent_id).first().status, "MATCHED")
-            self.assertEqual(v_db.query(SessionMember).filter_by(session_id=sid).count(), 2)
 
             other_sess = StudySession(
                 session_id="sess_reuse_check", host_id=self.doni.student_id, course_id=self.course.course_id,
@@ -520,6 +531,16 @@ class TestDay22SessionAndMembershipLifecycle(unittest.TestCase):
             self.client.get(f"/api/v1/sessions/{sid}", headers={"Authorization": f"Bearer {self.tok_citra}"}).status_code,
             403,
         )
+        # Anti-bypass: replay POST /withdraw oleh mantan anggota WITHDRAWN tidak boleh membocorkan detail privat sesi
+        r_bypass_attempt = self.client.post(
+            f"/api/v1/sessions/{sid}/withdraw",
+            headers={"Authorization": f"Bearer {self.tok_budi}"},
+        )
+        self.assertEqual(r_bypass_attempt.status_code, 200)
+        bypass_body = r_bypass_attempt.json()
+        self.assertEqual(set(bypass_body.keys()), {"session_id", "session_status", "membership_status"})
+        for forbidden_key in ("location", "slots", "members", "course", "title", "description", "host_id"):
+            self.assertNotIn(forbidden_key, bypass_body)
         # Host tetap punya akses penuh
         self.assertEqual(
             self.client.get(f"/api/v1/sessions/{sid}", headers={"Authorization": f"Bearer {self.tok_andi}"}).status_code,
@@ -533,9 +554,44 @@ class TestDay22SessionAndMembershipLifecycle(unittest.TestCase):
         self.assertNotIn(sid, citra_sessions)
         self.assertIn(sid, andi_sessions)
 
+    def test_09b_internal_exception_sanitization_no_raw_db_leak(self):
+        """Day 22 Hardening (P2): Error DB/internal tidak pernah membocorkan SQL/stack detail ke client & dicatat ke server logger."""
+        from unittest.mock import patch
+        from sqlalchemy.exc import OperationalError
+        from sqlalchemy.orm import Session as SASession
+        import app.session_lifecycle_service as lc_mod
+
+        sid, _ = self._execute_session_via_day21(include_citra=True)
+        sensitive_marker = "SECRET_SQL_TABLE_session_members_disk_io_failure_991"
+
+        def failing_non_lock_commit(_sess_self):
+            raise OperationalError(
+                "UPDATE session_members SET status='WITHDRAWN'",
+                {},
+                sqlite3.OperationalError(sensitive_marker),
+            )
+
+        endpoints = [
+            ("complete", f"/api/v1/sessions/{sid}/complete", self.tok_andi),
+            ("withdraw", f"/api/v1/sessions/{sid}/withdraw", self.tok_budi),
+            ("remove", f"/api/v1/sessions/{sid}/members/{self.citra.student_id}/remove", self.tok_andi),
+        ]
+
+        for label, url, tok in endpoints:
+            with self.subTest(endpoint=label):
+                with patch.object(SASession, "commit", new=failing_non_lock_commit):
+                    with patch.object(lc_mod.logger, "exception") as mock_log:
+                        r = self.client.post(url, headers={"Authorization": f"Bearer {tok}"})
+                self.assertEqual(r.status_code, 500)
+                detail = r.json()["detail"]
+                self.assertEqual(detail, lc_mod._GENERIC_INTERNAL_ERROR_DETAIL)
+                self.assertNotIn(sensitive_marker, detail)
+                self.assertNotIn("UPDATE session_members", detail)
+                self.assertEqual(mock_log.call_count, 1)
+
 
 class TestDay22LifecycleConcurrencyAndLockRecovery(unittest.TestCase):
-    """Day 22.4: Concurrency Race Conditions & Real SQLite Physical Lock Recovery untuk Session Lifecycle."""
+    """Day 22.4: Concurrency Race Conditions & Real SQLite Physical Lock Recovery (DELETE & WAL + Retry Budget)."""
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory(prefix="lafriend_day22_")
@@ -544,7 +600,7 @@ class TestDay22LifecycleConcurrencyAndLockRecovery(unittest.TestCase):
     def tearDown(self):
         self._tmpdir.cleanup()
 
-    def _create_file_db(self, busy_timeout_ms: int = 5000):
+    def _create_file_db(self, busy_timeout_ms: int = 5000, journal_mode: str = "WAL"):
         self._counter += 1
         db_file = Path(self._tmpdir.name) / f"lafriend_d22_{self._counter}.db"
         db_url = f"sqlite:///{db_file.as_posix()}"
@@ -562,7 +618,7 @@ class TestDay22LifecycleConcurrencyAndLockRecovery(unittest.TestCase):
             cur.close()
 
         with eng.connect() as conn:
-            conn.execute(text("PRAGMA journal_mode=WAL"))
+            conn.execute(text(f"PRAGMA journal_mode={journal_mode}"))
             conn.commit()
 
         ensure_database_schema(eng)
@@ -602,243 +658,265 @@ class TestDay22LifecycleConcurrencyAndLockRecovery(unittest.TestCase):
             db.close()
 
     def test_10_concurrent_host_complete_vs_cancel_race(self):
-        """Day 22.4: Host menjalankan complete & cancel bersamaan -> tepat 1 menang (COMPLETED/CANCELLED), 1 ditolak 409."""
-        _, db_url, eng = self._create_file_db()
-        try:
-            self._seed_confirmed_session(eng, "SESS-RACE-CC")
-            SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng)
-            barrier = Barrier(2)
-            outcomes = {}
-
-            def run_op(name: str, fn):
-                db = SessionFactory()
+        """Day 22.4: Host menjalankan complete & cancel bersamaan (mode DELETE & WAL) -> tepat 1 menang (COMPLETED/CANCELLED), 1 ditolak 409."""
+        for journal_mode in ("DELETE", "WAL"):
+            with self.subTest(journal_mode=journal_mode):
+                _, db_url, eng = self._create_file_db(journal_mode=journal_mode)
                 try:
-                    host = db.query(Student).filter_by(student_id="s_host").first()
-                    barrier.wait(timeout=10)
-                    resp = fn(db, "SESS-RACE-CC", host)
-                    outcomes[name] = ("SUCCESS", resp.status)
-                except HTTPException as he:
-                    outcomes[name] = ("HTTP_ERROR", he.status_code)
-                except Exception as exc:
-                    outcomes[name] = ("UNEXPECTED", exc)
+                    self._seed_confirmed_session(eng, "SESS-RACE-CC")
+                    SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng)
+                    barrier = Barrier(2)
+                    outcomes = {}
+
+                    def run_op(name: str, fn):
+                        db = SessionFactory()
+                        try:
+                            host = db.query(Student).filter_by(student_id="s_host").first()
+                            barrier.wait(timeout=10)
+                            resp = fn(db, "SESS-RACE-CC", host)
+                            outcomes[name] = ("SUCCESS", resp.status)
+                        except HTTPException as he:
+                            outcomes[name] = ("HTTP_ERROR", he.status_code)
+                        except Exception as exc:
+                            outcomes[name] = ("UNEXPECTED", exc)
+                        finally:
+                            db.close()
+
+                    t1 = Thread(target=run_op, args=("complete", complete_study_session_service))
+                    t2 = Thread(target=run_op, args=("cancel", cancel_study_session_service))
+                    t1.start()
+                    t2.start()
+                    t1.join(timeout=15)
+                    t2.join(timeout=15)
+                    self.assertFalse(t1.is_alive())
+                    self.assertFalse(t2.is_alive())
+
+                    winners = [k for k, v in outcomes.items() if v[0] == "SUCCESS"]
+                    losers = [k for k, v in outcomes.items() if v[0] == "HTTP_ERROR"]
+                    self.assertEqual(len(winners), 1, f"Wajib tepat 1 pemenang terminal: {outcomes}")
+                    self.assertEqual(len(losers), 1, f"Wajib tepat 1 ditolak 409: {outcomes}")
+                    self.assertEqual(outcomes[losers[0]][1], 409)
+
+                    expected_status = "COMPLETED" if winners[0] == "complete" else "CANCELLED"
+                    v_eng, v_db = self._open_verify_session(db_url)
+                    try:
+                        self.assertEqual(v_db.query(StudySession).filter_by(session_id="SESS-RACE-CC").first().status, expected_status)
+                        self.assertEqual(v_db.query(SessionMember).filter_by(session_id="SESS-RACE-CC").count(), 2)
+                        self.assertEqual(v_db.query(StudyIntent).filter_by(intent_id="i_mem").first().status, "MATCHED")
+                    finally:
+                        v_db.close()
+                        v_eng.dispose()
                 finally:
-                    db.close()
-
-            t1 = Thread(target=run_op, args=("complete", complete_study_session_service))
-            t2 = Thread(target=run_op, args=("cancel", cancel_study_session_service))
-            t1.start()
-            t2.start()
-            t1.join(timeout=15)
-            t2.join(timeout=15)
-
-            winners = [k for k, v in outcomes.items() if v[0] == "SUCCESS"]
-            losers = [k for k, v in outcomes.items() if v[0] == "HTTP_ERROR"]
-            self.assertEqual(len(winners), 1, f"Wajib tepat 1 pemenang terminal: {outcomes}")
-            self.assertEqual(len(losers), 1, f"Wajib tepat 1 ditolak 409: {outcomes}")
-            self.assertEqual(outcomes[losers[0]][1], 409)
-
-            expected_status = "COMPLETED" if winners[0] == "complete" else "CANCELLED"
-            v_eng, v_db = self._open_verify_session(db_url)
-            try:
-                self.assertEqual(v_db.query(StudySession).filter_by(session_id="SESS-RACE-CC").first().status, expected_status)
-                self.assertEqual(v_db.query(SessionMember).filter_by(session_id="SESS-RACE-CC").count(), 2)
-                self.assertEqual(v_db.query(StudyIntent).filter_by(intent_id="i_mem").first().status, "MATCHED")
-            finally:
-                v_db.close()
-                v_eng.dispose()
-        finally:
-            eng.dispose()
+                    eng.dispose()
 
     def test_11_concurrent_host_cancel_vs_member_withdraw_race(self):
-        """Day 22.4: Host cancel bersamaan dengan Member withdraw -> serialisasi konsisten tanpa state ilegal atau kehilangan provenance."""
-        _, db_url, eng = self._create_file_db()
-        try:
-            self._seed_confirmed_session(eng, "SESS-RACE-CW")
-            SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng)
-            barrier = Barrier(2)
-            outcomes = {}
-
-            def run_cancel():
-                db = SessionFactory()
+        """Day 22.4: Host cancel bersamaan dengan Member withdraw (mode DELETE & WAL) -> serialisasi konsisten tanpa kehilangan provenance."""
+        for journal_mode in ("DELETE", "WAL"):
+            with self.subTest(journal_mode=journal_mode):
+                _, db_url, eng = self._create_file_db(journal_mode=journal_mode)
                 try:
-                    host = db.query(Student).filter_by(student_id="s_host").first()
-                    barrier.wait(timeout=10)
-                    resp = cancel_study_session_service(db, "SESS-RACE-CW", host)
-                    outcomes["cancel"] = ("SUCCESS", resp.status)
-                except HTTPException as he:
-                    outcomes["cancel"] = ("HTTP_ERROR", he.status_code)
+                    self._seed_confirmed_session(eng, "SESS-RACE-CW")
+                    SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng)
+                    barrier = Barrier(2)
+                    outcomes = {}
+
+                    def run_cancel():
+                        db = SessionFactory()
+                        try:
+                            host = db.query(Student).filter_by(student_id="s_host").first()
+                            barrier.wait(timeout=10)
+                            resp = cancel_study_session_service(db, "SESS-RACE-CW", host)
+                            outcomes["cancel"] = ("SUCCESS", resp.status)
+                        except HTTPException as he:
+                            outcomes["cancel"] = ("HTTP_ERROR", he.status_code)
+                        finally:
+                            db.close()
+
+                    def run_withdraw():
+                        db = SessionFactory()
+                        try:
+                            mem = db.query(Student).filter_by(student_id="s_mem").first()
+                            barrier.wait(timeout=10)
+                            resp = withdraw_from_study_session_service(db, "SESS-RACE-CW", mem)
+                            outcomes["withdraw"] = ("SUCCESS", resp.membership_status)
+                        except HTTPException as he:
+                            outcomes["withdraw"] = ("HTTP_ERROR", he.status_code)
+                        finally:
+                            db.close()
+
+                    t1 = Thread(target=run_cancel)
+                    t2 = Thread(target=run_withdraw)
+                    t1.start()
+                    t2.start()
+                    t1.join(timeout=15)
+                    t2.join(timeout=15)
+                    self.assertFalse(t1.is_alive())
+                    self.assertFalse(t2.is_alive())
+
+                    self.assertEqual(outcomes["cancel"], ("SUCCESS", "CANCELLED"))
+                    self.assertIn(outcomes["withdraw"][0], ("SUCCESS", "HTTP_ERROR"))
+                    if outcomes["withdraw"][0] == "HTTP_ERROR":
+                        self.assertEqual(outcomes["withdraw"][1], 409)
+
+                    v_eng, v_db = self._open_verify_session(db_url)
+                    try:
+                        self.assertEqual(v_db.query(StudySession).filter_by(session_id="SESS-RACE-CW").first().status, "CANCELLED")
+                        mem_row = v_db.query(SessionMember).filter_by(session_id="SESS-RACE-CW", student_id="s_mem").first()
+                        self.assertIsNotNone(mem_row)
+                        self.assertEqual(mem_row.intent_id, "i_mem")
+                        if outcomes["withdraw"][0] == "SUCCESS":
+                            self.assertEqual(mem_row.status, "WITHDRAWN")
+                        else:
+                            self.assertEqual(mem_row.status, "CONFIRMED")
+                        self.assertEqual(v_db.query(StudyIntent).filter_by(intent_id="i_mem").first().status, "MATCHED")
+                    finally:
+                        v_db.close()
+                        v_eng.dispose()
                 finally:
-                    db.close()
-
-            def run_withdraw():
-                db = SessionFactory()
-                try:
-                    mem = db.query(Student).filter_by(student_id="s_mem").first()
-                    barrier.wait(timeout=10)
-                    resp = withdraw_from_study_session_service(db, "SESS-RACE-CW", mem)
-                    outcomes["withdraw"] = ("SUCCESS", resp.status)
-                except HTTPException as he:
-                    outcomes["withdraw"] = ("HTTP_ERROR", he.status_code)
-                finally:
-                    db.close()
-
-            t1 = Thread(target=run_cancel)
-            t2 = Thread(target=run_withdraw)
-            t1.start()
-            t2.start()
-            t1.join(timeout=15)
-            t2.join(timeout=15)
-
-            # Cancel wajib selalu berhasil (baik sebelum maupun setelah withdraw karena Option A menjaga sesi CONFIRMED)
-            self.assertEqual(outcomes["cancel"], ("SUCCESS", "CANCELLED"))
-            # Withdraw boleh sukses (jika lebih dulu commit saat sesi masih CONFIRMED) ATAU ditolak 409 (jika cancel lebih dulu)
-            self.assertIn(outcomes["withdraw"][0], ("SUCCESS", "HTTP_ERROR"))
-            if outcomes["withdraw"][0] == "HTTP_ERROR":
-                self.assertEqual(outcomes["withdraw"][1], 409)
-
-            v_eng, v_db = self._open_verify_session(db_url)
-            try:
-                self.assertEqual(v_db.query(StudySession).filter_by(session_id="SESS-RACE-CW").first().status, "CANCELLED")
-                mem_row = v_db.query(SessionMember).filter_by(session_id="SESS-RACE-CW", student_id="s_mem").first()
-                self.assertIsNotNone(mem_row)
-                self.assertEqual(mem_row.intent_id, "i_mem")
-                if outcomes["withdraw"][0] == "SUCCESS":
-                    self.assertEqual(mem_row.status, "WITHDRAWN")
-                else:
-                    self.assertEqual(mem_row.status, "CONFIRMED")
-                self.assertEqual(v_db.query(StudyIntent).filter_by(intent_id="i_mem").first().status, "MATCHED")
-            finally:
-                v_db.close()
-                v_eng.dispose()
-        finally:
-            eng.dispose()
+                    eng.dispose()
 
     def test_12_concurrent_member_withdraw_vs_host_remove_race(self):
-        """Day 22.4: Member withdraw bersamaan dengan Host remove pada anggota sama -> tepat 1 menang (WITHDRAWN/REMOVED), 1 ditolak 409."""
-        _, db_url, eng = self._create_file_db()
-        try:
-            self._seed_confirmed_session(eng, "SESS-RACE-WR")
-            SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng)
-            barrier = Barrier(2)
-            outcomes = {}
-
-            def run_withdraw():
-                db = SessionFactory()
+        """Day 22.4: Member withdraw bersamaan dengan Host remove (mode DELETE & WAL) -> tepat 1 menang (WITHDRAWN/REMOVED), 1 ditolak 409."""
+        for journal_mode in ("DELETE", "WAL"):
+            with self.subTest(journal_mode=journal_mode):
+                _, db_url, eng = self._create_file_db(journal_mode=journal_mode)
                 try:
-                    mem = db.query(Student).filter_by(student_id="s_mem").first()
-                    barrier.wait(timeout=10)
-                    withdraw_from_study_session_service(db, "SESS-RACE-WR", mem)
-                    outcomes["withdraw"] = ("SUCCESS", "WITHDRAWN")
-                except HTTPException as he:
-                    outcomes["withdraw"] = ("HTTP_ERROR", he.status_code)
-                finally:
-                    db.close()
+                    self._seed_confirmed_session(eng, "SESS-RACE-WR")
+                    SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng)
+                    barrier = Barrier(2)
+                    outcomes = {}
 
-            def run_remove():
-                db = SessionFactory()
+                    def run_withdraw():
+                        db = SessionFactory()
+                        try:
+                            mem = db.query(Student).filter_by(student_id="s_mem").first()
+                            barrier.wait(timeout=10)
+                            resp = withdraw_from_study_session_service(db, "SESS-RACE-WR", mem)
+                            outcomes["withdraw"] = ("SUCCESS", resp.membership_status)
+                        except HTTPException as he:
+                            outcomes["withdraw"] = ("HTTP_ERROR", he.status_code)
+                        finally:
+                            db.close()
+
+                    def run_remove():
+                        db = SessionFactory()
+                        try:
+                            host = db.query(Student).filter_by(student_id="s_host").first()
+                            barrier.wait(timeout=10)
+                            remove_member_from_study_session_service(db, "SESS-RACE-WR", "s_mem", host)
+                            outcomes["remove"] = ("SUCCESS", "REMOVED")
+                        except HTTPException as he:
+                            outcomes["remove"] = ("HTTP_ERROR", he.status_code)
+                        finally:
+                            db.close()
+
+                    t1 = Thread(target=run_withdraw)
+                    t2 = Thread(target=run_remove)
+                    t1.start()
+                    t2.start()
+                    t1.join(timeout=15)
+                    t2.join(timeout=15)
+                    self.assertFalse(t1.is_alive())
+                    self.assertFalse(t2.is_alive())
+
+                    winners = [k for k, v in outcomes.items() if v[0] == "SUCCESS"]
+                    losers = [k for k, v in outcomes.items() if v[0] == "HTTP_ERROR"]
+                    self.assertEqual(len(winners), 1, f"Wajib tepat 1 pemenang status anggota: {outcomes}")
+                    self.assertEqual(len(losers), 1, f"Wajib tepat 1 ditolak 409: {outcomes}")
+                    self.assertEqual(outcomes[losers[0]][1], 409)
+
+                    expected_mem_status = "WITHDRAWN" if winners[0] == "withdraw" else "REMOVED"
+                    v_eng, v_db = self._open_verify_session(db_url)
+                    try:
+                        # Option A: StudySession tetap CONFIRMED
+                        self.assertEqual(v_db.query(StudySession).filter_by(session_id="SESS-RACE-WR").first().status, "CONFIRMED")
+                        mem_row = v_db.query(SessionMember).filter_by(session_id="SESS-RACE-WR", student_id="s_mem").first()
+                        self.assertEqual(mem_row.status, expected_mem_status)
+                        self.assertEqual(mem_row.intent_id, "i_mem")
+                        self.assertEqual(v_db.query(StudyIntent).filter_by(intent_id="i_mem").first().status, "MATCHED")
+                    finally:
+                        v_db.close()
+                        v_eng.dispose()
+                finally:
+                    eng.dispose()
+
+    def test_13_real_sqlite_lock_recovery_exhaustion_and_wall_clock_budget(self):
+        """Day 22.4: Lock fisik SQLite nyata (DELETE & WAL) pulih saat dilepas, fail-closed 409 saat exhausted, & patuh batas wall-clock budget."""
+        import time
+        from unittest.mock import patch
+        import app.session_lifecycle_service as lc_mod
+
+        # A. Lock dilepas setelah rollback pertama -> complete berhasil (uji pada DELETE & WAL)
+        for journal_mode in ("DELETE", "WAL"):
+            with self.subTest(lock_recovery_mode=journal_mode):
+                db_file_a, _, eng_a = self._create_file_db(busy_timeout_ms=25, journal_mode=journal_mode)
+                lock_conn_a = sqlite3.connect(str(db_file_a), isolation_level=None, timeout=5.0)
                 try:
-                    host = db.query(Student).filter_by(student_id="s_host").first()
-                    barrier.wait(timeout=10)
-                    remove_member_from_study_session_service(db, "SESS-RACE-WR", "s_mem", host)
-                    outcomes["remove"] = ("SUCCESS", "REMOVED")
-                except HTTPException as he:
-                    outcomes["remove"] = ("HTTP_ERROR", he.status_code)
+                    self._seed_confirmed_session(eng_a, "SESS-LOCK-REC")
+                    SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng_a)
+                    real_locks = []
+                    rolled_back = Event()
+
+                    @event.listens_for(eng_a, "handle_error")
+                    def _cap_lock(ctx):
+                        if "database is locked" in str(ctx.original_exception).lower():
+                            real_locks.append(1)
+
+                    @event.listens_for(SessionFactory, "after_rollback")
+                    def _on_rb(_sess):
+                        if real_locks:
+                            rolled_back.set()
+
+                    lock_conn_a.execute("BEGIN IMMEDIATE")
+                    res = {"resp": None, "err": None}
+
+                    def worker():
+                        db = SessionFactory()
+                        try:
+                            host = db.query(Student).filter_by(student_id="s_host").first()
+                            res["resp"] = complete_study_session_service(db, "SESS-LOCK-REC", host)
+                        except Exception as exc:
+                            res["err"] = exc
+                        finally:
+                            db.close()
+
+                    t = Thread(target=worker)
+                    t.start()
+                    self.assertTrue(rolled_back.wait(timeout=5.0))
+                    lock_conn_a.execute("COMMIT")
+                    t.join(timeout=10.0)
+                    self.assertFalse(t.is_alive())
+
+                    self.assertIsNone(res["err"])
+                    self.assertEqual(res["resp"].status, "COMPLETED")
+                    self.assertGreaterEqual(len(real_locks), 1)
                 finally:
-                    db.close()
+                    lock_conn_a.close()
+                    eng_a.dispose()
 
-            t1 = Thread(target=run_withdraw)
-            t2 = Thread(target=run_remove)
-            t1.start()
-            t2.start()
-            t1.join(timeout=15)
-            t2.join(timeout=15)
-
-            winners = [k for k, v in outcomes.items() if v[0] == "SUCCESS"]
-            losers = [k for k, v in outcomes.items() if v[0] == "HTTP_ERROR"]
-            self.assertEqual(len(winners), 1, f"Wajib tepat 1 pemenang status anggota: {outcomes}")
-            self.assertEqual(len(losers), 1, f"Wajib tepat 1 ditolak 409: {outcomes}")
-            self.assertEqual(outcomes[losers[0]][1], 409)
-
-            expected_mem_status = "WITHDRAWN" if winners[0] == "withdraw" else "REMOVED"
-            v_eng, v_db = self._open_verify_session(db_url)
-            try:
-                # Option A: StudySession tetap CONFIRMED
-                self.assertEqual(v_db.query(StudySession).filter_by(session_id="SESS-RACE-WR").first().status, "CONFIRMED")
-                mem_row = v_db.query(SessionMember).filter_by(session_id="SESS-RACE-WR", student_id="s_mem").first()
-                self.assertEqual(mem_row.status, expected_mem_status)
-                self.assertEqual(mem_row.intent_id, "i_mem")
-                self.assertEqual(v_db.query(StudyIntent).filter_by(intent_id="i_mem").first().status, "MATCHED")
-            finally:
-                v_db.close()
-                v_eng.dispose()
-        finally:
-            eng.dispose()
-
-    def test_13_real_sqlite_lock_recovery_and_exhaustion_on_lifecycle(self):
-        """Day 22.4: Lock fisik SQLite nyata (BEGIN IMMEDIATE) pada transisi lifecycle pulih saat dilepas & fail-closed 409 saat exhausted."""
-        # A. Lock dilepas setelah rollback pertama -> complete berhasil
-        db_file_a, db_url_a, eng_a = self._create_file_db(busy_timeout_ms=25)
-        lock_conn_a = sqlite3.connect(str(db_file_a), isolation_level=None, timeout=5.0)
-        try:
-            self._seed_confirmed_session(eng_a, "SESS-LOCK-REC")
-            SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng_a)
-            real_locks = []
-            rolled_back = Event()
-
-            @event.listens_for(eng_a, "handle_error")
-            def _cap_lock(ctx):
-                if "database is locked" in str(ctx.original_exception).lower():
-                    real_locks.append(1)
-
-            @event.listens_for(SessionFactory, "after_rollback")
-            def _on_rb(_sess):
-                if real_locks:
-                    rolled_back.set()
-
-            lock_conn_a.execute("BEGIN IMMEDIATE")
-            res = {"resp": None, "err": None}
-
-            def worker():
-                db = SessionFactory()
-                try:
-                    host = db.query(Student).filter_by(student_id="s_host").first()
-                    res["resp"] = complete_study_session_service(db, "SESS-LOCK-REC", host)
-                except Exception as exc:
-                    res["err"] = exc
-                finally:
-                    db.close()
-
-            t = Thread(target=worker)
-            t.start()
-            self.assertTrue(rolled_back.wait(timeout=5.0))
-            lock_conn_a.execute("COMMIT")
-            t.join(timeout=10.0)
-
-            self.assertIsNone(res["err"])
-            self.assertEqual(res["resp"].status, "COMPLETED")
-            self.assertGreaterEqual(len(real_locks), 1)
-        finally:
-            lock_conn_a.close()
-            eng_a.dispose()
-
-        # B. Lock ditahan hingga retry habis -> fail-closed HTTP 409 & status tetap CONFIRMED
-        db_file_b, db_url_b, eng_b = self._create_file_db(busy_timeout_ms=15)
+        # B. Lock ditahan hingga batas waktu wall-clock/retry habis -> fail-closed HTTP 409 cepat & status tetap CONFIRMED
+        db_file_b, db_url_b, eng_b = self._create_file_db(busy_timeout_ms=40, journal_mode="DELETE")
         lock_conn_b = sqlite3.connect(str(db_file_b), isolation_level=None, timeout=5.0)
         try:
             self._seed_confirmed_session(eng_b, "SESS-LOCK-EXH")
             SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng_b)
             lock_conn_b.execute("BEGIN IMMEDIATE")
+            t0 = time.monotonic()
             try:
                 db = SessionFactory()
                 try:
                     mem = db.query(Student).filter_by(student_id="s_mem").first()
-                    with self.assertRaises(HTTPException) as ctx:
-                        withdraw_from_study_session_service(db, "SESS-LOCK-EXH", mem)
+                    # Verifikasi wall-clock budget (mis. 0.09s) memotong retry secara deterministik tanpa menggantung
+                    with patch.object(lc_mod, "_LOCK_RETRY_TIME_BUDGET_SECONDS", 0.09):
+                        with self.assertRaises(HTTPException) as ctx:
+                            withdraw_from_study_session_service(db, "SESS-LOCK-EXH", mem)
                     self.assertEqual(ctx.exception.status_code, 409)
                 finally:
                     db.close()
             finally:
                 lock_conn_b.execute("ROLLBACK")
+            elapsed = time.monotonic() - t0
+            self.assertLess(elapsed, 1.5, f"Lock exhaustion tidak boleh menggantung melampaui retry budget: {elapsed:.3f}s")
 
             v_eng, v_db = self._open_verify_session(db_url_b)
             try:
@@ -854,3 +932,4 @@ class TestDay22LifecycleConcurrencyAndLockRecovery(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
