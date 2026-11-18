@@ -18,12 +18,14 @@
 
 from contextlib import contextmanager
 import logging
+import threading
 import time
 from datetime import datetime
 from typing import Optional
 
 from fastapi import HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy import event
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
@@ -37,6 +39,8 @@ logger = logging.getLogger(__name__)
 _MAX_SQLITE_LOCK_RETRIES = 4
 _LOCK_RETRY_TIME_BUDGET_SECONDS = 2.0
 _PER_ATTEMPT_BUSY_TIMEOUT_MS = 450
+_ORIG_BUSY_TIMEOUT_INFO_KEY = "_lafriend_orig_busy_timeout"
+_POOL_LISTENER_LOCK = threading.Lock()
 _ACTIVE_DETAIL_MEMBER_STATUSES = ("CONFIRMED", "ACCEPTED")
 _GENERIC_INTERNAL_ERROR_DETAIL = "Terjadi kesalahan internal saat memproses permintaan sesi belajar."
 
@@ -75,13 +79,48 @@ def _compute_lock_retry_delay(attempt: int, started_at: float) -> Optional[float
     return min(0.015 * (attempt + 1), remaining)
 
 
+def _set_sqlite_busy_timeout(raw_conn, timeout_ms: int) -> None:
+    """Mengatur PRAGMA busy_timeout pada koneksi fisik SQLite."""
+    cur = raw_conn.cursor()
+    try:
+        cur.execute(f"PRAGMA busy_timeout = {int(timeout_ms)}")
+    finally:
+        cur.close()
+
+
+def _restore_sqlite_busy_timeout_on_checkin(dbapi_conn, conn_record) -> None:
+    """
+    Pool checkin listener SQLAlchemy: memulihkan PRAGMA busy_timeout asli SEBELUM
+    koneksi fisik SQLite dikembalikan ke free queue pool (termasuk pasca db.commit() sukses).
+    Jika pemulihan gagal, koneksi fisik langsung di-invalidasi agar tidak pernah masuk kembali
+    ke pool dalam konfigurasi yang tidak diketahui.
+    """
+    orig_bt = conn_record.info.pop(_ORIG_BUSY_TIMEOUT_INFO_KEY, None)
+    if orig_bt is None or dbapi_conn is None:
+        return
+    try:
+        _set_sqlite_busy_timeout(dbapi_conn, int(orig_bt))
+    except Exception as exc:
+        logger.exception(
+            "Gagal memulihkan PRAGMA busy_timeout=%s saat pool checkin; menginvalidasi koneksi SQLite.",
+            orig_bt,
+        )
+        conn_record.invalidate(exc)
+
+
 @contextmanager
 def _sqlite_bounded_busy_timeout(db: Session, started_at: float):
     """
-    Menegakkan batas wall-clock nyata pada koneksi SQLite per percobaan dengan
-    membatasi PRAGMA busy_timeout <= min(existing_timeout, _PER_ATTEMPT_BUSY_TIMEOUT_MS, remaining_ms),
-    lalu mengembalikan nilai busy_timeout semula saat keluar blok.
-    Menjamin request tidak pernah menunggu 5 detik (default sqlite3) ketika anggaran 2 detik ditetapkan.
+    Menegakkan bounded SQLite lock-wait budget per percobaan dengan membatasi
+    PRAGMA busy_timeout <= min(existing_timeout, _PER_ATTEMPT_BUSY_TIMEOUT_MS, remaining_ms).
+    Catatan kontrak: anggaran 2 detik ini adalah bounded SQLite lock-wait budget
+    (memotong tunggu lock default 5 detik sqlite3), bukan jaminan SLA total durasi seluruh HTTP request.
+
+    Pemulihan busy_timeout dijamin pada seluruh jalur (commit sukses, rollback, maupun early return)
+    melalui:
+    1. Pool `checkin` event listener (saat koneksi dikembalikan ke pool oleh commit/rollback/close), dan
+    2. Blok `finally` (jika koneksi masih aktif/checked-out, mis. jalur idempotent tanpa commit).
+    Bila pemulihan gagal pada salah satu jalur, koneksi fisik langsung di-invalidasi.
     """
     bind = db.get_bind()
     if bind is None or bind.dialect.name != "sqlite":
@@ -92,37 +131,50 @@ def _sqlite_bounded_busy_timeout(db: Session, started_at: float):
     if remaining_s <= 0.0:
         raise OperationalError("SQLite lock budget exceeded before statement", {}, Exception("database is locked"))
 
+    engine = getattr(bind, "engine", bind)
+    pool = getattr(engine, "pool", None)
+    if pool is not None:
+        with _POOL_LISTENER_LOCK:
+            if not event.contains(pool, "checkin", _restore_sqlite_busy_timeout_on_checkin):
+                event.listen(pool, "checkin", _restore_sqlite_busy_timeout_on_checkin)
+
     cap_ms = max(1, min(_PER_ATTEMPT_BUSY_TIMEOUT_MS, int(remaining_s * 1000)))
     sa_conn = db.connection()
-    raw_conn = getattr(sa_conn.connection, "dbapi_connection", None)
+    fairy = sa_conn.connection
+    raw_conn = getattr(fairy, "dbapi_connection", None)
     if raw_conn is None:
         yield
         return
 
     orig_bt: Optional[int] = None
-    cur = raw_conn.cursor()
+    read_cur = raw_conn.cursor()
     try:
-        cur.execute("PRAGMA busy_timeout")
-        row = cur.fetchone()
+        read_cur.execute("PRAGMA busy_timeout")
+        row = read_cur.fetchone()
         orig_bt = int(row[0]) if row and row[0] is not None else None
-        effective_ms = max(1, min(orig_bt, cap_ms) if (orig_bt is not None and orig_bt > 0) else cap_ms)
-        cur.execute(f"PRAGMA busy_timeout = {effective_ms}")
     finally:
-        cur.close()
+        read_cur.close()
+
+    if orig_bt is not None:
+        fairy.info.setdefault(_ORIG_BUSY_TIMEOUT_INFO_KEY, orig_bt)
+
+    effective_ms = max(1, min(orig_bt, cap_ms) if (orig_bt is not None and orig_bt > 0) else cap_ms)
+    _set_sqlite_busy_timeout(raw_conn, effective_ms)
 
     try:
         yield
     finally:
-        if orig_bt is not None and not sa_conn.closed and not sa_conn.invalidated:
-            try:
-                restore_cur = raw_conn.cursor()
+        if not sa_conn.closed and not sa_conn.invalidated:
+            pending_bt = fairy.info.pop(_ORIG_BUSY_TIMEOUT_INFO_KEY, None)
+            if pending_bt is not None:
                 try:
-                    restore_cur.execute(f"PRAGMA busy_timeout = {orig_bt}")
-                finally:
-                    restore_cur.close()
-            except Exception:
-                # Koneksi fisik telah ditutup (mis. NullPool pada commit/rollback)
-                pass
+                    _set_sqlite_busy_timeout(raw_conn, int(pending_bt))
+                except Exception as exc:
+                    logger.exception(
+                        "Gagal memulihkan PRAGMA busy_timeout=%s saat keluar blok; menginvalidasi koneksi SQLite.",
+                        pending_bt,
+                    )
+                    sa_conn.invalidate(exc)
 
 
 def _get_session_or_404(db: Session, session_id: str) -> StudySession:

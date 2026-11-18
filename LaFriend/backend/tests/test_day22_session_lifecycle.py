@@ -841,7 +841,7 @@ class TestDay22LifecycleConcurrencyAndLockRecovery(unittest.TestCase):
                     eng.dispose()
 
     def test_13_real_sqlite_lock_recovery_exhaustion_and_wall_clock_budget(self):
-        """Day 22.4: Lock fisik SQLite nyata (DELETE & WAL) pulih saat dilepas, fail-closed 409 saat exhausted, & patuh batas wall-clock budget."""
+        """Day 22.4: Lock fisik SQLite nyata (DELETE & WAL) pulih saat dilepas, fail-closed 409 saat exhausted, & patuh bounded SQLite lock-wait budget."""
         import time
 
         # A. Lock dilepas setelah rollback pertama -> complete berhasil (uji pada DELETE & WAL)
@@ -894,7 +894,7 @@ class TestDay22LifecycleConcurrencyAndLockRecovery(unittest.TestCase):
 
         # B. Pengujian konfigurasi produksi aktual (persis database.py: default timeout 5000ms, mode DELETE, TANPA patch budget):
         # Membuktikan _sqlite_bounded_busy_timeout benar-benar memotong penantian default 5 detik SQLite
-        # agar total wall-clock request tetap di bawah anggaran 2 detik dan busy_timeout koneksi dipulihkan ke 5000ms.
+        # agar penantian lock SQLite patuh pada bounded lock-wait budget 2 detik dan busy_timeout koneksi dipulihkan ke 5000ms.
         self._counter += 1
         prod_db_file = Path(self._tmpdir.name) / f"lafriend_d22_prod_bt_{self._counter}.db"
         prod_db_url = f"sqlite:///{prod_db_file.as_posix()}"
@@ -933,11 +933,12 @@ class TestDay22LifecycleConcurrencyAndLockRecovery(unittest.TestCase):
                 lock_conn_b.execute("ROLLBACK")
             elapsed = time.monotonic() - t0
 
-            # Bukti nyata Pilihan A: meskipun driver sqlite3 default 5.0s, total eksekusi selesai < 2.5s (jauh di bawah 5.0s!)
+            # Bukti nyata bounded SQLite lock-wait budget (2.0s): meskipun driver sqlite3 default 5.0s,
+            # penantian lock terpotong jauh di bawah 5.0s (dengan toleransi kecil overhead Python/OS)
             self.assertLess(
                 elapsed,
                 2.5,
-                f"Hard wall-clock budget 2s wajib membatasi tunggu SQLite default 5s, aktual: {elapsed:.3f}s",
+                f"Bounded SQLite lock-wait budget (2s) wajib membatasi tunggu SQLite default 5s, aktual: {elapsed:.3f}s",
             )
 
             # Pastikan PRAGMA busy_timeout koneksi pool dipulihkan ke nilai awal (5000ms)
@@ -955,6 +956,127 @@ class TestDay22LifecycleConcurrencyAndLockRecovery(unittest.TestCase):
         finally:
             lock_conn_b.close()
             eng_prod.dispose()
+
+    def test_14_pool_busy_timeout_restored_after_successful_commit_and_invalidation_on_failure(self):
+        """Day 22.4 (P1): Memastikan PRAGMA busy_timeout=5000 dipulihkan pasca commit sukses (complete/cancel/withdraw/remove) pada QueuePool(pool_size=1, max_overflow=0), dan koneksi di-invalidasi jika restorasi gagal."""
+        from unittest.mock import patch
+        from sqlalchemy.pool import QueuePool
+        import app.session_lifecycle_service as lc_mod
+
+        def _make_single_conn_pool_engine(tag: str):
+            self._counter += 1
+            db_file = Path(self._tmpdir.name) / f"lafriend_d22_pool_{tag}_{self._counter}.db"
+            db_url = f"sqlite:///{db_file.as_posix()}"
+            eng = create_engine(
+                db_url,
+                connect_args={"check_same_thread": False},
+                poolclass=QueuePool,
+                pool_size=1,
+                max_overflow=0,
+            )
+
+            @event.listens_for(eng, "connect")
+            def _fk(dbapi_conn, _conn_record):
+                cur = dbapi_conn.cursor()
+                cur.execute("PRAGMA foreign_keys=ON")
+                cur.close()
+
+            ensure_database_schema(eng)
+            return eng
+
+        # --- Bagian A: Verifikasi pemulihan busy_timeout=5000 pada SEMUA 4 jalur commit sukses ---
+        success_ops = [
+            ("complete", lambda db, sid: complete_study_session_service(db, sid, db.query(Student).filter_by(student_id="s_host").first()), "COMPLETED"),
+            ("cancel", lambda db, sid: cancel_study_session_service(db, sid, db.query(Student).filter_by(student_id="s_host").first()), "CANCELLED"),
+            ("withdraw", lambda db, sid: withdraw_from_study_session_service(db, sid, db.query(Student).filter_by(student_id="s_mem").first()), "WITHDRAWN"),
+            ("remove", lambda db, sid: remove_member_from_study_session_service(db, sid, "s_mem", db.query(Student).filter_by(student_id="s_host").first()), "REMOVED"),
+        ]
+
+        for op_name, op_fn, expected_val in success_ops:
+            with self.subTest(successful_commit_op=op_name):
+                eng = _make_single_conn_pool_engine(op_name)
+                try:
+                    sid = f"SESS-POOL-{op_name.upper()}"
+                    self._seed_confirmed_session(eng, sid)
+
+                    # Catat identitas koneksi fisik tunggal & busy_timeout awal (5000ms)
+                    with eng.connect() as pre_conn:
+                        raw_id_before = id(pre_conn.connection.dbapi_connection)
+                        bt_before = int(pre_conn.execute(text("PRAGMA busy_timeout")).scalar())
+                    self.assertEqual(bt_before, 5000)
+
+                    # Eksekusi operasi lifecycle sampai commit sukses, lalu tutup Session
+                    SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng)
+                    db = SessionFactory()
+                    try:
+                        resp = op_fn(db, sid)
+                        actual_val = resp.membership_status if op_name == "withdraw" else resp.status
+                        if op_name == "remove":
+                            actual_val = next(m.status for m in resp.members if m.student_id == "s_mem")
+                        self.assertEqual(actual_val, expected_val)
+                    finally:
+                        db.close()
+
+                    # Checkout berikutnya dari single-connection pool WAJIB memakai ulang koneksi fisik yg sama dg busy_timeout=5000
+                    with eng.connect() as post_conn:
+                        raw_id_after = id(post_conn.connection.dbapi_connection)
+                        bt_after = int(post_conn.execute(text("PRAGMA busy_timeout")).scalar())
+
+                    self.assertEqual(
+                        raw_id_after,
+                        raw_id_before,
+                        f"QueuePool(pool_size=1, max_overflow=0) wajib memakai ulang koneksi fisik yang sama pada {op_name}",
+                    )
+                    self.assertEqual(
+                        bt_after,
+                        5000,
+                        f"PRAGMA busy_timeout pada koneksi pool bocor setelah commit sukses {op_name}: {bt_after} != 5000",
+                    )
+                finally:
+                    eng.dispose()
+
+        # --- Bagian B: Kegagalan restorasi PRAGMA wajib meng-invalidasi koneksi agar tidak kembali kotor ke pool ---
+        eng_inv = _make_single_conn_pool_engine("invalidate")
+        try:
+            sid_inv = "SESS-POOL-INV"
+            self._seed_confirmed_session(eng_inv, sid_inv)
+
+            with eng_inv.connect() as pre_conn:
+                old_raw_id = id(pre_conn.connection.dbapi_connection)
+                self.assertEqual(int(pre_conn.execute(text("PRAGMA busy_timeout")).scalar()), 5000)
+
+            orig_setter = lc_mod._set_sqlite_busy_timeout
+
+            def fail_only_on_restore(raw_conn, timeout_ms: int):
+                if int(timeout_ms) == 5000:
+                    raise sqlite3.OperationalError("simulated pragma restore failure")
+                return orig_setter(raw_conn, timeout_ms)
+
+            SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng_inv)
+            db = SessionFactory()
+            try:
+                host = db.query(Student).filter_by(student_id="s_host").first()
+                with patch.object(lc_mod, "_set_sqlite_busy_timeout", side_effect=fail_only_on_restore):
+                    with patch.object(lc_mod.logger, "exception") as mock_log:
+                        resp = complete_study_session_service(db, sid_inv, host)
+                self.assertEqual(resp.status, "COMPLETED")
+                self.assertGreaterEqual(mock_log.call_count, 1)
+            finally:
+                db.close()
+
+            # Checkout berikutnya WAJIB menerima koneksi fisik BARU (koneksi kotor telah di-invalidasi) dengan busy_timeout=5000
+            with eng_inv.connect() as post_conn:
+                new_raw_id = id(post_conn.connection.dbapi_connection)
+                bt_fresh = int(post_conn.execute(text("PRAGMA busy_timeout")).scalar())
+
+            self.assertNotEqual(
+                new_raw_id,
+                old_raw_id,
+                "Koneksi fisik yang gagal memulihkan PRAGMA busy_timeout wajib di-invalidasi, bukan dipakai ulang",
+            )
+            self.assertEqual(bt_fresh, 5000)
+        finally:
+            eng_inv.dispose()
 
 
 if __name__ == "__main__":
