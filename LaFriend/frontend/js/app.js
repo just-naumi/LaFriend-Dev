@@ -241,176 +241,6 @@ const app = {
       });
     },
   },
-
-  // ============================================================================
-  // UI/UX STEP 1: WAKTU LUANG MINGGUAN PER AKUN & RESOLUSI KALENDER OTOMATIS
-  // ============================================================================
-  weeklySchedule: {
-    TIME_PRESETS: {
-      pagi: { key: "pagi", label: "Pagi", start_time: "08:00", end_time: "12:00" },
-      siang: { key: "siang", label: "Siang", start_time: "13:00", end_time: "17:00" },
-      malam: { key: "malam", label: "Malam", start_time: "18:30", end_time: "21:00" },
-    },
-    // Urutan JavaScript Date.getDay(): 0=Minggu .. 6=Sabtu
-    WEEKDAYS_BY_JS_DAY: ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"],
-    WEEKDAY_ORDER: ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"],
-
-    _storageKey(studentId) {
-      return `lafriend_weekly_schedule_${studentId || "default"}`;
-    },
-
-    get(studentId) {
-      if (!studentId) return null;
-      const raw = localStorage.getItem(this._storageKey(studentId));
-      if (!raw) return null;
-      try {
-        const parsed = JSON.parse(raw);
-        if (!parsed || !Array.isArray(parsed.days) || !Array.isArray(parsed.blocks)) return null;
-        const cleanDays = parsed.days.filter((d) => this.WEEKDAY_ORDER.includes(d));
-        const cleanBlocks = parsed.blocks.filter(
-          (b) => b && typeof b.start_time === "string" && typeof b.end_time === "string" && b.start_time < b.end_time
-        );
-        if (cleanDays.length === 0 || cleanBlocks.length === 0) return null;
-        return { days: cleanDays, blocks: cleanBlocks };
-      } catch {
-        return null;
-      }
-    },
-
-    save(studentId, schedule) {
-      if (!studentId || !schedule) return false;
-      const cleanDays = [...new Set((schedule.days || []).filter((d) => this.WEEKDAY_ORDER.includes(d)))];
-      const cleanBlocks = (schedule.blocks || []).filter(
-        (b) => b && b.start_time && b.end_time && b.start_time < b.end_time
-      );
-      if (cleanDays.length === 0 || cleanBlocks.length === 0) return false;
-      localStorage.setItem(
-        this._storageKey(studentId),
-        JSON.stringify({ days: cleanDays, blocks: cleanBlocks })
-      );
-      return true;
-    },
-
-    formatSummary(schedule) {
-      if (!schedule || !schedule.days || !schedule.blocks) return "";
-      const shortMap = { Senin: "Sen", Selasa: "Sel", Rabu: "Rab", Kamis: "Kam", Jumat: "Jum", Sabtu: "Sab", Minggu: "Min" };
-      const dayText = schedule.days.map((d) => shortMap[d] || d).join(", ");
-      const blockText = schedule.blocks
-        .map((b) => (b.label ? `${b.label} (${b.start_time}–${b.end_time})` : `${b.start_time}–${b.end_time}`))
-        .join(", ");
-      return `${dayText} · ${blockText}`;
-    },
-
-    formatLocalIsoDate(dateObj) {
-      const y = dateObj.getFullYear();
-      const m = String(dateObj.getMonth() + 1).padStart(2, "0");
-      const d = String(dateObj.getDate()).padStart(2, "0");
-      return `${y}-${m}-${d}`;
-    },
-
-    parseIsoDateLocal(isoStr) {
-      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec((isoStr || "").trim());
-      if (!m) return null;
-      const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-      if (Number.isNaN(d.getTime())) return null;
-      return d;
-    },
-
-    getDatePresetRange(presetKey, refDate = new Date()) {
-      const base = new Date(refDate.getFullYear(), refDate.getMonth(), refDate.getDate());
-      const addDays = (dt, n) => new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + n);
-
-      if (presetKey === "today") {
-        const s = this.formatLocalIsoDate(base);
-        return { earliest_date: s, latest_date: s };
-      }
-      if (presetKey === "tomorrow") {
-        const t = this.formatLocalIsoDate(addDays(base, 1));
-        return { earliest_date: t, latest_date: t };
-      }
-      if (presetKey === "this_week") {
-        return {
-          earliest_date: this.formatLocalIsoDate(base),
-          latest_date: this.formatLocalIsoDate(addDays(base, 6)),
-        };
-      }
-      if (presetKey === "next_week") {
-        // Senin minggu depan s/d Minggu minggu depan
-        const jsDay = base.getDay(); // 0=Min, 1=Sen, ..., 6=Sab
-        const daysUntilNextMonday = jsDay === 0 ? 1 : 8 - jsDay;
-        const nextMon = addDays(base, daysUntilNextMonday);
-        const nextSun = addDays(nextMon, 6);
-        return {
-          earliest_date: this.formatLocalIsoDate(nextMon),
-          latest_date: this.formatLocalIsoDate(nextSun),
-        };
-      }
-      return null;
-    },
-
-    getDaysInRange(earliestDate, latestDate) {
-      const start = this.parseIsoDateLocal(earliestDate);
-      const end = this.parseIsoDateLocal(latestDate);
-      if (!start || !end || start > end) return [];
-
-      const seenDays = new Set();
-      const orderedDays = [];
-      const cur = new Date(start.getTime());
-      let guard = 0;
-      while (cur <= end && guard < 62) {
-        const dayName = this.WEEKDAYS_BY_JS_DAY[cur.getDay()];
-        if (!seenDays.has(dayName)) {
-          seenDays.add(dayName);
-          orderedDays.push({ dayName, sampleDate: this.formatLocalIsoDate(cur) });
-        }
-        cur.setDate(cur.getDate() + 1);
-        guard += 1;
-      }
-      return orderedDays;
-    },
-
-    // Memetakan rentang tanggal ke waktu luang mingguan akun — HANYA menghasilkan hari yang
-    // benar-benar ada di dalam [earliestDate, latestDate] sehingga mustahil bentrok kalender!
-    resolveForDateRange(schedule, earliestDate, latestDate) {
-      const daysInRange = this.getDaysInRange(earliestDate, latestDate);
-      const availableDaysInRange = daysInRange.map((d) => d.dayName);
-
-      if (!schedule || !Array.isArray(schedule.days) || !Array.isArray(schedule.blocks) || schedule.blocks.length === 0) {
-        return {
-          matchedSlots: [],
-          matchedDays: [],
-          availableDaysInRange,
-          hasSchedule: false,
-          hasConflict: false,
-        };
-      }
-
-      const preferredSet = new Set(schedule.days);
-      const matchedDays = availableDaysInRange.filter((d) => preferredSet.has(d));
-      const matchedSlots = [];
-      let rank = 1;
-
-      matchedDays.forEach((dayName) => {
-        schedule.blocks.forEach((blk) => {
-          matchedSlots.push({
-            day_or_date: dayName,
-            start_time: blk.start_time,
-            end_time: blk.end_time,
-            priority_rank: Math.min(rank, 3),
-          });
-        });
-        rank += 1;
-      });
-
-      return {
-        matchedSlots,
-        matchedDays,
-        availableDaysInRange,
-        hasSchedule: true,
-        hasConflict: matchedSlots.length === 0,
-      };
-    },
-  },
 };
 
 
@@ -523,42 +353,11 @@ function initLoginPage() {
 // ==============================================================================
 function initRegisterPage() {
   const form = document.getElementById("registerForm");
-
-  // Toggle chip hari & jam luang mingguan di halaman registrasi
-  const daysGroup = document.getElementById("regWsDaysGroup");
-  const blocksGroup = document.getElementById("regWsBlocksGroup");
-  [daysGroup, blocksGroup].forEach((grp) => {
-    if (!grp) return;
-    grp.addEventListener("click", (e) => {
-      const chip = e.target.closest(".reg-ws-chip");
-      if (chip) chip.classList.toggle("active");
-    });
-  });
-
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
 
     const btn = document.getElementById("btnSubmitRegister");
     const alertBox = document.getElementById("authAlert");
-
-    // Kumpulkan waktu luang mingguan yang dipilih saat daftar
-    const selectedDays = daysGroup
-      ? [...daysGroup.querySelectorAll(".reg-ws-chip.active")].map((b) => b.dataset.day).filter(Boolean)
-      : [];
-    const selectedBlocks = blocksGroup
-      ? [...blocksGroup.querySelectorAll(".reg-ws-chip.active")]
-          .map((b) => app.weeklySchedule.TIME_PRESETS[b.dataset.block])
-          .filter(Boolean)
-      : [];
-
-    if (daysGroup && (selectedDays.length === 0 || selectedBlocks.length === 0)) {
-      alertBox.innerHTML = `
-        <div class="alert alert-danger py-2 small mb-3">
-          Pilih minimal 1 hari dan 1 jam waktu luang belajarmu ya.
-        </div>
-      `;
-      return;
-    }
 
     const payload = {
       full_name: document.getElementById("regName").value.trim(),
@@ -580,14 +379,8 @@ function initRegisterPage() {
         body: JSON.stringify(payload),
       });
 
-      // Simpan token & waktu luang mingguan akun lalu pindah ke dashboard
+      // Simpan token otomatis dan pindah ke dashboard
       app.setAuth(res.access_token, res.student);
-      if (res.student && res.student.student_id && selectedDays.length > 0 && selectedBlocks.length > 0) {
-        app.weeklySchedule.save(res.student.student_id, {
-          days: selectedDays,
-          blocks: selectedBlocks,
-        });
-      }
       window.location.replace("dashboard.html");
     } catch (err) {
       alertBox.innerHTML = `
@@ -634,9 +427,6 @@ async function initDashboardPage() {
       }
     });
   }
-
-  // Modal Waktu Luang Mingguan (UI/UX Step 1)
-  initDashboardWeeklyScheduleModal(user);
 
   // Muat data Study Intent dan Katalog Mata Kuliah dari server
   await loadDashboardIntents();
@@ -1109,142 +899,9 @@ async function cancelStudyIntent(intentId) {
 
 
 // ==============================================================================
-// 4B. MODAL PENGATURAN WAKTU LUANG MINGGUAN DI DASHBOARD (UI/UX STEP 1)
-// ==============================================================================
-function initDashboardWeeklyScheduleModal(user) {
-  const subEl = document.getElementById("dashWeeklyScheduleSub");
-  const btnOpen = document.getElementById("btnOpenWeeklyScheduleModal");
-  const modal = document.getElementById("weeklyScheduleModal");
-  const btnClose = document.getElementById("btnCloseWeeklyScheduleModal");
-  const btnSave = document.getElementById("btnSaveWeeklySchedule");
-  const daysGrp = document.getElementById("wsModalDaysGroup");
-  const blocksGrp = document.getElementById("wsModalBlocksGroup");
-  const customStart = document.getElementById("wsCustomStart");
-  const customEnd = document.getElementById("wsCustomEnd");
-  const alertEl = document.getElementById("wsModalAlert");
-
-  function refreshSubtitle() {
-    if (!subEl || !user) return;
-    const saved = app.weeklySchedule.get(user.student_id);
-    subEl.textContent = saved
-      ? app.weeklySchedule.formatSummary(saved)
-      : "Belum diatur — klik untuk pilih hari & jam luangmu";
-  }
-
-  refreshSubtitle();
-  if (!btnOpen || !modal) return;
-
-  function showModalMsg(text, isError) {
-    if (!alertEl) return;
-    if (!text) {
-      alertEl.classList.add("d-none");
-      return;
-    }
-    alertEl.textContent = text;
-    alertEl.style.background = isError ? "#FEF2F2" : "#ECFDF5";
-    alertEl.style.color = isError ? "#991B1B" : "#065F46";
-    alertEl.classList.remove("d-none");
-  }
-
-  function populateModal() {
-    showModalMsg("", false);
-    const saved = app.weeklySchedule.get(user.student_id);
-    const activeDays = new Set(saved ? saved.days : ["Senin", "Rabu", "Kamis", "Jumat"]);
-    const activeBlockKeys = new Set();
-    let customBlk = null;
-
-    if (saved) {
-      saved.blocks.forEach((b) => {
-        if (b.key && app.weeklySchedule.TIME_PRESETS[b.key]) {
-          activeBlockKeys.add(b.key);
-        } else {
-          customBlk = b;
-        }
-      });
-    } else {
-      activeBlockKeys.add("siang");
-    }
-
-    if (daysGrp) {
-      daysGrp.querySelectorAll(".ws-chip-btn").forEach((btn) => {
-        btn.classList.toggle("active", activeDays.has(btn.dataset.day));
-      });
-    }
-    if (blocksGrp) {
-      blocksGrp.querySelectorAll(".ws-chip-btn").forEach((btn) => {
-        btn.classList.toggle("active", activeBlockKeys.has(btn.dataset.block));
-      });
-    }
-    if (customStart) customStart.value = customBlk ? customBlk.start_time : "";
-    if (customEnd) customEnd.value = customBlk ? customBlk.end_time : "";
-  }
-
-  [daysGrp, blocksGrp].forEach((grp) => {
-    if (!grp) return;
-    grp.addEventListener("click", (e) => {
-      const btn = e.target.closest(".ws-chip-btn");
-      if (btn) btn.classList.toggle("active");
-    });
-  });
-
-  btnOpen.addEventListener("click", () => {
-    populateModal();
-    modal.classList.remove("d-none");
-  });
-
-  if (btnClose) {
-    btnClose.addEventListener("click", () => modal.classList.add("d-none"));
-  }
-  modal.addEventListener("click", (e) => {
-    if (e.target === modal) modal.classList.add("d-none");
-  });
-
-  if (btnSave) {
-    btnSave.addEventListener("click", () => {
-      const days = daysGrp
-        ? [...daysGrp.querySelectorAll(".ws-chip-btn.active")].map((b) => b.dataset.day).filter(Boolean)
-        : [];
-      const blocks = blocksGrp
-        ? [...blocksGrp.querySelectorAll(".ws-chip-btn.active")]
-            .map((b) => app.weeklySchedule.TIME_PRESETS[b.dataset.block])
-            .filter(Boolean)
-        : [];
-
-      const cStart = (customStart?.value || "").trim();
-      const cEnd = (customEnd?.value || "").trim();
-      if (cStart || cEnd) {
-        if (!cStart || !cEnd || cStart >= cEnd) {
-          showModalMsg("Jam selesai harus lebih besar dari jam mulai.", true);
-          return;
-        }
-        blocks.push({ label: "Khusus", start_time: cStart, end_time: cEnd });
-      }
-
-      if (days.length === 0) {
-        showModalMsg("Pilih minimal 1 hari luang.", true);
-        return;
-      }
-      if (blocks.length === 0) {
-        showModalMsg("Pilih minimal 1 jam luang atau isi jam sendiri.", true);
-        return;
-      }
-
-      app.weeklySchedule.save(user.student_id, { days, blocks });
-      refreshSubtitle();
-      modal.classList.add("d-none");
-    });
-  }
-}
-
-// ==============================================================================
-// 5. HALAMAN CREATE STUDY INTENT (create-intent.html — UI/UX STEP 1)
+// 5. HALAMAN CREATE STUDY INTENT (create-intent.html)
 // ==============================================================================
 let slotCounter = 0;
-const createIntentScheduleState = {
-  preset: "",
-  aiExplicitSlots: [],
-  user: null,
-};
 
 async function initCreateIntentPage() {
   const user = app.getUser();
@@ -1255,10 +912,9 @@ async function initCreateIntentPage() {
     window.location.replace("login.html");
     return;
   }
-  createIntentScheduleState.user = user;
-  createIntentScheduleState.preset = "";
-  createIntentScheduleState.aiExplicitSlots = [];
 
+  // DAY 11.1: HILANGKAN DEFAULT PALSU PADA FORM
+  // Tanggal dan slot waktu TIDAK DIISI OTOMATIS jika belum ada data riil dari pengguna/AI!
   const earliestInput = document.getElementById("earliestDate");
   const latestInput = document.getElementById("latestDate");
   if (earliestInput) earliestInput.value = "";
@@ -1267,57 +923,11 @@ async function initCreateIntentPage() {
   // Muat daftar mata kuliah ke dropdown
   await loadCoursesDropdown();
 
-  // Bind preset "Kapan Mau Belajar?" (Hari Ini / Besok / Minggu Ini / Minggu Depan / Pilih Tanggal)
-  const whenGroup = document.getElementById("whenPresetGroup");
-  const customRangeWrap = document.getElementById("customDateRangeWrap");
-
-  function selectDatePreset(presetKey) {
-    createIntentScheduleState.preset = presetKey;
-    createIntentScheduleState.aiExplicitSlots = []; // user mengganti tanggal secara eksplisit
-    if (whenGroup) {
-      whenGroup.querySelectorAll(".when-chip-btn").forEach((b) => {
-        b.classList.toggle("active", b.dataset.preset === presetKey);
-      });
-    }
-
-    if (presetKey === "custom") {
-      if (customRangeWrap) customRangeWrap.classList.remove("d-none");
-    } else {
-      if (customRangeWrap) customRangeWrap.classList.add("d-none");
-      const range = app.weeklySchedule.getDatePresetRange(presetKey);
-      if (range && earliestInput && latestInput) {
-        earliestInput.value = range.earliest_date;
-        latestInput.value = range.latest_date;
-      }
-    }
-    refreshAutoAvailabilityPreview();
-  }
-
-  if (whenGroup) {
-    whenGroup.addEventListener("click", (e) => {
-      const btn = e.target.closest(".when-chip-btn");
-      if (!btn || !btn.dataset.preset) return;
-      selectDatePreset(btn.dataset.preset);
-    });
-  }
-
-  [earliestInput, latestInput].forEach((inp) => {
-    if (!inp) return;
-    inp.addEventListener("change", () => {
-      createIntentScheduleState.aiExplicitSlots = [];
-      refreshAutoAvailabilityPreview();
-    });
-  });
-
-  // Bind chip jam cepat (fallback & override)
-  ["quickTimeBlockGroup", "overrideTimeBlockGroup"].forEach((grpId) => {
-    const grp = document.getElementById(grpId);
-    if (!grp) return;
-    grp.addEventListener("click", (e) => {
-      const btn = e.target.closest(".when-chip-btn");
-      if (btn) btn.classList.toggle("active");
-    });
-  });
+  // Kosongkan container slot waktu awal (tidak ada slot palsu Rabu 09:00 / Kamis 13:00)
+  const slotsContainer = document.getElementById("slotsContainer");
+  const emptyNotice = document.getElementById("emptySlotsNotice");
+  if (slotsContainer) slotsContainer.innerHTML = "";
+  slotCounter = 0;
 
   // Cek apakah data sudah diekstrak dari proses loading Dashboard
   const cachedResultStr = sessionStorage.getItem("lafriend_ai_extraction_result");
@@ -1336,83 +946,32 @@ async function initCreateIntentPage() {
     sessionStorage.removeItem("lafriend_ai_prompt");
     extractWithTimelineAnimation(storedPrompt);
   } else {
-    // Default praktis: sorot "Minggu Ini" agar pengguna bisa langsung lihat waktu luangnya
-    selectDatePreset("this_week");
+    // Mode manual murni: beri panduan penambahan slot
+    if (emptyNotice) {
+      emptyNotice.innerHTML = `
+        <div class="slot-warning-notice">
+          <i class="bi bi-info-circle-fill me-1 text-primary"></i>
+          Belum ada jadwal belajar. Silakan tentukan rentang tanggal di atas dan klik <strong>+ Tambah Slot</strong> untuk mengatur hari & jam ketersediaanmu.
+        </div>
+      `;
+      emptyNotice.classList.remove("d-none");
+    }
+  }
+
+  // Tombol tambah slot waktu
+  const btnAddSlot = document.getElementById("btnAddSlot");
+  if (btnAddSlot) {
+    btnAddSlot.addEventListener("click", () => {
+      const emptyNoticeEl = document.getElementById("emptySlotsNotice");
+      if (emptyNoticeEl) emptyNoticeEl.classList.add("d-none");
+      addTimeSlotRow("", "", "", Math.min(slotCounter + 1, 3));
+    });
   }
 
   // Handle submit form
   const form = document.getElementById("createIntentForm");
   if (form) {
     form.addEventListener("submit", handleCreateIntentSubmit);
-  }
-}
-
-function refreshAutoAvailabilityPreview() {
-  const autoBox = document.getElementById("autoAvailabilityBox");
-  const fallbackWrap = document.getElementById("quickTimeFallbackWrap");
-  const overrideDisc = document.getElementById("overrideTimeDisclosure");
-  const aiNotice = document.getElementById("aiExtractedSlotsNotice");
-  const earliestVal = (document.getElementById("earliestDate")?.value || "").trim();
-  const latestVal = (document.getElementById("latestDate")?.value || "").trim();
-  const user = createIntentScheduleState.user;
-
-  if (!autoBox) return;
-
-  // Jika ada slot eksplisit hasil ekstraksi AI yang valid, tampilkan ringkasannya
-  if (createIntentScheduleState.aiExplicitSlots.length > 0) {
-    autoBox.classList.add("d-none");
-    if (fallbackWrap) fallbackWrap.classList.add("d-none");
-    if (overrideDisc) overrideDisc.classList.remove("d-none");
-    if (aiNotice) {
-      const slotText = createIntentScheduleState.aiExplicitSlots
-        .map((s) => `${s.day_or_date} (${s.start_time}–${s.end_time})`)
-        .join(", ");
-      aiNotice.textContent = "";
-      const box = createEl("div", "auto-avail-box auto-avail-box--ok");
-      box.textContent = `✓ Jadwal terdeteksi dari pesanmu: ${slotText}`;
-      aiNotice.appendChild(box);
-      aiNotice.classList.remove("d-none");
-    }
-    return;
-  }
-
-  if (aiNotice) aiNotice.classList.add("d-none");
-
-  if (!earliestVal || !latestVal || earliestVal > latestVal) {
-    autoBox.classList.add("d-none");
-    if (fallbackWrap) fallbackWrap.classList.add("d-none");
-    if (overrideDisc) overrideDisc.classList.add("d-none");
-    return;
-  }
-
-  const savedSchedule = user ? app.weeklySchedule.get(user.student_id) : null;
-  const resolved = app.weeklySchedule.resolveForDateRange(savedSchedule, earliestVal, latestVal);
-
-  autoBox.textContent = "";
-  autoBox.classList.remove("d-none");
-
-  if (resolved.matchedSlots.length > 0) {
-    const uniqueText = resolved.matchedDays
-      .map((d) => {
-        const times = savedSchedule.blocks.map((b) => `${b.start_time}–${b.end_time}`).join(", ");
-        return `${d} (${times})`;
-      })
-      .join(" · ");
-    const box = createEl("div", "auto-avail-box auto-avail-box--ok");
-    box.textContent = `✓ Otomatis pakai waktu luangmu: ${uniqueText}`;
-    autoBox.appendChild(box);
-    if (fallbackWrap) fallbackWrap.classList.add("d-none");
-    if (overrideDisc) overrideDisc.classList.remove("d-none");
-  } else {
-    const daysText = resolved.availableDaysInRange.join(", ");
-    const msg = !resolved.hasSchedule
-      ? `Kamu belum mengatur waktu luang mingguan. Pilih jam belajar di bawah untuk hari ${daysText}:`
-      : `Rentang tanggal yang dipilih (${daysText}) belum masuk di jadwal waktu luang mingguanmu. Pilih jam cepat di bawah untuk sesi ini:`;
-    const box = createEl("div", "auto-avail-box auto-avail-box--warn");
-    box.textContent = msg;
-    autoBox.appendChild(box);
-    if (fallbackWrap) fallbackWrap.classList.remove("d-none");
-    if (overrideDisc) overrideDisc.classList.add("d-none");
   }
 }
 
@@ -1795,61 +1354,41 @@ function applyAIExtractionResult(res) {
     document.getElementById("maxGroupSize").value = res.max_group_size;
   }
 
-  // 7. Rentang Tanggal & Slot Waktu (UI/UX Step 1: utamakan AI eksplisit, fallback ke Waktu Luang Akun)
+  // 7. Rentang Tanggal: JANGAN ISI TANGGAL PALSU jika AI mengembalikan null!
   const earliestInput = document.getElementById("earliestDate");
   const latestInput = document.getElementById("latestDate");
-  const whenGroup = document.getElementById("whenPresetGroup");
-  const customRangeWrap = document.getElementById("customDateRangeWrap");
+  if (res.earliest_date && earliestInput) earliestInput.value = res.earliest_date;
+  if (res.latest_date && latestInput) latestInput.value = res.latest_date;
 
-  if (res.earliest_date && res.latest_date && earliestInput && latestInput) {
-    earliestInput.value = res.earliest_date;
-    latestInput.value = res.latest_date;
-    createIntentScheduleState.preset = "custom";
-    if (customRangeWrap) customRangeWrap.classList.remove("d-none");
-    if (whenGroup) {
-      whenGroup.querySelectorAll(".when-chip-btn").forEach((b) => {
-        b.classList.toggle("active", b.dataset.preset === "custom");
+  // 8. Slot Waktu Ketersediaan
+  const container = document.getElementById("slotsContainer");
+  const emptyNotice = document.getElementById("emptySlotsNotice");
+
+  if (res.availabilities && res.availabilities.length > 0) {
+    if (emptyNotice) emptyNotice.classList.add("d-none");
+    if (container) {
+      container.innerHTML = "";
+      slotCounter = 0;
+      res.availabilities.forEach((slot, idx) => {
+        const day = slot.day_or_date || slot.day || "";
+        addTimeSlotRow(day, slot.start_time || "", slot.end_time || "", slot.priority_rank || (idx + 1));
       });
     }
-  } else if (earliestInput && latestInput) {
-    const defRange = app.weeklySchedule.getDatePresetRange("this_week");
-    if (defRange) {
-      earliestInput.value = defRange.earliest_date;
-      latestInput.value = defRange.latest_date;
-      createIntentScheduleState.preset = "this_week";
-      if (customRangeWrap) customRangeWrap.classList.add("d-none");
-      if (whenGroup) {
-        whenGroup.querySelectorAll(".when-chip-btn").forEach((b) => {
-          b.classList.toggle("active", b.dataset.preset === "this_week");
-        });
-      }
+  } else {
+    // JADWAL KOSONG: Jangan karang slot palsu! Kosongkan dan beri peringatan instruktif
+    if (container) container.innerHTML = "";
+    slotCounter = 0;
+    if (emptyNotice) {
+      emptyNotice.innerHTML = `
+        <div class="slot-warning-notice">
+          <i class="bi bi-exclamation-triangle-fill me-1 text-warning"></i>
+          <strong>Jadwal belajar belum terdeteksi dari kalimatmu.</strong><br>
+          Silakan tentukan rentang tanggal di atas dan klik <strong>+ Tambah Slot</strong> untuk mengatur hari & jam ketersediaanmu.
+        </div>
+      `;
+      emptyNotice.classList.remove("d-none");
     }
   }
-
-  // 8. Cek apakah AI mengekstrak slot waktu lengkap (hari + start_time < end_time) yang cocok dg rentang tanggal
-  const validDaysInRange = new Set(
-    app.weeklySchedule.getDaysInRange(earliestInput?.value || "", latestInput?.value || "").map((d) => d.dayName)
-  );
-  const aiSlots = [];
-  if (Array.isArray(res.availabilities)) {
-    res.availabilities.forEach((slot, idx) => {
-      const day = (slot.day_or_date || slot.day || "").trim();
-      const start = (slot.start_time || "").trim();
-      const end = (slot.end_time || "").trim();
-      const isIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(day);
-      const dayMatchesRange = isIsoDate || validDaysInRange.size === 0 || validDaysInRange.has(day);
-      if (day && start && end && start < end && dayMatchesRange) {
-        aiSlots.push({
-          day_or_date: day,
-          start_time: start,
-          end_time: end,
-          priority_rank: slot.priority_rank || Math.min(idx + 1, 3),
-        });
-      }
-    });
-  }
-  createIntentScheduleState.aiExplicitSlots = aiSlots;
-  refreshAutoAvailabilityPreview();
 
   // Gulir halus ke formulir agar mahasiswa langsung melihat hasilnya
   const formElement = document.getElementById("createIntentForm");
@@ -2017,111 +1556,57 @@ async function handleCreateIntentSubmit(e) {
     return;
   }
 
-  // Validasi: Wajib menentukan tanggal belajar yang valid
-  const earliestVal = (document.getElementById("earliestDate")?.value || "").trim();
-  const latestVal = (document.getElementById("latestDate")?.value || "").trim();
+  // Validasi: Wajib menentukan rentang tanggal riil dan tanggal awal <= tanggal akhir
+  const earliestVal = (document.getElementById("earliestDate").value || "").trim();
+  const latestVal = (document.getElementById("latestDate").value || "").trim();
   if (!earliestVal || !latestVal) {
-    if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">Silakan pilih kapan kamu mau belajar pada Bagian 6!</div>`;
+    if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">Silakan tentukan <b>Rentang Tanggal Belajar</b> (Mulai Dari & Sampai) pada Bagian 6!</div>`;
     return;
   }
   if (earliestVal > latestVal) {
-    if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">Tanggal awal (${escapeHtml(earliestVal)}) tidak boleh melewati tanggal akhir (${escapeHtml(latestVal)})!</div>`;
+    if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">Tanggal awal (${earliestVal}) tidak boleh melewati tanggal akhir (${latestVal})!</div>`;
     return;
   }
 
-  // Kumpulkan slot waktu otomatis dari (1) Override sesi ini, (2) AI eksplisit, (3) Waktu Luang Akun, atau (4) Fallback jam cepat
-  const user = createIntentScheduleState.user || app.getUser();
-  const daysInRange = app.weeklySchedule.getDaysInRange(earliestVal, latestVal).map((d) => d.dayName);
+  // Kumpulkan data ketersediaan waktu dari form & validasi setiap baris slot
+  const slotCards = document.querySelectorAll(".slot-row-card");
+  if (slotCards.length === 0) {
+    if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">Minimal harus ada <b>1 Slot Waktu Ketersediaan</b>! Klik tombol <b>+ Tambah Slot</b> pada Bagian 7.</div>`;
+    return;
+  }
 
-  function collectTimeBlocksFromGroup(groupId, customStartId, customEndId) {
-    const grp = document.getElementById(groupId);
-    const blocks = grp
-      ? [...grp.querySelectorAll(".when-chip-btn.active")]
-          .map((b) => app.weeklySchedule.TIME_PRESETS[b.dataset.block])
-          .filter(Boolean)
-      : [];
-    const cs = (document.getElementById(customStartId)?.value || "").trim();
-    const ce = (document.getElementById(customEndId)?.value || "").trim();
-    if (cs || ce) {
-      if (!cs || !ce || cs >= ce) {
-        return { error: "Jam selesai harus lebih besar daripada jam mulai!" };
-      }
-      blocks.push({ label: "Khusus", start_time: cs, end_time: ce });
+  const availabilities = [];
+  for (let i = 0; i < slotCards.length; i++) {
+    const c = slotCards[i];
+    const day = (c.querySelector(".slot-day")?.value || "").trim();
+    const start = (c.querySelector(".slot-start")?.value || "").trim();
+    const end = (c.querySelector(".slot-end")?.value || "").trim();
+    const prio = parseInt(c.querySelector(".slot-priority")?.value, 10) || 1;
+
+    if (!day) {
+      if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">Silakan pilih hari untuk <b>Slot #${i + 1}</b>!</div>`;
+      return;
     }
-    return { blocks };
-  }
-
-  let availabilities = [];
-
-  // 1) Cek apakah pengguna mengisi override jam khusus sesi ini
-  const overrideRes = collectTimeBlocksFromGroup("overrideTimeBlockGroup", "overrideCustomStart", "overrideCustomEnd");
-  if (overrideRes.error) {
-    if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">${escapeHtml(overrideRes.error)}</div>`;
-    return;
-  }
-  if (overrideRes.blocks.length > 0) {
-    daysInRange.forEach((dayName, idx) => {
-      overrideRes.blocks.forEach((blk) => {
-        availabilities.push({
-          day_or_date: dayName,
-          start_time: blk.start_time,
-          end_time: blk.end_time,
-          priority_rank: Math.min(idx + 1, 3),
-        });
-      });
+    if (!start || !end) {
+      if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">Silakan lengkapi jam mulai dan selesai untuk <b>Slot #${i + 1}</b>!</div>`;
+      return;
+    }
+    if (start >= end) {
+      if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">Jam selesai (${end}) harus lebih besar daripada jam mulai (${start}) pada <b>Slot #${i + 1}</b>!</div>`;
+      return;
+    }
+    availabilities.push({
+      day_or_date: day,
+      start_time: start,
+      end_time: end,
+      priority_rank: prio
     });
-  } else if (createIntentScheduleState.aiExplicitSlots.length > 0) {
-    // 2) Gunakan slot eksplisit hasil ekstraksi AI yang cocok dengan kalender
-    availabilities = [...createIntentScheduleState.aiExplicitSlots];
-  } else {
-    // 3) Cocokkan otomatis dengan Waktu Luang Mingguan akun
-    const savedSchedule = user ? app.weeklySchedule.get(user.student_id) : null;
-    const resolved = app.weeklySchedule.resolveForDateRange(savedSchedule, earliestVal, latestVal);
-
-    if (resolved.matchedSlots.length > 0) {
-      availabilities = resolved.matchedSlots;
-    } else {
-      // 4) Gunakan pilihan jam cepat fallback pada rentang tanggal yang dipilih
-      const fbRes = collectTimeBlocksFromGroup("quickTimeBlockGroup", "quickCustomStart", "quickCustomEnd");
-      if (fbRes.error) {
-        if (alertBox) alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">${escapeHtml(fbRes.error)}</div>`;
-        return;
-      }
-      if (fbRes.blocks.length === 0) {
-        if (alertBox) {
-          alertBox.innerHTML = `<div class="alert alert-danger py-2 small mb-3">Pilih minimal 1 jam belajar (Pagi / Siang / Malam atau isi jam sendiri) untuk tanggal yang dipilih ya!</div>`;
-        }
-        return;
-      }
-      daysInRange.forEach((dayName, idx) => {
-        fbRes.blocks.forEach((blk) => {
-          availabilities.push({
-            day_or_date: dayName,
-            start_time: blk.start_time,
-            end_time: blk.end_time,
-            priority_rank: Math.min(idx + 1, 3),
-          });
-        });
-      });
-
-      // Jika pengguna mencentang simpan sebagai waktu luang mingguan, simpan ke akun
-      const saveDefaultChk = document.getElementById("chkSaveAsWeeklyDefault");
-      if (saveDefaultChk && saveDefaultChk.checked && user && user.student_id) {
-        const mergedDays = savedSchedule
-          ? [...new Set([...savedSchedule.days, ...daysInRange])]
-          : daysInRange;
-        app.weeklySchedule.save(user.student_id, {
-          days: mergedDays,
-          blocks: fbRes.blocks,
-        });
-      }
-    }
   }
 
   btn.disabled = true;
-  btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>Menyimpan rencana...`;
+  btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>Menyimpan ke SQLite...`;
 
-  // Bungkus data payload sesuai kontrak backend StudyIntentCreate
+  // Bungkus data payload murni dari pilihan pengguna
   const payload = {
     course_id: courseId,
     topics: topicsVal,
