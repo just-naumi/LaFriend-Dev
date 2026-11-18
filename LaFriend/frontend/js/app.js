@@ -43,6 +43,40 @@ const app = {
     localStorage.removeItem(STORAGE_USER);
   },
 
+  // Memastikan pengguna telah login; jika belum, alihkan ke halaman login
+  requireAuth() {
+    const token = this.getToken();
+    const user = this.getUser();
+    if (!token || !user) {
+      window.location.replace("login.html");
+      return null;
+    }
+    return user;
+  },
+
+  // Penanganan khusus HTTP 401 (token tidak valid / kedaluwarsa).
+  // PENTING: Jangan dipanggil untuk HTTP 403 karena 403 berarti terautentikasi namun tanpa hak akses.
+  handleUnauthorized() {
+    this.clearAuth();
+    window.location.replace("login.html");
+  },
+
+  // Mengekstrak pesan error yang aman dan mudah dibaca dari response backend FastAPI
+  extractErrorMessage(responseData, status) {
+    if (responseData && typeof responseData.detail === "string" && responseData.detail.trim()) {
+      return responseData.detail.trim();
+    }
+    if (responseData && Array.isArray(responseData.detail) && responseData.detail.length > 0) {
+      const msgs = responseData.detail
+        .map((item) => (item && item.msg ? item.msg : ""))
+        .filter(Boolean);
+      if (msgs.length > 0) {
+        return msgs.join("; ");
+      }
+    }
+    return `Terjadi kesalahan status ${status}`;
+  },
+
   // Fungsi umum untuk memanggil endpoint API backend menggunakan fetch()
   async request(endpoint, options = {}) {
     const url = `${API_BASE_URL}${endpoint}`;
@@ -59,24 +93,74 @@ const app = {
       headers["Authorization"] = `Bearer ${token}`;
     }
 
+    let response;
     try {
-      const response = await fetch(url, {
+      response = await fetch(url, {
         ...options,
         headers: headers,
       });
-
-      const responseData = await response.json().catch(() => ({}));
-
-      // Jika server mengembalikan status error (bukan 2xx)
-      if (!response.ok) {
-        throw new Error(responseData.detail || `Terjadi kesalahan status ${response.status}`);
-      }
-
-      return responseData;
-    } catch (err) {
-      console.error(`[API Error] ${endpoint}:`, err);
-      throw err;
+    } catch (networkErr) {
+      const error = new Error("Tidak dapat terhubung ke server. Periksa koneksi internet kamu lalu coba lagi.");
+      error.status = 0;
+      error.data = null;
+      error.endpoint = endpoint;
+      error.isNetworkError = true;
+      error.cause = networkErr;
+      console.error(`[API Network Error] ${endpoint}:`, error);
+      throw error;
     }
+
+    const responseData = await response.json().catch(() => ({}));
+
+    // Jika server mengembalikan status error (bukan 2xx), simpan HTTP status & payload error
+    if (!response.ok) {
+      const error = new Error(this.extractErrorMessage(responseData, response.status));
+      error.status = response.status;
+      error.data = responseData;
+      error.endpoint = endpoint;
+      error.isNetworkError = false;
+      console.error(`[API Error ${response.status}] ${endpoint}:`, error.message);
+      throw error;
+    }
+
+    return responseData;
+  },
+
+  // ============================================================================
+  // DAY 23: FRONTEND INTEGRATION LAYER — STUDY SESSION & LIFECYCLE API CONTRACT
+  // ============================================================================
+  // Seluruh aturan bisnis (otorisasi, state transition, quorum Option A, provenance)
+  // tetap dikendalikan penuh oleh backend Day 21-22.
+  sessions: {
+    listMySessions(statusFilter = "") {
+      const cleanStatus = (statusFilter || "").trim().toUpperCase();
+      const qs = cleanStatus ? `?status=${encodeURIComponent(cleanStatus)}` : "";
+      return app.request(`/sessions/my-sessions${qs}`, { method: "GET" });
+    },
+
+    getDetail(sessionId) {
+      return app.request(`/sessions/${encodeURIComponent(sessionId)}`, { method: "GET" });
+    },
+
+    complete(sessionId) {
+      return app.request(`/sessions/${encodeURIComponent(sessionId)}/complete`, { method: "POST" });
+    },
+
+    cancel(sessionId) {
+      return app.request(`/sessions/${encodeURIComponent(sessionId)}/cancel`, { method: "POST" });
+    },
+
+    // Mengembalikan SessionWithdrawResponse minimal { session_id, session_status, membership_status }
+    withdraw(sessionId) {
+      return app.request(`/sessions/${encodeURIComponent(sessionId)}/withdraw`, { method: "POST" });
+    },
+
+    removeMember(sessionId, studentId) {
+      return app.request(
+        `/sessions/${encodeURIComponent(sessionId)}/members/${encodeURIComponent(studentId)}/remove`,
+        { method: "POST" }
+      );
+    },
   },
 };
 
@@ -108,6 +192,16 @@ document.addEventListener("DOMContentLoaded", () => {
   // 5. Jika membuka halaman Create Study Intent
   if (document.getElementById("createIntentForm")) {
     initCreateIntentPage();
+  }
+
+  // 6. Jika membuka halaman Sesi Saya (Day 23.2)
+  if (document.getElementById("sessionsPageRoot") && typeof initSessionsPage === "function") {
+    initSessionsPage();
+  }
+
+  // 7. Jika membuka halaman Detail Sesi (Day 23.3)
+  if (document.getElementById("sessionDetailPageRoot") && typeof initSessionDetailPage === "function") {
+    initSessionDetailPage();
   }
 });
 
