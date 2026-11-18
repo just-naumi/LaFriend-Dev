@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Buat Study Intent — LaFriend</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%237C3AED'/%3E%3Ctext x='50%25' y='54%25' text-anchor='middle' dominant-baseline='middle' fill='%23FFFFFF' font-family='Arial,sans-serif' font-size='34' font-weight='800'%3EL%3C/text%3E%3C/svg%3E">
   <!-- Bootstrap 5.3 & Icons -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
@@ -206,9 +207,9 @@
 
         <!-- SECTION 3: TUJUAN BELAJAR -->
         <div class="form-group-clean">
-          <label class="form-label-clean">
-            <i class="bi bi-bullseye text-primary me-1"></i> 3. Tujuan Belajar (Learning Goal)
-          </label>
+          <div class="form-label-clean">
+            <i class="bi bi-bullseye text-primary me-1"></i> 3. Tujuan Belajar
+          </div>
           <div class="chip-grid-3">
             <div>
               <input type="radio" class="btn-check" name="learningGoal" id="gUnderstand" value="UNDERSTAND">
@@ -250,9 +251,9 @@
 
         <!-- SECTION 4: GAYA KOLABORASI -->
         <div class="form-group-clean">
-          <label class="form-label-clean">
-            <i class="bi bi-people-fill text-primary me-1"></i> 4. Gaya Belajar (Collaboration Style)
-          </label>
+          <div class="form-label-clean">
+            <i class="bi bi-people-fill text-primary me-1"></i> 4. Gaya Belajar
+          </div>
           <div class="chip-grid-2">
             <div>
               <input type="radio" class="btn-check" name="collabStyle" id="cDiscussion" value="DISCUSSION">
@@ -287,9 +288,9 @@
 
         <!-- SECTION 5: MODE BELAJAR -->
         <div class="form-group-clean">
-          <label class="form-label-clean">
+          <div class="form-label-clean">
             <i class="bi bi-geo-alt-fill text-primary me-1"></i> 5. Mode Belajar
-          </label>
+          </div>
           <div class="chip-grid-3">
             <div>
               <input type="radio" class="btn-check" name="learningMode" id="mOffline" value="OFFLINE">
@@ -317,17 +318,17 @@
 
         <!-- SECTION 6: RENTANG TANGGAL -->
         <div class="form-group-clean">
-          <label class="form-label-clean">
+          <div class="form-label-clean">
             <i class="bi bi-calendar-event text-primary me-1"></i> 6. Rentang Tanggal Belajar
-          </label>
+          </div>
           <div class="row g-2">
             <div class="col-6">
-              <small class="text-muted d-block mb-1" style="font-size:0.74rem; font-weight:600;">Mulai Dari:</small>
-              <input type="date" id="earliestDate" class="form-control-clean" style="font-size:0.84rem; padding: 9px 10px; font-weight:600; border-radius:10px;" required>
+              <label for="earliestDate" class="text-muted d-block mb-1" style="font-size:0.74rem; font-weight:600;">Mulai Dari:</label>
+              <input type="date" id="earliestDate" name="earliest_date" class="form-control-clean" style="font-size:0.84rem; padding: 9px 10px; font-weight:600; border-radius:10px;" required>
             </div>
             <div class="col-6">
-              <small class="text-muted d-block mb-1" style="font-size:0.74rem; font-weight:600;">Sampai:</small>
-              <input type="date" id="latestDate" class="form-control-clean" style="font-size:0.84rem; padding: 9px 10px; font-weight:600; border-radius:10px;" required>
+              <label for="latestDate" class="text-muted d-block mb-1" style="font-size:0.74rem; font-weight:600;">Sampai:</label>
+              <input type="date" id="latestDate" name="latest_date" class="form-control-clean" style="font-size:0.84rem; padding: 9px 10px; font-weight:600; border-radius:10px;" required>
             </div>
           </div>
         </div>
@@ -335,9 +336,9 @@
         <!-- SECTION 7: TIME SLOTS -->
         <div class="form-group-clean">
           <div class="d-flex justify-content-between align-items-center mb-2">
-            <label class="form-label-clean mb-0">
+            <div class="form-label-clean mb-0">
               <i class="bi bi-clock-fill text-primary me-1"></i> 7. Jadwal Ketersediaan Waktu
-            </label>
+            </div>
             <button type="button" class="btn btn-sm btn-link text-primary p-0 fw-bold text-decoration-none" id="btnAddSlot" style="font-size:0.82rem;">
               <i class="bi bi-plus-circle me-1"></i> Tambah Slot
             </button>
@@ -352,17 +353,17 @@
 
         <!-- SECTION 8: UKURAN GRUP -->
         <div class="form-group-clean">
-          <label class="form-label-clean">
+          <div class="form-label-clean">
             <i class="bi bi-people text-primary me-1"></i> 8. Ukuran Grup Belajar
-          </label>
+          </div>
           <div class="row g-2">
             <div class="col-6">
-              <small class="text-muted d-block mb-1" style="font-size:0.74rem; font-weight:600;">Min Anggota:</small>
-              <input type="number" id="minGroupSize" class="form-control-clean" style="font-size:0.88rem; padding: 9px 12px; font-weight:600; border-radius:10px;" value="2" min="2" max="10" required>
+              <label for="minGroupSize" class="text-muted d-block mb-1" style="font-size:0.74rem; font-weight:600;">Min Anggota:</label>
+              <input type="number" id="minGroupSize" name="min_group_size" class="form-control-clean" style="font-size:0.88rem; padding: 9px 12px; font-weight:600; border-radius:10px;" value="2" min="2" max="10" required>
             </div>
             <div class="col-6">
-              <small class="text-muted d-block mb-1" style="font-size:0.74rem; font-weight:600;">Max Anggota:</small>
-              <input type="number" id="maxGroupSize" class="form-control-clean" style="font-size:0.88rem; padding: 9px 12px; font-weight:600; border-radius:10px;" value="4" min="2" max="10" required>
+              <label for="maxGroupSize" class="text-muted d-block mb-1" style="font-size:0.74rem; font-weight:600;">Max Anggota:</label>
+              <input type="number" id="maxGroupSize" name="max_group_size" class="form-control-clean" style="font-size:0.88rem; padding: 9px 12px; font-weight:600; border-radius:10px;" value="4" min="2" max="10" required>
             </div>
           </div>
         </div>
@@ -381,6 +382,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="js/app.js?v=5.3"></script>
+  <script src="js/app.js?v=5.4"></script>
 </body>
 </html>

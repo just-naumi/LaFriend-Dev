@@ -235,6 +235,7 @@ function bootDay24Sandbox({ pageScript = "", search = "", fetchImpl, elementIds 
   vm.runInContext(
     `;globalThis.__exports = {
       app,
+      formatDateTimeIndo: typeof formatDateTimeIndo !== "undefined" ? formatDateTimeIndo : null,
       matchingPageState: typeof matchingPageState !== "undefined" ? matchingPageState : null,
       loadUserActiveIntents: typeof loadUserActiveIntents !== "undefined" ? loadUserActiveIntents : null,
       runMatchingPreview: typeof runMatchingPreview !== "undefined" ? runMatchingPreview : null,
@@ -903,6 +904,17 @@ test("UI Sync: Dashboard omits redundant create-intent card, while Register & Cr
   assert.match(CREATE_INTENT_HTML, /id="earliestDate"/);
   assert.match(CREATE_INTENT_HTML, /id="latestDate"/);
   assert.doesNotMatch(CREATE_INTENT_HTML, /id="whenPresetGroup"/);
+
+  // UTC naive ISO timestamp from backend converts identically to explicit UTC 'Z'
+  const env = bootDay24Sandbox({});
+  assert.equal(
+    env.formatDateTimeIndo("2026-11-18T10:30:00"),
+    env.formatDateTimeIndo("2026-11-18T10:30:00Z")
+  );
+
+  // Zero internal dev copy leaks in user-facing UI scripts
+  assert.doesNotMatch(PROPOSAL_DETAIL_JS, /\(Day 23\)|\(READY_FOR_SESSION\)|\(CANCELLED\)/);
+  assert.doesNotMatch(APP_JS, /\(COMPLETED\)|\(CANCELLED\)/);
 });
 
 

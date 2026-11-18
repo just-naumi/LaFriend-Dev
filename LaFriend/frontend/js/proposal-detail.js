@@ -276,9 +276,14 @@ function renderProposalDetail(proposal, course) {
   const qWrap = createEl("div", "quorum-progress-wrap");
   const numRow = createEl("div", "quorum-numbers-row");
   numRow.appendChild(createEl("div", "quorum-big-count", `${activeCount} dari ${proposal.min_group_size_bound} orang siap`));
-  numRow.appendChild(
-    createEl("span", `s-badge ${quorumReached ? "s-badge--confirmed" : "s-badge--pending"}`, quorumReached ? "Siap" : "Menunggu")
-  );
+  const isTerminalProposal = proposalStatus === "NOT_FORMED" || proposalStatus === "CANCELLED" || proposalStatus === "EXPIRED";
+  const quorumPillClass = quorumReached
+    ? "s-badge--confirmed"
+    : (isTerminalProposal ? "s-badge--danger" : "s-badge--pending");
+  const quorumPillLabel = quorumReached
+    ? "Siap"
+    : (isTerminalProposal ? "Tidak Tercapai" : "Menunggu");
+  numRow.appendChild(createEl("span", `s-badge ${quorumPillClass}`, quorumPillLabel));
   qWrap.appendChild(numRow);
 
   const track = createEl("div", "quorum-bar-track");
@@ -457,12 +462,12 @@ function renderInviteeProposalControls(container, { proposal, proposalStatus, my
     btnAccept.id = "btnAcceptProposalInvite";
     btnAccept.dataset.proposalAction = "accept";
     btnAccept.appendChild(createIcon("bi-check-circle-fill"));
-    btnAccept.appendChild(createEl("span", "", "Terima Undangan (Accept)"));
+    btnAccept.appendChild(createEl("span", "", "Terima Undangan"));
     btnAccept.addEventListener("click", () => {
       if (proposalDetailState.isActionPending) return;
       openSharedConfirmModal({
         title: "Terima Undangan Kelompok?",
-        message: `Kamu akan menerima undangan kelompok belajar dari ${hostName}. Backend akan menghitung ulang status kuorum secara otomatis.`,
+        message: `Kamu akan menerima undangan kelompok belajar dari ${hostName}.`,
         confirmLabel: "Ya, Terima",
         confirmVariant: "btn-la--success",
         isBusyCheck: () => proposalDetailState.isActionPending,
@@ -475,7 +480,7 @@ function renderInviteeProposalControls(container, { proposal, proposalStatus, my
     btnDecline.id = "btnDeclineProposalInvite";
     btnDecline.dataset.proposalAction = "decline";
     btnDecline.appendChild(createIcon("bi-x-circle-fill"));
-    btnDecline.appendChild(createEl("span", "", "Tolak Undangan (Decline)"));
+    btnDecline.appendChild(createEl("span", "", "Tolak Undangan"));
     btnDecline.addEventListener("click", () => {
       if (proposalDetailState.isActionPending) return;
       openSharedConfirmModal({
@@ -751,7 +756,7 @@ async function executeFinalizeProposalAction(proposalId, triggerBtn) {
     renderInlineAlert(
       alertBox,
       "success",
-      "Proposal berhasil difinalisasi (READY_FOR_SESSION)! Silakan tekan Eksekusi Sesi Belajar untuk membentuk Study Session resmi."
+      "Kelompok berhasil dikunci! Klik Buat Sesi Sekarang untuk memulai jadwal belajarmu."
     );
     renderProposalDetail(updatedProposal, course);
   } catch (err) {
@@ -773,7 +778,7 @@ async function executeCancelProposalAction(proposalId, reason, triggerBtn) {
     const updatedProposal = await app.proposals.cancel(proposalId, payload);
     proposalDetailState.proposal = updatedProposal;
     const course = await resolveProposalCourse(updatedProposal.course_id);
-    renderInlineAlert(alertBox, "success", "Proposal kelompok berhasil dibatalkan (CANCELLED).");
+    renderInlineAlert(alertBox, "success", "Usulan kelompok berhasil dibatalkan.");
     renderProposalDetail(updatedProposal, course);
   } catch (err) {
     await handleProposalActionError(err);
@@ -801,14 +806,14 @@ async function executeCreateSessionFromProposalAction(proposalId, triggerBtn) {
     executedSuccessfully = true;
 
     const targetUrl = `session-detail.html?id=${encodeURIComponent(createdSession.session_id)}`;
-    if (headerSub) headerSub.textContent = "Sesi belajar berhasil dibentuk";
-    renderInlineAlert(alertBox, "success", "Study Session resmi berhasil terbentuk! Mengalihkan ke Detail Sesi...");
+    if (headerSub) headerSub.textContent = "Sesi belajar berhasil dibuat";
+    renderInlineAlert(alertBox, "success", "Sesi belajar berhasil dibuat! Membuka halaman detail sesi...");
 
     if (container) {
       renderStatePanel(container, {
         icon: "bi-check-circle-fill",
-        title: "Study Session Berhasil Terbentuk!",
-        description: "Sesi belajar telah tercatat di database. Mengarahkan kamu ke halaman Detail Sesi (Day 23)...",
+        title: "Sesi Belajar Berhasil Dibuat!",
+        description: "Jadwal belajarmu sudah aktif. Mengarahkan ke halaman Detail Sesi...",
         actions: [
           { label: "Buka Detail Sesi Sekarang", href: targetUrl, variantClass: "btn-la--primary" },
           { label: "Ke Sesi Belajarku", href: "sessions.html", variantClass: "btn-la--secondary" },

@@ -1143,10 +1143,12 @@ function renderAiExtractionReviewBox(res) {
 
   // 3. Tujuan Belajar
   const goalMap = {
-    "EXAM_PREP": "Persiapan Ujian / Latihan Soal",
+    "EXAM_PREP": "Persiapan Ujian",
+    "PRACTICE": "Latihan Soal & Praktik",
     "ASSIGNMENT": "Pengerjaan Tugas / Praktikum",
+    "DISCUSSION": "Diskusi Materi",
     "CONCEPT": "Pemahaman Konsep & Teori",
-    "UNDERSTAND": "Pemahaman Materi & Diskusi",
+    "UNDERSTAND": "Pemahaman Konsep",
     "PROJECT": "Pengerjaan Proyek Belajar"
   };
   const hasGoal = Boolean(res.learning_goal);
@@ -1453,23 +1455,23 @@ function addTimeSlotRow(day = "", start = "", end = "", priority = 1) {
           <span class="badge" style="background: rgba(124, 58, 237, 0.1); color: #7C3AED; font-weight: 700; font-size: 0.72rem; padding: 4px 8px; border-radius: 6px;">
             Slot #${slotCounter}
           </span>
-          <select class="form-select-clean slot-priority" style="width: auto; font-size: 0.76rem; padding: 4px 10px; height: auto; border-radius: 8px; font-weight: 600; color: #475569; background-color: #F8FAFC; border-color: #E2E8F0;">
+          <select id="${rowId}_priority" name="${rowId}_priority" aria-label="Prioritas Slot #${slotCounter}" class="form-select-clean slot-priority" style="width: auto; font-size: 0.76rem; padding: 4px 10px; height: auto; border-radius: 8px; font-weight: 600; color: #475569; background-color: #F8FAFC; border-color: #E2E8F0;">
             <option value="1" ${priority === 1 ? 'selected' : ''}>P1 (Prioritas Utama)</option>
             <option value="2" ${priority === 2 ? 'selected' : ''}>P2 (Cadangan)</option>
             <option value="3" ${priority === 3 ? 'selected' : ''}>P3 (Fleksibel)</option>
           </select>
         </div>
-        <button type="button" class="slot-delete-btn" onclick="removeTimeSlotRow('${rowId}')" title="Hapus Slot">
+        <button type="button" class="slot-delete-btn" onclick="removeTimeSlotRow('${rowId}')" title="Hapus Slot" aria-label="Hapus Slot #${slotCounter}">
           <i class="bi bi-trash3-fill"></i>
         </button>
       </div>
 
       <!-- Baris 1: Pilihan Hari -->
       <div class="mb-2">
-        <label class="form-label-clean mb-1" style="font-size: 0.74rem; color: #64748B; font-weight: 600;">
+        <label for="${rowId}_day" class="form-label-clean mb-1" style="font-size: 0.74rem; color: #64748B; font-weight: 600;">
           <i class="bi bi-calendar3 me-1 text-primary"></i> Hari Belajar
         </label>
-        <select class="form-select-clean slot-day" style="font-size: 0.88rem; padding: 9px 12px; font-weight: 600; border-radius: 10px; background-color: #F8FAFC;" required>
+        <select id="${rowId}_day" name="${rowId}_day" class="form-select-clean slot-day" style="font-size: 0.88rem; padding: 9px 12px; font-weight: 600; border-radius: 10px; background-color: #F8FAFC;" required>
           <option value="" disabled ${!day ? 'selected' : ''}>Pilih Hari...</option>
           ${daysList.map(d => `<option value="${d}" ${day === d ? 'selected' : ''}>${d}</option>`).join("")}
           ${isCustomDay ? `<option value="${escapeHtml(day)}" selected>${escapeHtml(day)}</option>` : ''}
@@ -1479,16 +1481,16 @@ function addTimeSlotRow(day = "", start = "", end = "", priority = 1) {
       <!-- Baris 2: Jam Mulai & Jam Selesai (2 Kolom Lebar & Lega) -->
       <div class="row g-2">
         <div class="col-6">
-          <label class="form-label-clean mb-1" style="font-size: 0.74rem; color: #64748B; font-weight: 600;">
+          <label for="${rowId}_start" class="form-label-clean mb-1" style="font-size: 0.74rem; color: #64748B; font-weight: 600;">
             <i class="bi bi-clock me-1 text-primary"></i> Jam Mulai
           </label>
-          <input type="time" class="slot-time-input slot-start" value="${start || ''}" required>
+          <input type="time" id="${rowId}_start" name="${rowId}_start" class="slot-time-input slot-start" value="${start || ''}" required>
         </div>
         <div class="col-6">
-          <label class="form-label-clean mb-1" style="font-size: 0.74rem; color: #64748B; font-weight: 600;">
+          <label for="${rowId}_end" class="form-label-clean mb-1" style="font-size: 0.74rem; color: #64748B; font-weight: 600;">
             <i class="bi bi-clock-history me-1 text-primary"></i> Jam Selesai
           </label>
-          <input type="time" class="slot-time-input slot-end" value="${end || ''}" required>
+          <input type="time" id="${rowId}_end" name="${rowId}_end" class="slot-time-input slot-end" value="${end || ''}" required>
         </div>
       </div>
     </div>
@@ -1764,7 +1766,13 @@ function getFormationStatusMeta(statusCode) {
 
 function formatDateTimeIndo(isoStr) {
   if (!isoStr || typeof isoStr !== "string") return "-";
-  const d = new Date(isoStr);
+  const raw = isoStr.trim();
+  // Backend menyimpan timestamp UTC tanpa akhiran 'Z' (datetime.utcnow).
+  // Tambahkan 'Z' jika belum ada indikator zona waktu agar otomatis dikonversi ke jam lokal (WIB).
+  const normalized = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(raw)
+    ? `${raw.replace(" ", "T")}Z`
+    : raw;
+  const d = new Date(normalized);
   if (Number.isNaN(d.getTime())) return isoStr;
   const day = d.getDate();
   const month = ID_MONTHS[d.getMonth()] || "";
@@ -2795,7 +2803,7 @@ async function executeCompleteSessionAction(sessionId, triggerBtn) {
   try {
     const updatedSession = await app.sessions.complete(sessionId);
     sessionDetailState.session = updatedSession;
-    renderInlineAlert(alertContainer, "success", "Sesi belajar berhasil ditandai sebagai selesai (COMPLETED).");
+    renderInlineAlert(alertContainer, "success", "Sesi belajar berhasil diselesaikan.");
     renderSessionDetail(updatedSession);
   } catch (err) {
     await handleLifecycleActionError(err);
@@ -2814,7 +2822,7 @@ async function executeCancelSessionAction(sessionId, triggerBtn) {
   try {
     const updatedSession = await app.sessions.cancel(sessionId);
     sessionDetailState.session = updatedSession;
-    renderInlineAlert(alertContainer, "success", "Sesi belajar berhasil dibatalkan (CANCELLED).");
+    renderInlineAlert(alertContainer, "success", "Sesi belajar berhasil dibatalkan.");
     renderSessionDetail(updatedSession);
   } catch (err) {
     await handleLifecycleActionError(err);
