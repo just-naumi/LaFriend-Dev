@@ -45,8 +45,14 @@ from app.group_proposal_service import (
 )
 from app.session_execution_service import (
     execute_study_session_from_proposal_service,
-    get_study_session_detail_service,
     get_my_study_sessions_service
+)
+from app.session_lifecycle_service import (
+    get_authorized_study_session_detail_service,
+    complete_study_session_service,
+    cancel_study_session_service,
+    withdraw_from_study_session_service,
+    remove_member_from_study_session_service,
 )
 
 # Buat router utama API v1
@@ -975,9 +981,95 @@ def get_study_session_detail_endpoint(
     db: Session = Depends(get_db)
 ):
     """
-    Day 21: Mengambil informasi detail sesi belajar beserta slot jadwal dan anggota.
+    Day 21 & Day 22: Mengambil informasi detail sesi belajar beserta slot jadwal dan anggota.
+    Hanya dapat diakses oleh Host sesi dan anggota aktif (CONFIRMED / ACCEPTED).
     """
-    return get_study_session_detail_service(db=db, session_id=session_id, current_student=current_student)
+    return get_authorized_study_session_detail_service(
+        db=db, session_id=session_id, current_student=current_student
+    )
+
+
+@api_router.post(
+    "/sessions/{session_id}/complete",
+    response_model=StudySessionResponse,
+    status_code=status.HTTP_200_OK,
+    tags=["Study Sessions"]
+)
+def complete_study_session_endpoint(
+    session_id: str,
+    current_student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db)
+):
+    """
+    Day 22.2: Menyelesaikan sesi belajar (CONFIRMED -> COMPLETED). Hanya oleh Host.
+    """
+    return complete_study_session_service(
+        db=db, session_id=session_id, current_student=current_student
+    )
+
+
+@api_router.post(
+    "/sessions/{session_id}/cancel",
+    response_model=StudySessionResponse,
+    status_code=status.HTTP_200_OK,
+    tags=["Study Sessions"]
+)
+def cancel_study_session_endpoint(
+    session_id: str,
+    current_student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db)
+):
+    """
+    Day 22.2: Membatalkan sesi belajar (CONFIRMED -> CANCELLED). Hanya oleh Host.
+    Histori alokasi StudyIntent dan keanggotaan tetap dipertahankan (immutable).
+    """
+    return cancel_study_session_service(
+        db=db, session_id=session_id, current_student=current_student
+    )
+
+
+@api_router.post(
+    "/sessions/{session_id}/withdraw",
+    response_model=StudySessionResponse,
+    status_code=status.HTTP_200_OK,
+    tags=["Study Sessions"]
+)
+def withdraw_from_study_session_endpoint(
+    session_id: str,
+    current_student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db)
+):
+    """
+    Day 22.3: Anggota sesi (non-host) mengundurkan diri (CONFIRMED -> WITHDRAWN).
+    Kebijakan Quorum Option A: tidak otomatis mengubah status StudySession.
+    """
+    return withdraw_from_study_session_service(
+        db=db, session_id=session_id, current_student=current_student
+    )
+
+
+@api_router.post(
+    "/sessions/{session_id}/members/{student_id}/remove",
+    response_model=StudySessionResponse,
+    status_code=status.HTTP_200_OK,
+    tags=["Study Sessions"]
+)
+def remove_member_from_study_session_endpoint(
+    session_id: str,
+    student_id: str,
+    current_student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db)
+):
+    """
+    Day 22.3: Host mengeluarkan anggota dari sesi belajar (CONFIRMED -> REMOVED).
+    Kebijakan Quorum Option A: tidak otomatis mengubah status StudySession.
+    """
+    return remove_member_from_study_session_service(
+        db=db,
+        session_id=session_id,
+        target_student_id=student_id,
+        current_student=current_student,
+    )
 
 
 
