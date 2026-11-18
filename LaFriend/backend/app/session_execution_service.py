@@ -49,6 +49,88 @@ def _is_sqlite_lock_error(exc: OperationalError) -> bool:
     return "database is locked" in msg or "database table is locked" in msg
 
 
+def _validate_recovered_session_invariants(
+    db: Session,
+    proposal: Optional[GroupProposal],
+    existing_session: StudySession,
+) -> None:
+    """
+    Day 21.4.5 (Fail-Closed Recovery Guard):
+    Memvalidasi bahwa StudySession yang akan dikembalikan pada jalur idempotensi / recovery
+    benar-benar konsisten dengan seluruh invariant siklus hidup GroupProposal dan StudyIntent.
+    Apabila ditemukan kondisi korup/parsial, sistem wajib menolak dengan HTTP 409 CONFLICT
+    dan tidak pernah memperbaiki atau menyembunyikan inkonsistensi secara diam-diam.
+    """
+    if proposal is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Inkonsistensi state database: StudySession ({existing_session.session_id}) ditemukan tetapi GroupProposal terkait tidak ditemukan."
+        )
+
+    if proposal.status != "SESSION_EXECUTED":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Inkonsistensi state database: StudySession ({existing_session.session_id}) sudah ada "
+                f"untuk proposal '{proposal.proposal_id}', tetapi status proposal adalah '{proposal.status}' "
+                f"(seharusnya 'SESSION_EXECUTED')."
+            )
+        )
+
+    if existing_session.host_id != proposal.host_student_id or existing_session.course_id != proposal.course_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Inkonsistensi state database: Atribut host/course pada StudySession ({existing_session.session_id}) "
+                f"tidak cocok dengan GroupProposal '{proposal.proposal_id}'."
+            )
+        )
+
+    if not existing_session.slots:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Inkonsistensi state database: StudySession ({existing_session.session_id}) untuk proposal "
+                f"'{proposal.proposal_id}' tidak memiliki SessionSlot."
+            )
+        )
+
+    if not existing_session.members:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Inkonsistensi state database: StudySession ({existing_session.session_id}) untuk proposal "
+                f"'{proposal.proposal_id}' tidak memiliki SessionMember."
+            )
+        )
+
+    member_student_ids = {m.student_id for m in existing_session.members}
+    if proposal.host_student_id not in member_student_ids:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Inkonsistensi state database: Host ({proposal.host_student_id}) tidak tercatat sebagai "
+                f"SessionMember pada StudySession ({existing_session.session_id})."
+            )
+        )
+
+    allocated_intent_ids = [m.intent_id for m in existing_session.members if m.intent_id is not None]
+    if allocated_intent_ids:
+        intents = db.query(StudyIntent).filter(StudyIntent.intent_id.in_(allocated_intent_ids)).all()
+        intent_by_id = {it.intent_id: it for it in intents}
+        for iid in allocated_intent_ids:
+            it_row = intent_by_id.get(iid)
+            if not it_row or it_row.status != "MATCHED":
+                actual_st = it_row.status if it_row else "MISSING"
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"Inkonsistensi state database: StudyIntent '{iid}' pada StudySession "
+                        f"({existing_session.session_id}) berstatus '{actual_st}' (seharusnya 'MATCHED')."
+                    )
+                )
+
+
 def format_study_session_response(session: StudySession, db: Session) -> StudySessionResponse:
     """Format ORM StudySession ke skema Pydantic StudySessionResponse secara lengkap."""
     slots_resp = [
@@ -132,9 +214,12 @@ def execute_study_session_from_proposal_service(
                     detail="Hanya host pembuat proposal yang berhak mengeksekusi sesi belajar."
                 )
 
-            # 3. Proteksi Idempotensi Awal: Jika sesi belajar untuk proposal ini sudah ada, kembalikan sesi tersebut
+            # 3. Proteksi Idempotensi Awal (Fail-Closed):
+            # Jika StudySession sudah ada, validasi seluruh invariant proposal/slot/member/intent
+            # sebelum mengembalikannya agar kondisi korup tidak disembunyikan secara diam-diam.
             existing_session = db.query(StudySession).filter(StudySession.proposal_id == proposal.proposal_id).first()
             if existing_session:
+                _validate_recovered_session_invariants(db, proposal, existing_session)
                 return format_study_session_response(existing_session, db)
 
             # 4. Validasi Status Proposal: Wajib READY_FOR_SESSION
@@ -368,6 +453,8 @@ def execute_study_session_from_proposal_service(
             db.rollback()
             concurrent_session = db.query(StudySession).filter(StudySession.proposal_id == proposal_id).first()
             if concurrent_session:
+                fresh_proposal = db.query(GroupProposal).filter(GroupProposal.proposal_id == proposal_id).first()
+                _validate_recovered_session_invariants(db, fresh_proposal, concurrent_session)
                 return format_study_session_response(concurrent_session, db)
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -405,6 +492,8 @@ def execute_study_session_from_proposal_service(
             ):
                 concurrent_session = db.query(StudySession).filter(StudySession.proposal_id == proposal_id).first()
                 if concurrent_session:
+                    fresh_proposal = db.query(GroupProposal).filter(GroupProposal.proposal_id == proposal_id).first()
+                    _validate_recovered_session_invariants(db, fresh_proposal, concurrent_session)
                     return format_study_session_response(concurrent_session, db)
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,

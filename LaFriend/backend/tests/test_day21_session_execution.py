@@ -2912,5 +2912,514 @@ class TestDay21SessionExecutionConcurrency(unittest.TestCase):
             eng_b.dispose()
 
 
+class TestDay21SessionExecutionRecovery(unittest.TestCase):
+    """
+    Day 21.4 — Failure Recovery, Real SQLite Lock Recovery, Idempotent Replay,
+    Inconsistent State Fail-Closed Validation & Final Day 21 Closure Suite.
+    """
+
+    def setUp(self):
+        import tempfile
+        self._tmpdir = tempfile.TemporaryDirectory(prefix="lafriend_day21_4_")
+        self._db_counter = 0
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def _create_file_sqlite_db(self, busy_timeout_ms: int = 5000, journal_mode: str = "WAL"):
+        """Membuat database SQLite file sementara dengan NullPool dan busy_timeout yang dapat dikonfigurasi khusus tes."""
+        from sqlalchemy import event
+        from sqlalchemy.pool import NullPool
+
+        self._db_counter += 1
+        db_file = Path(self._tmpdir.name) / f"lafriend_d214_{self._db_counter}.db"
+        db_url = f"sqlite:///{db_file.as_posix()}"
+
+        eng = create_engine(
+            db_url,
+            connect_args={"check_same_thread": False, "timeout": max(0.05, busy_timeout_ms / 1000.0)},
+            poolclass=NullPool,
+        )
+
+        @event.listens_for(eng, "connect")
+        def _configure_sqlite(dbapi_conn, _conn_record):
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA foreign_keys=ON")
+            cur.execute(f"PRAGMA busy_timeout={int(busy_timeout_ms)}")
+            cur.close()
+
+        with eng.connect() as conn:
+            conn.execute(text(f"PRAGMA journal_mode={journal_mode}"))
+            conn.commit()
+
+        ensure_database_schema(eng)
+        return db_file, db_url, eng
+
+    def _open_independent_verify_session(self, db_url: str):
+        from sqlalchemy.pool import NullPool
+
+        verify_eng = create_engine(
+            db_url,
+            connect_args={"check_same_thread": False, "timeout": 5},
+            poolclass=NullPool,
+        )
+        VerifySession = sessionmaker(autocommit=False, autoflush=False, bind=verify_eng)
+        return verify_eng, VerifySession()
+
+    def _seed_ready_proposal(self, eng, proposal_id: str = "PR-REC-001", status_val: str = "READY_FOR_SESSION"):
+        SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng)
+        db = SessionFactory()
+        try:
+            course = Course(
+                course_id="c_d214",
+                course_code="ACK4REC1",
+                course_name="Keandalan Sistem",
+                study_program="S1 Teknik Komputer",
+            )
+            andi = Student(
+                student_id="s_andi_d214", full_name="Andi Recovery", email="andi.d214@t.ac.id",
+                student_number="4001", password_hash="pw", verification_status="VERIFIED",
+                account_status="ACTIVE", is_discoverable=True,
+            )
+            budi = Student(
+                student_id="s_budi_d214", full_name="Budi Recovery", email="budi.d214@t.ac.id",
+                student_number="4002", password_hash="pw", verification_status="VERIFIED",
+                account_status="ACTIVE", is_discoverable=True,
+            )
+            citra = Student(
+                student_id="s_citra_d214", full_name="Citra Recovery", email="citra.d214@t.ac.id",
+                student_number="4003", password_hash="pw", verification_status="VERIFIED",
+                account_status="ACTIVE", is_discoverable=True,
+            )
+            doni = Student(
+                student_id="s_doni_d214", full_name="Doni NonHost", email="doni.d214@t.ac.id",
+                student_number="4004", password_hash="pw", verification_status="VERIFIED",
+                account_status="ACTIVE", is_discoverable=True,
+            )
+            i_andi = StudyIntent(
+                intent_id="INTENT-REC-ANDI", student_id=andi.student_id, course_id=course.course_id,
+                topics="Fault Tolerance", learning_mode="ONLINE", earliest_date="2026-11-20",
+                latest_date="2026-11-30", min_group_size=3, max_group_size=4, status="ACTIVE",
+            )
+            i_budi = StudyIntent(
+                intent_id="INTENT-REC-BUDI", student_id=budi.student_id, course_id=course.course_id,
+                topics="Fault Tolerance", learning_mode="ONLINE", earliest_date="2026-11-20",
+                latest_date="2026-11-30", min_group_size=3, max_group_size=4, status="ACTIVE",
+            )
+            i_citra = StudyIntent(
+                intent_id="INTENT-REC-CITRA", student_id=citra.student_id, course_id=course.course_id,
+                topics="Fault Tolerance", learning_mode="ONLINE", earliest_date="2026-11-20",
+                latest_date="2026-11-30", min_group_size=3, max_group_size=4, status="ACTIVE",
+            )
+            sched = {"date": "2026-11-29", "start_time": "10:00", "end_time": "12:00", "duration_minutes": 120}
+            now = datetime.utcnow()
+            prop = GroupProposal(
+                proposal_id=proposal_id, host_intent_id=i_andi.intent_id, host_student_id=andi.student_id,
+                course_id=course.course_id, status=status_val, min_group_size_bound=3, max_group_size_bound=4,
+                group_quality_score=93.0, average_pair_score=93.0, minimum_pair_score=91.0,
+                selected_schedule_json=json.dumps(sched), message="Recovery Test Proposal",
+                expires_at=now + timedelta(hours=24), created_at=now, updated_at=now, finalized_at=now,
+            )
+            inv_b = Invitation(
+                invitation_id=f"inv_b_{proposal_id}", invitation_type="GROUP_PROPOSAL",
+                sender_id=andi.student_id, recipient_id=budi.student_id, target_intent_id=i_budi.intent_id,
+                proposal_id=proposal_id, status="ACCEPTED", created_at=now, responded_at=now,
+            )
+            inv_c = Invitation(
+                invitation_id=f"inv_c_{proposal_id}", invitation_type="GROUP_PROPOSAL",
+                sender_id=andi.student_id, recipient_id=citra.student_id, target_intent_id=i_citra.intent_id,
+                proposal_id=proposal_id, status="ACCEPTED", created_at=now, responded_at=now,
+            )
+            db.add_all([course, andi, budi, citra, doni, i_andi, i_budi, i_citra, prop, inv_b, inv_c])
+            db.commit()
+        finally:
+            db.close()
+
+    def _assert_exact_single_session_state(self, db_url: str, proposal_id: str, expected_session_id: str):
+        verify_eng, verify_db = self._open_independent_verify_session(db_url)
+        try:
+            self.assertEqual(verify_db.query(StudySession).count(), 1)
+            sess = verify_db.query(StudySession).filter_by(proposal_id=proposal_id).first()
+            self.assertIsNotNone(sess)
+            self.assertEqual(sess.session_id, expected_session_id)
+            self.assertEqual(sess.status, "CONFIRMED")
+
+            self.assertEqual(verify_db.query(SessionSlot).count(), 1)
+            self.assertEqual(verify_db.query(SessionSlot).filter_by(session_id=expected_session_id).count(), 1)
+
+            members = verify_db.query(SessionMember).filter_by(session_id=expected_session_id).all()
+            self.assertEqual(len(members), 3)
+            self.assertEqual(verify_db.query(SessionMember).count(), 3)
+            self.assertEqual(
+                {m.intent_id for m in members},
+                {"INTENT-REC-ANDI", "INTENT-REC-BUDI", "INTENT-REC-CITRA"}
+            )
+
+            for iid in ("INTENT-REC-ANDI", "INTENT-REC-BUDI", "INTENT-REC-CITRA"):
+                self.assertEqual(verify_db.query(StudyIntent).filter_by(intent_id=iid).first().status, "MATCHED")
+
+            self.assertEqual(
+                verify_db.query(GroupProposal).filter_by(proposal_id=proposal_id).first().status,
+                "SESSION_EXECUTED"
+            )
+        finally:
+            verify_db.close()
+            verify_eng.dispose()
+
+    def test_d21_4_01_post_commit_recovery_across_fresh_database_session(self):
+        """Day 21.4 (A & D21.4-01/02): Pemulihan pasca-commit (formatter/serialization/disconnect error) memakai SQLAlchemy Session baru."""
+        from unittest.mock import patch
+        import app.session_execution_service as svc_mod
+
+        failure_scenarios = [
+            ("formatter_error_after_commit", RuntimeError("Simulated response formatter failure after commit")),
+            ("serialization_error_after_commit", ValueError("Simulated JSON serialization error after commit")),
+            ("client_disconnect_timeout_after_commit", ConnectionResetError("Simulated client timeout/disconnect after commit")),
+        ]
+
+        for idx, (label, sim_error) in enumerate(failure_scenarios):
+            with self.subTest(scenario=label):
+                _, db_url, eng = self._create_file_sqlite_db(journal_mode="WAL")
+                try:
+                    pid = f"PR-REC-01-{idx}"
+                    self._seed_ready_proposal(eng, proposal_id=pid)
+                    SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng)
+
+                    # 1. Request pertama menggunakan Session #1: DB commit SUKSES, lalu respons gagal dikirim
+                    db_first = SessionFactory()
+                    try:
+                        host_first = db_first.query(Student).filter_by(student_id="s_andi_d214").first()
+                        with patch.object(svc_mod, "format_study_session_response", side_effect=sim_error):
+                            with self.assertRaises(type(sim_error)):
+                                svc_mod.execute_study_session_from_proposal_service(db_first, pid, host_first)
+                    finally:
+                        # Tutup penuh Session #1 agar pemulihan tidak boleh bergantung pada state Session #1
+                        db_first.close()
+
+                    # Catat session_id aktual yang sudah committed dari koneksi independen
+                    v_eng, v_db = self._open_independent_verify_session(db_url)
+                    try:
+                        committed_sess = v_db.query(StudySession).filter_by(proposal_id=pid).first()
+                        self.assertIsNotNone(committed_sess, "Transaksi wajib sudah committed walau pengiriman respons gagal")
+                        committed_session_id = committed_sess.session_id
+                    finally:
+                        v_db.close()
+                        v_eng.dispose()
+
+                    # 2. Request ulang menggunakan Session #2 yang benar-benar baru
+                    db_second = SessionFactory()
+                    try:
+                        host_second = db_second.query(Student).filter_by(student_id="s_andi_d214").first()
+                        recovered_resp = svc_mod.execute_study_session_from_proposal_service(db_second, pid, host_second)
+                    finally:
+                        db_second.close()
+
+                    self.assertEqual(
+                        recovered_resp.session_id,
+                        committed_session_id,
+                        "Retry pada fresh Session wajib memulihkan session_id yang persis sama"
+                    )
+                    self._assert_exact_single_session_state(db_url, pid, committed_session_id)
+                finally:
+                    eng.dispose()
+
+    def test_d21_4_02_repeated_idempotent_request_replay_10x(self):
+        """Day 21.4 (B & D21.4-03): Replay request identik sebanyak 10 kali pada fresh Sessions menghasilkan 1 sesi konsisten."""
+        from app.session_execution_service import execute_study_session_from_proposal_service
+
+        _, db_url, eng = self._create_file_sqlite_db(journal_mode="WAL")
+        try:
+            pid = "PR-REC-REPLAY-10X"
+            self._seed_ready_proposal(eng, proposal_id=pid)
+            SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng)
+
+            # Eksekusi pertama
+            db0 = SessionFactory()
+            try:
+                host0 = db0.query(Student).filter_by(student_id="s_andi_d214").first()
+                initial_resp = execute_study_session_from_proposal_service(db0, pid, host0)
+            finally:
+                db0.close()
+
+            expected_session_id = initial_resp.session_id
+            self.assertEqual(len(initial_resp.slots), 1)
+            self.assertEqual(len(initial_resp.members), 3)
+
+            # Replay 10 kali berturut-turut menggunakan Session independen baru setiap kali
+            for replay_idx in range(10):
+                db_rep = SessionFactory()
+                try:
+                    host_rep = db_rep.query(Student).filter_by(student_id="s_andi_d214").first()
+                    replay_resp = execute_study_session_from_proposal_service(db_rep, pid, host_rep)
+                    self.assertEqual(
+                        replay_resp.session_id,
+                        expected_session_id,
+                        f"Replay ke-{replay_idx + 1} mengembalikan session_id berbeda"
+                    )
+                    self.assertEqual(len(replay_resp.slots), 1)
+                    self.assertEqual(len(replay_resp.members), 3)
+                finally:
+                    db_rep.close()
+
+            # Verifikasi database independen: 1 session, 1 slot, 3 member, 3 MATCHED intent, 1 SESSION_EXECUTED proposal
+            self._assert_exact_single_session_state(db_url, pid, expected_session_id)
+        finally:
+            eng.dispose()
+
+    def test_d21_4_03_real_sqlite_physical_lock_recovery_and_exhaustion(self):
+        """Day 21.4 (C & D21.4-04): Pengujian lock fisik SQLite nyata (BEGIN IMMEDIATE) untuk recovery sukses & fail-closed exhaustion."""
+        import sqlite3
+        from threading import Event, Thread
+        from fastapi import HTTPException
+        from sqlalchemy import event as sa_event
+        from app.session_execution_service import execute_study_session_from_proposal_service
+
+        # --- Skenario A: Lock fisik dipegang Connection A, dilepas setelah Connection B menabrak lock & rollback -> retry BERHASIL ---
+        db_file_a, db_url_a, eng_a = self._create_file_sqlite_db(busy_timeout_ms=25, journal_mode="WAL")
+        lock_conn_a = sqlite3.connect(str(db_file_a), isolation_level=None, timeout=5.0)
+        try:
+            pid_a = "PR-REAL-LOCK-RECOVER"
+            self._seed_ready_proposal(eng_a, proposal_id=pid_a)
+            SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng_a)
+
+            real_lock_errors = []
+            rollback_events = []
+            lock_hit_and_rolled_back = Event()
+
+            @sa_event.listens_for(eng_a, "handle_error")
+            def _capture_real_lock(exception_context):
+                err_txt = str(exception_context.original_exception).lower()
+                if "database is locked" in err_txt:
+                    real_lock_errors.append(err_txt)
+
+            @sa_event.listens_for(SessionFactory, "after_rollback")
+            def _on_rollback(_session):
+                rollback_events.append(1)
+                if real_lock_errors:
+                    lock_hit_and_rolled_back.set()
+
+            # Connection A memegang write lock fisik SQLite via BEGIN IMMEDIATE
+            lock_conn_a.execute("BEGIN IMMEDIATE")
+
+            worker_result = {"resp": None, "err": None}
+
+            def run_execution():
+                w_db = SessionFactory()
+                try:
+                    host = w_db.query(Student).filter_by(student_id="s_andi_d214").first()
+                    worker_result["resp"] = execute_study_session_from_proposal_service(w_db, pid_a, host)
+                except Exception as exc:
+                    worker_result["err"] = exc
+                finally:
+                    w_db.close()
+
+            worker_thread = Thread(target=run_execution)
+            worker_thread.start()
+
+            # Tunggu secara deterministik hingga worker benar-benar menabrak lock fisik SQLite & menjalankan rollback
+            self.assertTrue(
+                lock_hit_and_rolled_back.wait(timeout=5.0),
+                "Worker harus benar-benar mengalami OperationalError lock fisik SQLite dan melakukan rollback"
+            )
+
+            # Selama lock masih dipegang, pastikan tidak ada data parsial yang bocor ke database
+            mid_eng, mid_db = self._open_independent_verify_session(db_url_a)
+            try:
+                self.assertEqual(mid_db.query(StudySession).count(), 0)
+                self.assertEqual(mid_db.query(SessionSlot).count(), 0)
+                self.assertEqual(mid_db.query(SessionMember).count(), 0)
+            finally:
+                mid_db.close()
+                mid_eng.dispose()
+
+            # Lepaskan write lock fisik dari Connection A agar retry worker berikutnya dapat menuntaskan transaksi
+            lock_conn_a.execute("COMMIT")
+            worker_thread.join(timeout=10.0)
+
+            self.assertFalse(worker_thread.is_alive())
+            self.assertIsNone(worker_result["err"], f"Retry pasca pelepasan lock fisik wajib sukses: {worker_result['err']}")
+            self.assertIsNotNone(worker_result["resp"])
+            self.assertGreaterEqual(len(real_lock_errors), 1, "Wajib terbukti mengalami sqlite3 OperationalError: database is locked nyata")
+            self.assertGreaterEqual(len(rollback_events), 1, "Wajib terbukti menjalankan rollback sebelum retry")
+
+            self._assert_exact_single_session_state(db_url_a, pid_a, worker_result["resp"].session_id)
+        finally:
+            lock_conn_a.close()
+            eng_a.dispose()
+
+        # --- Skenario B: Lock fisik tidak dilepas sampai batas retry habis -> fail-closed HTTP 409 & 0 data parsial ---
+        db_file_b, db_url_b, eng_b = self._create_file_sqlite_db(busy_timeout_ms=15, journal_mode="WAL")
+        lock_conn_b = sqlite3.connect(str(db_file_b), isolation_level=None, timeout=5.0)
+        try:
+            pid_b = "PR-REAL-LOCK-EXHAUST"
+            self._seed_ready_proposal(eng_b, proposal_id=pid_b)
+            SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng_b)
+
+            exhaust_lock_errors = []
+
+            @sa_event.listens_for(eng_b, "handle_error")
+            def _capture_exhaust_lock(exception_context):
+                err_txt = str(exception_context.original_exception).lower()
+                if "database is locked" in err_txt:
+                    exhaust_lock_errors.append(err_txt)
+
+            # Pegang write lock fisik terus-menerus melampaui seluruh percobaan retry
+            lock_conn_b.execute("BEGIN IMMEDIATE")
+            try:
+                w_db = SessionFactory()
+                try:
+                    host = w_db.query(Student).filter_by(student_id="s_andi_d214").first()
+                    with self.assertRaises(HTTPException) as ctx:
+                        execute_study_session_from_proposal_service(w_db, pid_b, host)
+                    self.assertEqual(ctx.exception.status_code, 409)
+                finally:
+                    w_db.close()
+            finally:
+                lock_conn_b.execute("ROLLBACK")
+
+            self.assertGreaterEqual(len(exhaust_lock_errors), 6, "Seluruh percobaan retry wajib benar-benar menemui lock fisik SQLite")
+
+            # Verifikasi independen: ZERO data parsial tertinggal pasca retry exhaustion
+            v_eng, v_db = self._open_independent_verify_session(db_url_b)
+            try:
+                self.assertEqual(v_db.query(StudySession).count(), 0)
+                self.assertEqual(v_db.query(SessionSlot).count(), 0)
+                self.assertEqual(v_db.query(SessionMember).count(), 0)
+                for iid in ("INTENT-REC-ANDI", "INTENT-REC-BUDI", "INTENT-REC-CITRA"):
+                    self.assertEqual(v_db.query(StudyIntent).filter_by(intent_id=iid).first().status, "ACTIVE")
+                self.assertEqual(
+                    v_db.query(GroupProposal).filter_by(proposal_id=pid_b).first().status,
+                    "READY_FOR_SESSION"
+                )
+            finally:
+                v_db.close()
+                v_eng.dispose()
+        finally:
+            lock_conn_b.close()
+            eng_b.dispose()
+
+    def test_d21_4_04_inconsistent_state_matrix_and_fail_closed_validation(self):
+        """Day 21.4 (D & D21.4-05): Validasi fail-closed atas seluruh kondisi korup & otorisasi host sebelum recovery."""
+        from fastapi import HTTPException
+        from app.session_execution_service import execute_study_session_from_proposal_service
+
+        # --- Kasus 1: Proposal SESSION_EXECUTED, tetapi StudySession TIDAK ADA -> Fail-closed HTTP 400, 0 sesi baru ---
+        _, db_url_1, eng_1 = self._create_file_sqlite_db()
+        try:
+            self._seed_ready_proposal(eng_1, proposal_id="PR-CORRUPT-1", status_val="SESSION_EXECUTED")
+            SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng_1)
+            db = SessionFactory()
+            try:
+                host = db.query(Student).filter_by(student_id="s_andi_d214").first()
+                with self.assertRaises(HTTPException) as ctx:
+                    execute_study_session_from_proposal_service(db, "PR-CORRUPT-1", host)
+                self.assertEqual(ctx.exception.status_code, 400)
+                self.assertIn("SESSION_EXECUTED", ctx.exception.detail)
+            finally:
+                db.close()
+
+            v_eng, v_db = self._open_independent_verify_session(db_url_1)
+            try:
+                self.assertEqual(v_db.query(StudySession).count(), 0, "Tidak boleh membuat sesi baru secara otomatis")
+            finally:
+                v_db.close()
+                v_eng.dispose()
+        finally:
+            eng_1.dispose()
+
+        # --- Kasus 2: Proposal masih READY_FOR_SESSION, tetapi StudySession SUDAH ADA -> Fail-closed HTTP 409 ---
+        _, db_url_2, eng_2 = self._create_file_sqlite_db()
+        try:
+            self._seed_ready_proposal(eng_2, proposal_id="PR-CORRUPT-2", status_val="READY_FOR_SESSION")
+            SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng_2)
+            db = SessionFactory()
+            try:
+                # Simulasikan state korup: StudySession & slot/member ada, tetapi status proposal masih READY_FOR_SESSION
+                corrupt_sess = StudySession(
+                    session_id="sess_corrupt_2", proposal_id="PR-CORRUPT-2", host_id="s_andi_d214",
+                    course_id="c_d214", title="Sesi Korup", status="CONFIRMED"
+                )
+                db.add(corrupt_sess)
+                db.flush()
+                db.add(SessionSlot(
+                    slot_id="slot_c2", session_id="sess_corrupt_2", session_date="2026-11-29",
+                    start_time="10:00", end_time="12:00", status="APPROVED"
+                ))
+                db.add(SessionMember(
+                    member_id="mem_c2", session_id="sess_corrupt_2", student_id="s_andi_d214",
+                    intent_id="INTENT-REC-ANDI", role="HOST", status="CONFIRMED"
+                ))
+                db.query(StudyIntent).filter_by(intent_id="INTENT-REC-ANDI").update({"status": "MATCHED"})
+                db.commit()
+
+                host = db.query(Student).filter_by(student_id="s_andi_d214").first()
+                with self.assertRaises(HTTPException) as ctx:
+                    execute_study_session_from_proposal_service(db, "PR-CORRUPT-2", host)
+                self.assertEqual(ctx.exception.status_code, 409)
+                self.assertIn("Inkonsistensi state database", ctx.exception.detail)
+                self.assertIn("READY_FOR_SESSION", ctx.exception.detail)
+
+                # Non-host tetap ditolak HTTP 403 sebelum inspeksi existing session
+                non_host = db.query(Student).filter_by(student_id="s_doni_d214").first()
+                with self.assertRaises(HTTPException) as ctx_auth:
+                    execute_study_session_from_proposal_service(db, "PR-CORRUPT-2", non_host)
+                self.assertEqual(ctx_auth.exception.status_code, 403)
+            finally:
+                db.close()
+
+            # Pastikan service tidak diam-diam memperbaiki/mengubah status proposal korup
+            v_eng, v_db = self._open_independent_verify_session(db_url_2)
+            try:
+                self.assertEqual(v_db.query(StudySession).count(), 1)
+                self.assertEqual(
+                    v_db.query(GroupProposal).filter_by(proposal_id="PR-CORRUPT-2").first().status,
+                    "READY_FOR_SESSION"
+                )
+            finally:
+                v_db.close()
+                v_eng.dispose()
+        finally:
+            eng_2.dispose()
+
+        # --- Kasus 3: Proposal SESSION_EXECUTED & StudySession ada, tetapi hilang SessionSlot / intent belum MATCHED -> Fail-closed HTTP 409 ---
+        for sub_case in ("missing_slot", "unmatched_intent"):
+            with self.subTest(corruption_variant=sub_case):
+                _, _, eng_3 = self._create_file_sqlite_db()
+                try:
+                    pid = f"PR-CORRUPT-3-{sub_case}"
+                    self._seed_ready_proposal(eng_3, proposal_id=pid, status_val="SESSION_EXECUTED")
+                    SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng_3)
+                    db = SessionFactory()
+                    try:
+                        s_obj = StudySession(
+                            session_id=f"sess_c3_{sub_case}", proposal_id=pid, host_id="s_andi_d214",
+                            course_id="c_d214", title="Sesi Parsial Korup", status="CONFIRMED"
+                        )
+                        db.add(s_obj)
+                        db.flush()
+                        if sub_case != "missing_slot":
+                            db.add(SessionSlot(
+                                slot_id=f"slot_c3_{sub_case}", session_id=s_obj.session_id,
+                                session_date="2026-11-29", start_time="10:00", end_time="12:00", status="APPROVED"
+                            ))
+                        db.add(SessionMember(
+                            member_id=f"mem_c3_{sub_case}", session_id=s_obj.session_id,
+                            student_id="s_andi_d214", intent_id="INTENT-REC-ANDI", role="HOST", status="CONFIRMED"
+                        ))
+                        if sub_case != "unmatched_intent":
+                            db.query(StudyIntent).filter_by(intent_id="INTENT-REC-ANDI").update({"status": "MATCHED"})
+                        db.commit()
+
+                        host = db.query(Student).filter_by(student_id="s_andi_d214").first()
+                        with self.assertRaises(HTTPException) as ctx:
+                            execute_study_session_from_proposal_service(db, pid, host)
+                        self.assertEqual(ctx.exception.status_code, 409)
+                        self.assertIn("Inkonsistensi state database", ctx.exception.detail)
+                    finally:
+                        db.close()
+                finally:
+                    eng_3.dispose()
+
+
 if __name__ == "__main__":
     unittest.main()
