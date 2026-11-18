@@ -162,6 +162,85 @@ const app = {
       );
     },
   },
+
+  // ============================================================================
+  // DAY 24: FRONTEND INTEGRATION LAYER — STUDY INTENTS, MATCHING, PROPOSALS & INVITATIONS
+  // ============================================================================
+  // Satu-satunya pintu komunikasi halaman Day 24 dengan 11 endpoint kanonis backend.
+  studyIntents: {
+    list() {
+      return app.request("/study-intents", { method: "GET" });
+    },
+  },
+
+  courses: {
+    getDetail(courseId) {
+      return app.request(`/courses/${encodeURIComponent(courseId)}`, { method: "GET" });
+    },
+  },
+
+  matching: {
+    // GroupProposalPreviewRequest: { host_intent_id, min_score?, target_group_size?, max_candidate_pool? }
+    preview(payload) {
+      return app.request("/matching/group-proposals/preview", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+  },
+
+  proposals: {
+    // GroupProposalCreateRequest: { host_intent_id, min_score?, target_group_size?, max_candidate_pool?, message?, duration_hours? }
+    create(payload) {
+      return app.request("/group-proposals", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+
+    getDetail(proposalId) {
+      return app.request(`/group-proposals/${encodeURIComponent(proposalId)}`, { method: "GET" });
+    },
+
+    finalize(proposalId) {
+      return app.request(`/group-proposals/${encodeURIComponent(proposalId)}/finalize`, { method: "POST" });
+    },
+
+    cancel(proposalId, payload = null) {
+      const opts = { method: "POST" };
+      if (payload && typeof payload === "object") {
+        opts.body = JSON.stringify(payload);
+      }
+      return app.request(`/group-proposals/${encodeURIComponent(proposalId)}/cancel`, opts);
+    },
+
+    // Endpoint kanonis Day 21 untuk eksekusi proposal READY_FOR_SESSION -> StudySessionResponse (HTTP 201)
+    executeSession(proposalId) {
+      return app.request(`/sessions/from-proposal/${encodeURIComponent(proposalId)}`, { method: "POST" });
+    },
+  },
+
+  invitations: {
+    getInbox(statusFilter = "") {
+      const cleanStatus = (statusFilter || "").trim().toUpperCase();
+      const qs = cleanStatus ? `?status=${encodeURIComponent(cleanStatus)}` : "";
+      return app.request(`/invitations/inbox${qs}`, { method: "GET" });
+    },
+
+    getSent(statusFilter = "") {
+      const cleanStatus = (statusFilter || "").trim().toUpperCase();
+      const qs = cleanStatus ? `?status=${encodeURIComponent(cleanStatus)}` : "";
+      return app.request(`/invitations/sent${qs}`, { method: "GET" });
+    },
+
+    // InvitationRespondRequest: { decision: "ACCEPT" | "DECLINE", reason? }
+    respond(invitationId, payload) {
+      return app.request(`/invitations/${encodeURIComponent(invitationId)}/respond`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+  },
 };
 
 
@@ -1637,6 +1716,149 @@ const LEARNING_MODE_LABELS = {
   OFFLINE: "Offline",
   HYBRID: "Hybrid",
 };
+
+// Day 24: Dua State Machine Terpisah — ProposalStatus (7 nilai) & InvitationStatus (5 nilai)
+const PROPOSAL_STATUS_META = {
+  PENDING_RESPONSES: { label: "Menunggu Respons", badgeClass: "s-badge--pending" },
+  QUORUM_REACHED: { label: "Kuorum Tercapai", badgeClass: "s-badge--confirmed" },
+  READY_FOR_SESSION: { label: "Siap Dieksekusi", badgeClass: "s-badge--host" },
+  SESSION_EXECUTED: { label: "Sesi Terbentuk", badgeClass: "s-badge--completed" },
+  NOT_FORMED: { label: "Tidak Terbentuk", badgeClass: "s-badge--cancelled" },
+  CANCELLED: { label: "Dibatalkan", badgeClass: "s-badge--cancelled" },
+  EXPIRED: { label: "Kedaluwarsa", badgeClass: "s-badge--expired" },
+};
+
+const INVITATION_STATUS_META = {
+  PENDING: { label: "Menunggu", badgeClass: "s-badge--pending" },
+  ACCEPTED: { label: "Diterima", badgeClass: "s-badge--confirmed" },
+  REJECTED: { label: "Ditolak", badgeClass: "s-badge--cancelled" },
+  WITHDRAWN: { label: "Ditarik", badgeClass: "s-badge--neutral" },
+  EXPIRED: { label: "Kedaluwarsa", badgeClass: "s-badge--expired" },
+};
+
+const FORMATION_STATUS_META = {
+  READY: { label: "Kelompok Siap Dibentuk", badgeClass: "s-badge--confirmed" },
+  INSUFFICIENT_MEMBERS: { label: "Kandidat Belum Mencukupi", badgeClass: "s-badge--pending" },
+  NO_COMPATIBLE_GROUP: { label: "Belum Ada Kelompok Kompatibel", badgeClass: "s-badge--cancelled" },
+};
+
+function getProposalStatusMeta(statusCode) {
+  const key = (statusCode || "").toUpperCase();
+  return PROPOSAL_STATUS_META[key] || { label: key || "Tidak Diketahui", badgeClass: "s-badge--neutral" };
+}
+
+function getInvitationStatusMeta(statusCode) {
+  const key = (statusCode || "").toUpperCase();
+  return INVITATION_STATUS_META[key] || { label: key || "Tidak Diketahui", badgeClass: "s-badge--neutral" };
+}
+
+function getFormationStatusMeta(statusCode) {
+  const key = (statusCode || "").toUpperCase();
+  return FORMATION_STATUS_META[key] || { label: key || "Tidak Diketahui", badgeClass: "s-badge--neutral" };
+}
+
+function formatDateTimeIndo(isoStr) {
+  if (!isoStr || typeof isoStr !== "string") return "-";
+  const d = new Date(isoStr);
+  if (Number.isNaN(d.getTime())) return isoStr;
+  const day = d.getDate();
+  const month = ID_MONTHS[d.getMonth()] || "";
+  const year = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${day} ${month} ${year}, ${hh}:${mm}`;
+}
+
+function openSharedConfirmModal({
+  title,
+  message,
+  confirmLabel,
+  confirmVariant,
+  showReasonInput = false,
+  reasonPlaceholder = "Alasan (opsional)...",
+  isBusyCheck = () => false,
+  onConfirm,
+}) {
+  const modal = document.getElementById("confirmActionModal");
+  const titleEl = document.getElementById("confirmModalTitle");
+  const msgEl = document.getElementById("confirmModalMessage");
+  const reasonWrap = document.getElementById("confirmModalReasonWrap");
+  const reasonInput = document.getElementById("confirmModalReasonInput");
+  const btnCancel = document.getElementById("btnConfirmCancel");
+  const btnProceed = document.getElementById("btnConfirmProceed");
+
+  if (!modal || !titleEl || !msgEl || !btnCancel || !btnProceed) {
+    if (window.confirm(message)) {
+      onConfirm("");
+    }
+    return;
+  }
+
+  titleEl.textContent = title || "Konfirmasi Tindakan";
+  msgEl.textContent = message || "";
+  if (reasonWrap && reasonInput) {
+    reasonInput.value = "";
+    reasonInput.placeholder = reasonPlaceholder;
+    reasonWrap.classList.toggle("d-none", !showReasonInput);
+  }
+  btnProceed.className = `btn-la ${confirmVariant || "btn-la--primary"} btn-la--sm`;
+  btnProceed.textContent = confirmLabel || "Lanjutkan";
+  btnProceed.disabled = false;
+  btnCancel.disabled = false;
+  modal.classList.remove("d-none");
+
+  let modalSubmitting = false;
+
+  function cleanup() {
+    modal.classList.add("d-none");
+    btnCancel.removeEventListener("click", handleCancel);
+    btnProceed.removeEventListener("click", handleProceed);
+    modal.removeEventListener("click", handleBackdrop);
+    document.removeEventListener("keydown", handleEsc);
+  }
+
+  function handleCancel() {
+    if (modalSubmitting || isBusyCheck()) return;
+    cleanup();
+  }
+
+  function handleBackdrop(e) {
+    if (e.target === modal && !modalSubmitting && !isBusyCheck()) {
+      cleanup();
+    }
+  }
+
+  function handleEsc(e) {
+    if (e.key === "Escape" && !modalSubmitting && !isBusyCheck()) {
+      cleanup();
+    }
+  }
+
+  async function handleProceed() {
+    if (modalSubmitting || isBusyCheck()) return;
+    modalSubmitting = true;
+    const reasonText = showReasonInput && reasonInput ? reasonInput.value.trim() : "";
+    btnCancel.disabled = true;
+    btnProceed.disabled = true;
+    btnProceed.dataset.loading = "true";
+    btnProceed.textContent = "";
+    btnProceed.appendChild(createEl("span", "la-spinner la-spinner--sm"));
+    btnProceed.appendChild(createEl("span", "", "Memproses..."));
+
+    try {
+      await onConfirm(reasonText);
+    } finally {
+      modalSubmitting = false;
+      delete btnProceed.dataset.loading;
+      cleanup();
+    }
+  }
+
+  btnCancel.addEventListener("click", handleCancel);
+  btnProceed.addEventListener("click", handleProceed);
+  modal.addEventListener("click", handleBackdrop);
+  document.addEventListener("keydown", handleEsc);
+}
 
 const ID_MONTHS = [
   "Januari", "Februari", "Maret", "April", "Mei", "Juni",

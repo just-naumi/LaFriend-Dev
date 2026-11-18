@@ -322,6 +322,16 @@
       color: #059669;
     }
 
+    .dash-nav-icon--amber {
+      background: #FFFBEB;
+      color: #D97706;
+    }
+
+    .dash-nav-icon--blue {
+      background: #EFF6FF;
+      color: #2563EB;
+    }
+
     .dash-nav-title {
       font-size: 0.92rem;
       font-weight: 800;
@@ -527,6 +537,9 @@
         </div>
 
         <div class="header-actions-group">
+          <a href="invitations.html" class="icon-circle-btn" id="btnHeaderInvitations" title="Undangan Belajar">
+            <i class="bi bi-envelope-paper"></i>
+          </a>
           <a href="sessions.html" class="icon-circle-btn" id="btnHeaderMySessions" title="Sesi Belajarku">
             <i class="bi bi-calendar2-check"></i>
           </a>
@@ -565,20 +578,7 @@
 
     <!-- BAGIAN PUTIH: NAVIGASI MENU UTAMA -->
     <main class="white-sheet-container" id="whiteSheetContainer">
-      <div class="dash-section-label">Menu Cepat</div>
-
-      <a href="sessions.html" class="dash-nav-card" id="navCardMySessions">
-        <div class="dash-nav-card-left">
-          <div class="dash-nav-icon">
-            <i class="bi bi-calendar2-week-fill"></i>
-          </div>
-          <div>
-            <div class="dash-nav-title">Sesi Belajarku</div>
-            <div class="dash-nav-sub">Lihat daftar sesi, jadwal, anggota, dan kelola status sesi</div>
-          </div>
-        </div>
-        <i class="bi bi-chevron-right dash-nav-arrow"></i>
-      </a>
+      <div class="dash-section-label">Alur Belajar Kolaboratif</div>
 
       <a href="create-intent.html" class="dash-nav-card" id="navCardCreateIntent">
         <div class="dash-nav-card-left">
@@ -588,6 +588,45 @@
           <div>
             <div class="dash-nav-title">Buat Study Intent</div>
             <div class="dash-nav-sub">Tentukan mata kuliah, topik, dan jadwal belajar baru</div>
+          </div>
+        </div>
+        <i class="bi bi-chevron-right dash-nav-arrow"></i>
+      </a>
+
+      <a href="matching.html" class="dash-nav-card" id="navCardMatching">
+        <div class="dash-nav-card-left">
+          <div class="dash-nav-icon dash-nav-icon--blue">
+            <i class="bi bi-people-fill"></i>
+          </div>
+          <div>
+            <div class="dash-nav-title">Cari Partner &amp; Matching</div>
+            <div class="dash-nav-sub">Lihat preview kelompok terbaik &amp; ajukan proposal belajar</div>
+          </div>
+        </div>
+        <i class="bi bi-chevron-right dash-nav-arrow"></i>
+      </a>
+
+      <a href="invitations.html" class="dash-nav-card" id="navCardInvitations">
+        <div class="dash-nav-card-left">
+          <div class="dash-nav-icon dash-nav-icon--amber">
+            <i class="bi bi-envelope-paper-fill"></i>
+          </div>
+          <div>
+            <div class="dash-nav-title">Undangan Belajar</div>
+            <div class="dash-nav-sub">Respons undangan masuk &amp; pantau undangan terkirim</div>
+          </div>
+        </div>
+        <i class="bi bi-chevron-right dash-nav-arrow"></i>
+      </a>
+
+      <a href="sessions.html" class="dash-nav-card" id="navCardMySessions">
+        <div class="dash-nav-card-left">
+          <div class="dash-nav-icon">
+            <i class="bi bi-calendar2-week-fill"></i>
+          </div>
+          <div>
+            <div class="dash-nav-title">Sesi Belajarku</div>
+            <div class="dash-nav-sub">Lihat daftar sesi, jadwal, anggota, dan kelola status sesi</div>
           </div>
         </div>
         <i class="bi bi-chevron-right dash-nav-arrow"></i>
@@ -651,6 +690,6 @@
 
 
 
-  <script src="js/app.js?v=4.0"></script>
+  <script src="js/app.js?v=5.0"></script>
 </body>
 </html>

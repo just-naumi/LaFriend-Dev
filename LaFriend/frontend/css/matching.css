@@ -1,0 +1,448 @@
+/* ==============================================================================
+   matching.css - Styling Bersama Day 24:
+   - matching.html (Matching Preview & Create Group Proposal)
+   - invitations.html (Undangan Masuk & Undangan Terkirim)
+   - proposal-detail.html (Detail Proposal, Kuorum, Finalize, Cancel & Execute)
+   Konsisten dengan Design System Mobile-First LaFriend (#7C3AED, Plus Jakarta Sans, 360x720)
+   ============================================================================== */
+
+/* Segmented Tabs (Undangan Masuk / Undangan Terkirim) */
+.la-tabs-bar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: #FFFFFF;
+  border-bottom: 1px solid #E8EAED;
+  padding: 8px 16px;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.la-tab-btn {
+  border: 1.5px solid #E2E8F0;
+  background: #F8FAFC;
+  color: #475569;
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-size: 0.76rem;
+  font-weight: 800;
+  font-family: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.16s ease;
+}
+
+.la-tab-btn:hover {
+  border-color: #C4B5FD;
+  color: #6D28D9;
+}
+
+.la-tab-btn.active {
+  background: #7C3AED;
+  border-color: #7C3AED;
+  color: #FFFFFF;
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.22);
+}
+
+/* Intent Selection Cards (matching.html) */
+.intent-select-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.intent-select-card {
+  border: 1.5px solid #E2E8F0;
+  background: #FFFFFF;
+  border-radius: 15px;
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: inherit;
+  width: 100%;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+
+.intent-select-card:hover {
+  border-color: #C4B5FD;
+  background: #FCFAFF;
+}
+
+.intent-select-card.selected {
+  border-color: #7C3AED;
+  background: #F5F3FF;
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.16);
+}
+
+.intent-select-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.intent-select-course {
+  font-size: 0.84rem;
+  font-weight: 800;
+  color: #1E1B4B;
+  line-height: 1.25;
+}
+
+.intent-select-topics {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #5B21B6;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+/* Form Controls inside Cards */
+.la-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.la-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.la-field--full {
+  grid-column: 1 / -1;
+}
+
+.la-label {
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: #334155;
+}
+
+.la-input,
+.la-textarea {
+  width: 100%;
+  border: 1.5px solid #CBD5E1;
+  border-radius: 11px;
+  padding: 8px 10px;
+  font-size: 0.79rem;
+  font-weight: 600;
+  color: #1E1B4B;
+  background: #FFFFFF;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.la-input:focus,
+.la-textarea:focus {
+  border-color: #7C3AED;
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.14);
+}
+
+.la-textarea {
+  resize: vertical;
+  min-height: 64px;
+}
+
+.la-helper-text {
+  font-size: 0.69rem;
+  color: #64748B;
+  line-height: 1.4;
+}
+
+/* Score Metric KPI Row (GQ / APS / MPS) */
+.score-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.score-kpi-box {
+  background: #F5F3FF;
+  border: 1px solid #DDD6FE;
+  border-radius: 13px;
+  padding: 9px 6px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.score-kpi-box--highlight {
+  background: linear-gradient(145deg, #8B5CF6, #7C3AED);
+  border-color: #7C3AED;
+  color: #FFFFFF;
+}
+
+.score-kpi-label {
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #6D28D9;
+}
+
+.score-kpi-box--highlight .score-kpi-label {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.score-kpi-val {
+  font-size: 1.02rem;
+  font-weight: 800;
+  color: #1E1B4B;
+  line-height: 1.15;
+}
+
+.score-kpi-box--highlight .score-kpi-val {
+  color: #FFFFFF;
+}
+
+.score-kpi-sub {
+  font-size: 0.61rem;
+  color: #64748B;
+  font-weight: 600;
+}
+
+.score-kpi-box--highlight .score-kpi-sub {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* Pairwise Score Cards */
+.pairwise-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pairwise-item {
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 13px;
+  padding: 10px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pairwise-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pairwise-names {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: #1E1B4B;
+  word-break: break-word;
+}
+
+.pairwise-breakdown-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.pairwise-chip {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  padding: 3px 7px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: #475569;
+}
+
+.pairwise-explanation {
+  font-size: 0.71rem;
+  color: #64748B;
+  line-height: 1.4;
+}
+
+/* Read-only Schedule Highlight */
+.schedule-primary-box {
+  background: #F5F3FF;
+  border: 1.5px solid #DDD6FE;
+  border-radius: 13px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.schedule-readonly-tag {
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: #6D28D9;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Pruning Stats Grid */
+.pruning-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.pruning-item {
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 10px;
+  padding: 7px 9px;
+}
+
+.pruning-label {
+  font-size: 0.64rem;
+  font-weight: 700;
+  color: #64748B;
+}
+
+.pruning-value {
+  font-size: 0.84rem;
+  font-weight: 800;
+  color: #1E1B4B;
+}
+
+/* Quorum Progress Bar (proposal-detail.html) */
+.quorum-progress-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quorum-numbers-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.quorum-big-count {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #1E1B4B;
+}
+
+.quorum-bounds-label {
+  font-size: 0.73rem;
+  font-weight: 700;
+  color: #64748B;
+}
+
+.quorum-bar-track {
+  width: 100%;
+  height: 10px;
+  background: #E2E8F0;
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.quorum-bar-fill {
+  height: 100%;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #8B5CF6, #7C3AED);
+  transition: width 0.25s ease;
+}
+
+.quorum-bar-fill--reached {
+  background: linear-gradient(90deg, #10B981, #059669);
+}
+
+/* Invitation Cards (invitations.html) */
+.invitation-card {
+  background: #FFFFFF;
+  border: 1px solid #E5E7EB;
+  border-radius: 18px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 4px 14px -4px rgba(30, 27, 75, 0.07);
+}
+
+.invitation-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.invitation-sender-name {
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: #1E1B4B;
+  line-height: 1.25;
+}
+
+.invitation-sub-meta {
+  font-size: 0.71rem;
+  font-weight: 600;
+  color: #64748B;
+  margin-top: 2px;
+}
+
+.invitation-message-box {
+  background: #F8FAFC;
+  border: 1px solid #EEF2F6;
+  border-radius: 11px;
+  padding: 8px 10px;
+  font-size: 0.76rem;
+  color: #334155;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.invitation-actions-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #F1F5F9;
+}
+
+.sent-recipients-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sent-recipient-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 11px;
+  padding: 7px 10px;
+}
+
+.sent-recipient-name {
+  font-size: 0.77rem;
+  font-weight: 700;
+  color: #1E1B4B;
+}
+
+.confirm-reason-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+@media (max-width: 359px) {
+  .la-form-grid,
+  .score-kpi-grid,
+  .pruning-grid {
+    grid-template-columns: 1fr;
+  }
+}
