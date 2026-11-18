@@ -94,6 +94,67 @@
       width: 0;
       height: 0;
     }
+
+    /* Quick Picker "Kapan mau belajar?" (UI/UX Step 1) */
+    .when-chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-bottom: 10px;
+    }
+
+    .when-chip-btn {
+      border: 1.5px solid #E2E8F0;
+      background: #FFFFFF;
+      color: #475569;
+      border-radius: 9999px;
+      padding: 7px 12px;
+      font-size: 0.77rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.14s ease;
+    }
+
+    .when-chip-btn:hover {
+      border-color: #C4B5FD;
+      color: #6D28D9;
+    }
+
+    .when-chip-btn.active {
+      border-color: #7C3AED;
+      background: #7C3AED;
+      color: #FFFFFF;
+    }
+
+    .auto-avail-box {
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 0.77rem;
+      line-height: 1.45;
+    }
+
+    .auto-avail-box--ok {
+      background: #ECFDF5;
+      color: #065F46;
+      border: 1px solid #A7F3D0;
+    }
+
+    .auto-avail-box--warn {
+      background: #FFFBEB;
+      color: #92400E;
+      border: 1px solid #FDE68A;
+    }
+
+    .override-time-details {
+      margin-top: 8px;
+      font-size: 0.75rem;
+    }
+
+    .override-time-details summary {
+      cursor: pointer;
+      color: #7C3AED;
+      font-weight: 700;
+    }
   </style>
 </head>
 <body>
@@ -207,7 +268,7 @@
         <!-- SECTION 3: TUJUAN BELAJAR -->
         <div class="form-group-clean">
           <label class="form-label-clean">
-            <i class="bi bi-bullseye text-primary me-1"></i> 3. Tujuan Belajar (Learning Goal)
+            <i class="bi bi-bullseye text-primary me-1"></i> 3. Tujuan Belajar
           </label>
           <div class="chip-grid-3">
             <div>
@@ -251,7 +312,7 @@
         <!-- SECTION 4: GAYA KOLABORASI -->
         <div class="form-group-clean">
           <label class="form-label-clean">
-            <i class="bi bi-people-fill text-primary me-1"></i> 4. Gaya Belajar (Collaboration Style)
+            <i class="bi bi-people-fill text-primary me-1"></i> 4. Gaya Belajar
           </label>
           <div class="chip-grid-2">
             <div>
@@ -315,53 +376,94 @@
           </div>
         </div>
 
-        <!-- SECTION 6: RENTANG TANGGAL -->
+        <!-- SECTION 6: KAPAN MAU BELAJAR? (PILIHAN MUDAH + OTOMATIS PAKAI WAKTU LUANG AKUN) -->
         <div class="form-group-clean">
           <label class="form-label-clean">
-            <i class="bi bi-calendar-event text-primary me-1"></i> 6. Rentang Tanggal Belajar
+            <i class="bi bi-calendar-event text-primary me-1"></i> 6. Kapan Mau Belajar?
           </label>
-          <div class="row g-2">
+
+          <div class="when-chip-row" id="whenPresetGroup">
+            <button type="button" class="when-chip-btn" data-preset="today">Hari Ini</button>
+            <button type="button" class="when-chip-btn" data-preset="tomorrow">Besok</button>
+            <button type="button" class="when-chip-btn" data-preset="this_week">Minggu Ini</button>
+            <button type="button" class="when-chip-btn" data-preset="next_week">Minggu Depan</button>
+            <button type="button" class="when-chip-btn" data-preset="custom">Pilih Tanggal</button>
+          </div>
+
+          <div id="customDateRangeWrap" class="row g-2 mb-2 d-none">
             <div class="col-6">
               <small class="text-muted d-block mb-1" style="font-size:0.74rem; font-weight:600;">Mulai Dari:</small>
-              <input type="date" id="earliestDate" class="form-control-clean" style="font-size:0.84rem; padding: 9px 10px; font-weight:600; border-radius:10px;" required>
+              <input type="date" id="earliestDate" class="form-control-clean" style="font-size:0.84rem; padding: 9px 10px; font-weight:600; border-radius:10px;">
             </div>
             <div class="col-6">
               <small class="text-muted d-block mb-1" style="font-size:0.74rem; font-weight:600;">Sampai:</small>
-              <input type="date" id="latestDate" class="form-control-clean" style="font-size:0.84rem; padding: 9px 10px; font-weight:600; border-radius:10px;" required>
+              <input type="date" id="latestDate" class="form-control-clean" style="font-size:0.84rem; padding: 9px 10px; font-weight:600; border-radius:10px;">
             </div>
           </div>
-        </div>
 
-        <!-- SECTION 7: TIME SLOTS -->
-        <div class="form-group-clean">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <label class="form-label-clean mb-0">
-              <i class="bi bi-clock-fill text-primary me-1"></i> 7. Jadwal Ketersediaan Waktu
+          <!-- Ringkasan Otomatis Waktu Luang Akun / Pilihan Cepat Bila Belum Ada -->
+          <div id="autoAvailabilityBox" class="d-none"></div>
+
+          <!-- Override Waktu Cepat (Muncul otomatis jika tanggal tidak cocok jadwal luang, atau lewat tombol ubah) -->
+          <div id="quickTimeFallbackWrap" class="d-none mt-2">
+            <div class="small fw-semibold text-secondary mb-1" style="font-size:0.73rem;">
+              Pilih jam belajar untuk tanggal ini:
+            </div>
+            <div class="when-chip-row" id="quickTimeBlockGroup">
+              <button type="button" class="when-chip-btn" data-block="pagi">Pagi (08:00–12:00)</button>
+              <button type="button" class="when-chip-btn" data-block="siang">Siang (13:00–17:00)</button>
+              <button type="button" class="when-chip-btn" data-block="malam">Malam (18:30–21:00)</button>
+            </div>
+            <div class="row g-2 mb-2">
+              <div class="col-6">
+                <input type="time" id="quickCustomStart" class="form-control-clean" style="font-size:0.8rem;padding:7px 9px;" aria-label="Jam mulai khusus">
+              </div>
+              <div class="col-6">
+                <input type="time" id="quickCustomEnd" class="form-control-clean" style="font-size:0.8rem;padding:7px 9px;" aria-label="Jam selesai khusus">
+              </div>
+            </div>
+            <label class="d-flex align-items-center gap-2 small text-muted" style="font-size:0.73rem;cursor:pointer;">
+              <input type="checkbox" id="chkSaveAsWeeklyDefault" checked>
+              <span>Simpan jam ini sebagai waktu luang mingguanku</span>
             </label>
-            <button type="button" class="btn btn-sm btn-link text-primary p-0 fw-bold text-decoration-none" id="btnAddSlot" style="font-size:0.82rem;">
-              <i class="bi bi-plus-circle me-1"></i> Tambah Slot
-            </button>
           </div>
-          
-          <div id="emptySlotsNotice" class="d-none"></div>
 
-          <div id="slotsContainer">
-            <!-- Diisi otomatis oleh JavaScript -->
-          </div>
+          <!-- Opsi Lipatan untuk Mengubah Waktu Khusus Sesi Ini (Tersembunyi agar form tetap bersih) -->
+          <details class="override-time-details d-none" id="overrideTimeDisclosure">
+            <summary>Ubah jam khusus untuk sesi ini</summary>
+            <div class="mt-2">
+              <div class="when-chip-row" id="overrideTimeBlockGroup">
+                <button type="button" class="when-chip-btn" data-block="pagi">Pagi (08:00–12:00)</button>
+                <button type="button" class="when-chip-btn" data-block="siang">Siang (13:00–17:00)</button>
+                <button type="button" class="when-chip-btn" data-block="malam">Malam (18:30–21:00)</button>
+              </div>
+              <div class="row g-2">
+                <div class="col-6">
+                  <input type="time" id="overrideCustomStart" class="form-control-clean" style="font-size:0.8rem;padding:7px 9px;" aria-label="Jam mulai override">
+                </div>
+                <div class="col-6">
+                  <input type="time" id="overrideCustomEnd" class="form-control-clean" style="font-size:0.8rem;padding:7px 9px;" aria-label="Jam selesai override">
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <!-- Container tersembunyi untuk kompatibilitas hasil ekstraksi AI eksplisit -->
+          <div id="aiExtractedSlotsNotice" class="d-none mt-2"></div>
         </div>
 
-        <!-- SECTION 8: UKURAN GRUP -->
+        <!-- SECTION 7: UKURAN GRUP -->
         <div class="form-group-clean">
           <label class="form-label-clean">
-            <i class="bi bi-people text-primary me-1"></i> 8. Ukuran Grup Belajar
+            <i class="bi bi-people text-primary me-1"></i> 7. Jumlah Anggota Grup
           </label>
           <div class="row g-2">
             <div class="col-6">
-              <small class="text-muted d-block mb-1" style="font-size:0.74rem; font-weight:600;">Min Anggota:</small>
+              <small class="text-muted d-block mb-1" style="font-size:0.74rem; font-weight:600;">Minimal:</small>
               <input type="number" id="minGroupSize" class="form-control-clean" style="font-size:0.88rem; padding: 9px 12px; font-weight:600; border-radius:10px;" value="2" min="2" max="10" required>
             </div>
             <div class="col-6">
-              <small class="text-muted d-block mb-1" style="font-size:0.74rem; font-weight:600;">Max Anggota:</small>
+              <small class="text-muted d-block mb-1" style="font-size:0.74rem; font-weight:600;">Maksimal:</small>
               <input type="number" id="maxGroupSize" class="form-control-clean" style="font-size:0.88rem; padding: 9px 12px; font-weight:600; border-radius:10px;" value="4" min="2" max="10" required>
             </div>
           </div>
@@ -370,7 +472,7 @@
         <!-- TOMBOL SIMPAN / SUBMIT -->
         <div class="mt-4 pt-2">
           <button type="submit" id="btnSubmitIntent" class="btn-purple-primary">
-            <i class="bi bi-check-circle-fill"></i> Konfirmasi & Simpan Study Intent
+            <i class="bi bi-check-circle-fill"></i> Simpan &amp; Cari Teman
           </button>
         </div>
 
@@ -381,6 +483,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="js/app.js?v=3.4"></script>
+  <script src="js/app.js?v=5.2"></script>
 </body>
 </html>

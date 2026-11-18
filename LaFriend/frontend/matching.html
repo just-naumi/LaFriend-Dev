@@ -1,121 +1,112 @@
 <!DOCTYPE html>
 <html lang="id">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cari Partner &amp; Matching — LaFriend</title>
+  <title>Cari Teman Belajar — LaFriend</title>
 
-  <!-- Google Fonts: Plus Jakarta Sans -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
-  <!-- Bootstrap Icons -->
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-
-  <!-- Stylesheets -->
-  <link rel="stylesheet" href="css/style.css?v=5.0">
-  <link rel="stylesheet" href="css/sessions.css?v=1.0">
-  <link rel="stylesheet" href="css/matching.css?v=1.0">
+  <link rel="stylesheet" href="css/style.css?v=5.1">
+  <link rel="stylesheet" href="css/sessions.css?v=2.0">
+  <link rel="stylesheet" href="css/matching.css?v=2.1">
 </head>
+
 <body>
 
   <div class="app-viewport sessions-viewport" id="matchingPageRoot">
 
-    <!-- HEADER -->
     <header class="sessions-header">
       <div class="sessions-topbar">
         <div class="sessions-topbar-left">
-          <a href="dashboard.html" class="icon-circle-btn" id="btnBackToDashboard" title="Kembali ke Dashboard" aria-label="Kembali ke Dashboard">
+          <a href="dashboard.html" class="icon-circle-btn" id="btnBackToDashboard" title="Kembali ke Dashboard"
+            aria-label="Kembali ke Dashboard">
             <i class="bi bi-arrow-left"></i>
           </a>
           <div class="sessions-title-wrap">
-            <h1 class="sessions-page-title">Cari Partner &amp; Matching</h1>
-            <div class="sessions-page-sub">Preview kelompok &amp; ajukan proposal belajar</div>
+            <h1 class="sessions-page-title">Cari Teman Belajar</h1>
+            <div class="sessions-page-sub" id="matchingUserName">Pilih rencana belajarmu</div>
           </div>
         </div>
-        <a href="invitations.html" class="icon-circle-btn" id="btnShortcutInvitations" title="Undangan Belajar" aria-label="Undangan Belajar">
-          <i class="bi bi-envelope-paper"></i>
-        </a>
-      </div>
-
-      <div class="sessions-user-strip">
-        <div class="sessions-user-identity">
-          <div class="sessions-mini-avatar" id="matchingUserAvatar">M</div>
-          <span class="sessions-user-name" id="matchingUserName">Mahasiswa</span>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <a href="invitations.html" class="sessions-refresh-btn" id="btnShortcutInvitations" title="Undangan"
+            aria-label="Undangan">
+            <i class="bi bi-envelope"></i>
+          </a>
+          <button type="button" class="sessions-refresh-btn" id="btnRefreshIntents" title="Segarkan">
+            <i class="bi bi-arrow-clockwise"></i>
+          </button>
         </div>
-        <button type="button" class="sessions-refresh-btn" id="btnRefreshIntents" title="Muat ulang daftar Study Intent">
-          <i class="bi bi-arrow-clockwise"></i>
-          <span>Segarkan</span>
-        </button>
       </div>
     </header>
 
-    <!-- KONTEN UTAMA -->
     <main class="sessions-body">
       <div id="matchingAlertContainer" class="d-none" role="alert" aria-live="polite"></div>
 
-      <!-- BAGIAN A: PEMILIHAN STUDY INTENT ACTIVE -->
-      <section class="detail-section-card" aria-label="Pilih Study Intent Aktif">
+      <!-- PILIH RENCANA BELAJAR AKTIF -->
+      <section class="detail-section-card" aria-label="Pilih Rencana Belajar">
         <div class="detail-section-header">
           <div class="detail-section-title">
-            <i class="bi bi-journal-check"></i>
-            <span>1. Pilih Study Intent Aktif</span>
+            <span>Pilih Rencana Belajarmu</span>
           </div>
           <span class="s-badge s-badge--host" id="activeIntentsCountBadge">0 aktif</span>
         </div>
         <div id="matchingIntentsContainer" aria-live="polite"></div>
-      </section>
 
-      <!-- BAGIAN B: PARAMETER PREVIEW -->
-      <section class="detail-section-card d-none" id="previewParamsSection" aria-label="Parameter Matching Preview">
-        <div class="detail-section-header">
-          <div class="detail-section-title">
-            <i class="bi bi-sliders2"></i>
-            <span>2. Parameter Preview</span>
-          </div>
-          <span class="s-badge s-badge--neutral">Read-Only</span>
-        </div>
-
-        <form id="matchingPreviewForm" novalidate>
-          <div class="la-form-grid">
-            <div class="la-field">
-              <label class="la-label" for="inputMinScore">Skor Minimal (0–100)</label>
-              <input type="number" id="inputMinScore" class="la-input" min="0" max="100" step="1" value="60">
-            </div>
-            <div class="la-field">
-              <label class="la-label" for="inputTargetGroupSize">Target Grup (Opsional)</label>
-              <input type="number" id="inputTargetGroupSize" class="la-input" min="2" max="10" step="1" placeholder="Otomatis">
-            </div>
-            <div class="la-field la-field--full">
-              <label class="la-label" for="inputMaxCandidatePool">Batas Pool Kandidat (1–100)</label>
-              <input type="number" id="inputMaxCandidatePool" class="la-input" min="1" max="100" step="1" value="20">
-              <div class="la-helper-text">
-                Skor minimal menentukan ambang kecocokan antaranggota; kosongkan Target Grup agar mesin matching memilih ukuran optimal.
+        <!-- AKSI CARI + PENGATURAN LANJUTAN TERSEMBUNYI -->
+        <form id="matchingPreviewForm" class="d-none"
+          style="margin-top: 6px; display: flex; flex-direction: column; gap: 10px;" novalidate>
+          <div id="previewParamsSection">
+            <details class="la-disclosure">
+              <summary>
+                <span>Pengaturan pencarian (opsional)</span>
+                <i class="bi bi-chevron-down"></i>
+              </summary>
+              <div class="la-disclosure-body">
+                <div class="la-form-grid">
+                  <div class="la-field">
+                    <label class="la-label" for="inputMinScore">Minimal cocok (%)</label>
+                    <input type="number" id="inputMinScore" class="la-input" min="0" max="100" step="1" value="60">
+                  </div>
+                  <div class="la-field">
+                    <label class="la-label" for="inputTargetGroupSize">Jumlah orang</label>
+                    <input type="number" id="inputTargetGroupSize" class="la-input" min="2" max="10" step="1"
+                      placeholder="Otomatis">
+                  </div>
+                  <div class="la-field la-field--full">
+                    <label class="la-label" for="inputMaxCandidatePool">Batas kandidat dicari</label>
+                    <input type="number" id="inputMaxCandidatePool" class="la-input" min="1" max="100" step="1"
+                      value="20">
+                  </div>
+                </div>
               </div>
-            </div>
+            </details>
           </div>
 
-          <div class="lifecycle-actions-stack" style="margin-top: 10px;">
-            <button type="submit" class="btn-la btn-la--primary" id="btnRunPreview">
-              <i class="bi bi-search"></i>
-              <span>Jalankan Matching Preview</span>
-            </button>
-          </div>
+          <button type="submit" class="btn-la btn-la--primary" id="btnRunPreview">
+            <i class="bi bi-search"></i>
+            <span>Cari Teman yang Cocok</span>
+          </button>
         </form>
       </section>
 
-      <!-- BAGIAN C & D: HASIL PREVIEW & BUAT PROPOSAL -->
+      <!-- HASIL PENCARIAN & AJAK BELAJAR -->
       <div id="previewResultContainer" class="d-none" aria-live="polite"></div>
     </main>
 
-    <!-- MODAL KONFIRMASI IN-FRAME -->
-    <div id="confirmActionModal" class="confirm-modal-backdrop d-none" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
+    <!-- MODAL KONFIRMASI -->
+    <div id="confirmActionModal" class="confirm-modal-backdrop d-none" role="dialog" aria-modal="true"
+      aria-labelledby="confirmModalTitle">
       <div class="confirm-modal-card">
-        <h2 class="confirm-modal-title" id="confirmModalTitle">Konfirmasi Tindakan</h2>
+        <h2 class="confirm-modal-title" id="confirmModalTitle">Konfirmasi</h2>
         <p class="confirm-modal-message" id="confirmModalMessage"></p>
         <div id="confirmModalReasonWrap" class="confirm-reason-wrap d-none">
-          <textarea id="confirmModalReasonInput" class="la-textarea" rows="2" placeholder="Alasan (opsional)..."></textarea>
+          <textarea id="confirmModalReasonInput" class="la-textarea" rows="2"
+            placeholder="Alasan (opsional)..."></textarea>
         </div>
         <div class="confirm-modal-actions">
           <button type="button" class="btn-la btn-la--secondary btn-la--sm" id="btnConfirmCancel">Batal</button>
@@ -126,7 +117,8 @@
 
   </div>
 
-  <script src="js/app.js?v=5.0"></script>
-  <script src="js/matching.js?v=1.0"></script>
+  <script src="js/app.js?v=5.1"></script>
+  <script src="js/matching.js?v=2.1"></script>
 </body>
+
 </html>

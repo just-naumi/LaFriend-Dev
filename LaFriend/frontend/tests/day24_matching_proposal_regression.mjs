@@ -881,3 +881,60 @@ test("24.3: Execute redirect, timeout no-auto-retry + refresh recovery, 409 refr
   assert.equal(finalizeCalls, 1);
 });
 
+// ==============================================================================
+// 7. UI/UX STEP 1: WEEKLY SCHEDULE PER ACCOUNT & ZERO-CONFLICT DATE PRESETS
+// ==============================================================================
+test("UI/UX Step 1: Weekly schedule persistence, date presets, calendar-safe intersection & streamlined Dashboard/Register/Intent HTML", () => {
+  const REGISTER_HTML = fs.readFileSync(path.join(FRONTEND_DIR, "register.html"), "utf8");
+  const CREATE_INTENT_HTML = fs.readFileSync(path.join(FRONTEND_DIR, "create-intent.html"), "utf8");
+
+  // Dashboard: redundant "Buat Rencana Belajar" card removed; Weekly Schedule modal present
+  assert.doesNotMatch(DASHBOARD_HTML, /id="navCardCreateIntent"/);
+  assert.match(DASHBOARD_HTML, /id="btnOpenWeeklyScheduleModal"/);
+  assert.match(DASHBOARD_HTML, /id="weeklyScheduleModal"/);
+
+  // Register: weekly schedule chips present
+  assert.match(REGISTER_HTML, /id="regWsDaysGroup"/);
+  assert.match(REGISTER_HTML, /id="regWsBlocksGroup"/);
+
+  // Create Intent: quick "Kapan Mau Belajar?" presets present, manual "+ Tambah Slot" removed
+  assert.match(CREATE_INTENT_HTML, /id="whenPresetGroup"/);
+  assert.doesNotMatch(CREATE_INTENT_HTML, /id="btnAddSlot"/);
+
+  const env = bootDay24Sandbox({});
+  const ws = env.app.weeklySchedule;
+
+  // Save & load weekly schedule per student_id
+  assert.equal(ws.get("stu-1"), null);
+  const ok = ws.save("stu-1", {
+    days: ["Senin", "Kamis"],
+    blocks: [ws.TIME_PRESETS.siang],
+  });
+  assert.equal(ok, true);
+  const loaded = ws.get("stu-1");
+  assert.deepEqual([...loaded.days], ["Senin", "Kamis"]);
+  assert.equal(loaded.blocks[0].start_time, "13:00");
+  assert.equal(loaded.blocks[0].end_time, "17:00");
+
+  // Date presets (reference date: Wed 2026-11-18)
+  const refWed = new Date(2026, 10, 18);
+  assert.deepEqual({ ...ws.getDatePresetRange("today", refWed) }, { earliest_date: "2026-11-18", latest_date: "2026-11-18" });
+  assert.deepEqual({ ...ws.getDatePresetRange("tomorrow", refWed) }, { earliest_date: "2026-11-19", latest_date: "2026-11-19" });
+  assert.deepEqual({ ...ws.getDatePresetRange("this_week", refWed) }, { earliest_date: "2026-11-18", latest_date: "2026-11-24" });
+  assert.deepEqual({ ...ws.getDatePresetRange("next_week", refWed) }, { earliest_date: "2026-11-23", latest_date: "2026-11-29" });
+
+  // Calendar-safe intersection: Wed 2026-11-18 to Sat 2026-11-21 has NO Monday (Senin), ONLY Thursday (Kamis)
+  const resPartial = ws.resolveForDateRange(loaded, "2026-11-18", "2026-11-21");
+  assert.equal(resPartial.hasConflict, false);
+  assert.deepEqual([...resPartial.matchedDays], ["Kamis"]);
+  assert.equal(resPartial.matchedSlots.length, 1);
+  assert.equal(resPartial.matchedSlots[0].day_or_date, "Kamis");
+
+  // Calendar-safe conflict detection: Wed 2026-11-18 alone has neither Senin nor Kamis -> hasConflict=true, 0 impossible slots
+  const resConflict = ws.resolveForDateRange(loaded, "2026-11-18", "2026-11-18");
+  assert.equal(resConflict.hasConflict, true);
+  assert.equal(resConflict.matchedSlots.length, 0);
+  assert.deepEqual([...resConflict.availableDaysInRange], ["Rabu"]);
+});
+
+

@@ -446,18 +446,6 @@ function renderSentGroupedList() {
   container.textContent = "";
   const fragment = document.createDocumentFragment();
 
-  // Catatan transparansi discoverability: ini adalah daftar undangan terkirim, bukan seluruh proposal host
-  const infoBanner = createEl("div", "session-alert session-alert--info");
-  infoBanner.appendChild(createIcon("bi-info-circle-fill"));
-  infoBanner.appendChild(
-    createEl(
-      "span",
-      "",
-      "Menampilkan undangan yang telah kamu kirim dikelompokkan per proposal. Buka Detail Proposal untuk melihat status proposal & kuorum terbaru dari server."
-    )
-  );
-  fragment.appendChild(infoBanner);
-
   let groupIdx = 0;
   groups.forEach((group) => {
     groupIdx += 1;

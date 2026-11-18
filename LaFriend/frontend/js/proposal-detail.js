@@ -223,93 +223,62 @@ function renderProposalDetail(proposal, course) {
   container.textContent = "";
   const fragment = document.createDocumentFragment();
 
-  // --- BAGIAN 1: RINGKASAN PROPOSAL ---
+  // --- BAGIAN 1: RINGKASAN USULAN (RINGKAS & BERSIH) ---
   const summaryCard = createEl("section", "detail-section-card");
   summaryCard.setAttribute("aria-label", "Ringkasan Proposal");
 
   const badgeRow = createEl("div", "badge-row");
   badgeRow.appendChild(createEl("span", `s-badge ${statusMeta.badgeClass}`, statusMeta.label));
   badgeRow.appendChild(
-    createEl("span", `s-badge ${isHost ? "s-badge--host" : "s-badge--member"}`, isHost ? "Kamu adalah HOST" : "Kamu adalah INVITEE")
+    createEl("span", `s-badge ${isHost ? "s-badge--host" : "s-badge--member"}`, isHost ? "Host" : "Diundang")
   );
   summaryCard.appendChild(badgeRow);
 
   const courseDisplay = course
-    ? [course.course_code, course.course_name].filter(Boolean).join(" — ")
-    : "Usulan Kelompok Belajar";
+    ? (course.course_name || course.course_code || "Kelompok Belajar")
+    : "Kelompok Belajar";
   summaryCard.appendChild(createEl("h2", "detail-hero-title", courseDisplay));
-  summaryCard.appendChild(createEl("div", "detail-course-line", `Dibuat oleh ${hostName}${isHost ? " (Kamu)" : ""}`));
+
+  const subMetaParts = [`Dibuat oleh ${hostName}${isHost ? " (Kamu)" : ""}`];
+  if (Number.isFinite(Number(proposal.group_quality_score))) {
+    subMetaParts.push(`Kecocokan ${Math.round(Number(proposal.group_quality_score))}%`);
+  }
+  summaryCard.appendChild(createEl("div", "detail-course-line", subMetaParts.join(" · ")));
 
   if (proposal.message && proposal.message.trim()) {
-    summaryCard.appendChild(createEl("p", "detail-description", proposal.message.trim()));
+    summaryCard.appendChild(createEl("p", "detail-description", `"${proposal.message.trim()}"`));
   }
 
-  // KPI Skor dari backend
-  const kpiGrid = createEl("div", "score-kpi-grid");
-  [
-    { label: "Group Quality", sub: "GQ Score", val: formatProposalScore(proposal.group_quality_score), highlight: true },
-    { label: "Avg Pair", sub: "APS", val: formatProposalScore(proposal.average_pair_score), highlight: false },
-    { label: "Min Pair", sub: "MPS", val: formatProposalScore(proposal.minimum_pair_score), highlight: false },
-  ].forEach((kpi) => {
-    const box = createEl("div", `score-kpi-box${kpi.highlight ? " score-kpi-box--highlight" : ""}`);
-    box.appendChild(createEl("div", "score-kpi-label", kpi.label));
-    box.appendChild(createEl("div", "score-kpi-val", kpi.val));
-    box.appendChild(createEl("div", "score-kpi-sub", kpi.sub));
-    kpiGrid.appendChild(box);
-  });
-  summaryCard.appendChild(kpiGrid);
-
-  // Jadwal Rekomendasi (Read-only)
+  // Jadwal Rekomendasi (Read-only, 1 baris bersih)
   if (proposal.selected_schedule && typeof proposal.selected_schedule === "object") {
     const sched = proposal.selected_schedule;
     const schedBox = createEl("div", "schedule-primary-box");
-    schedBox.appendChild(createEl("div", "schedule-readonly-tag", "Jadwal Rekomendasi Kelompok"));
-    schedBox.appendChild(createEl("div", "slot-item-date", formatSessionDateIndo(sched.date)));
-    const durSuffix = sched.duration_minutes ? ` (${sched.duration_minutes} menit)` : "";
-    schedBox.appendChild(createEl("div", "slot-item-time", `${sched.start_time || "--:--"} – ${sched.end_time || "--:--"}${durSuffix}`));
+    schedBox.appendChild(createIcon("bi-calendar-event"));
+    const schedInfo = createEl("div", "slot-item-info");
+    schedInfo.appendChild(
+      createEl("div", "slot-item-date", `${formatSessionDateIndo(sched.date)} · ${sched.start_time || "--:--"}–${sched.end_time || "--:--"}`)
+    );
+    schedInfo.appendChild(createEl("div", "slot-item-time", `Berlaku hingga ${formatDateTimeIndo(proposal.expires_at)}`));
+    schedBox.appendChild(schedInfo);
     summaryCard.appendChild(schedBox);
   }
-
-  const kvGrid = createEl("div", "detail-kv-grid");
-  const kvItems = [
-    { label: "Batas Kedaluwarsa", value: formatDateTimeIndo(proposal.expires_at) },
-    { label: "Rentang Grup", value: `${proposal.min_group_size_bound}–${proposal.max_group_size_bound} mahasiswa` },
-  ];
-  if (proposal.finalized_at) {
-    kvItems.push({ label: "Difinalisasi Pada", value: formatDateTimeIndo(proposal.finalized_at), full: true });
-  }
-  kvItems.forEach((item) => {
-    const box = createEl("div", `detail-kv-item${item.full ? " detail-kv-item--full" : ""}`);
-    box.appendChild(createEl("div", "detail-kv-label", item.label));
-    box.appendChild(createEl("div", "detail-kv-value", item.value));
-    kvGrid.appendChild(box);
-  });
-  summaryCard.appendChild(kvGrid);
   fragment.appendChild(summaryCard);
 
-  // --- BAGIAN 2: PROGRES KUORUM (MURNI DARI active_member_count & quorum_reached BACKEND) ---
+  // --- BAGIAN 2: PROGRES KELOMPOK (MURNI DARI active_member_count & quorum_reached BACKEND) ---
   const quorumCard = createEl("section", "detail-section-card");
   quorumCard.setAttribute("aria-label", "Progres Kuorum");
-
-  const qHead = createEl("div", "detail-section-header");
-  const qTitle = createEl("div", "detail-section-title");
-  qTitle.appendChild(createIcon("bi-graph-up-arrow"));
-  qTitle.appendChild(createEl("span", "", "Progres Kuorum"));
-  qHead.appendChild(qTitle);
-  const quorumReached = Boolean(proposal.quorum_reached);
-  qHead.appendChild(
-    createEl("span", `s-badge ${quorumReached ? "s-badge--confirmed" : "s-badge--pending"}`, quorumReached ? "Kuorum Tercapai" : "Belum Kuorum")
-  );
-  quorumCard.appendChild(qHead);
 
   const activeCount = Number(proposal.active_member_count ?? 1);
   const minBound = Math.max(1, Number(proposal.min_group_size_bound ?? 2));
   const pct = Math.min(100, Math.round((activeCount / minBound) * 100));
+  const quorumReached = Boolean(proposal.quorum_reached);
 
   const qWrap = createEl("div", "quorum-progress-wrap");
   const numRow = createEl("div", "quorum-numbers-row");
-  numRow.appendChild(createEl("div", "quorum-big-count", `${activeCount} anggota aktif`));
-  numRow.appendChild(createEl("div", "quorum-bounds-label", `Minimal ${proposal.min_group_size_bound} · Maksimal ${proposal.max_group_size_bound}`));
+  numRow.appendChild(createEl("div", "quorum-big-count", `${activeCount} dari ${proposal.min_group_size_bound} orang siap`));
+  numRow.appendChild(
+    createEl("span", `s-badge ${quorumReached ? "s-badge--confirmed" : "s-badge--pending"}`, quorumReached ? "Siap" : "Menunggu")
+  );
   qWrap.appendChild(numRow);
 
   const track = createEl("div", "quorum-bar-track");
@@ -674,14 +643,14 @@ function renderHostProposalControls(container, { proposal, proposalStatus }) {
     btnExecute.type = "button";
     btnExecute.id = "btnExecuteSession";
     btnExecute.dataset.proposalAction = "execute";
-    btnExecute.appendChild(createIcon("bi-rocket-takeoff-fill"));
-    btnExecute.appendChild(createEl("span", "", "Eksekusi Sesi Belajar (Execute)"));
+    btnExecute.appendChild(createIcon("bi-calendar-plus"));
+    btnExecute.appendChild(createEl("span", "", "Buat Sesi Sekarang"));
     btnExecute.addEventListener("click", () => {
       if (proposalDetailState.isActionPending) return;
       openSharedConfirmModal({
-        title: "Eksekusi Study Session?",
-        message: "Proposal yang telah difinalisasi akan diubah secara atomik menjadi Study Session resmi dan Study Intent seluruh anggota aktif akan berstatus MATCHED. Lanjutkan?",
-        confirmLabel: "Ya, Eksekusi Sesi",
+        title: "Buat Sesi Belajar?",
+        message: "Kelompok ini akan resmi dibuat menjadi sesi belajar dan langsung muncul di Sesi Belajarku.",
+        confirmLabel: "Ya, Buat Sesi",
         confirmVariant: "btn-la--primary",
         isBusyCheck: () => proposalDetailState.isActionPending,
         onConfirm: () => executeCreateSessionFromProposalAction(proposal.proposal_id, btnExecute),
@@ -699,13 +668,13 @@ function renderHostProposalControls(container, { proposal, proposalStatus }) {
     btnFinalize.id = "btnFinalizeProposal";
     btnFinalize.dataset.proposalAction = "finalize";
     btnFinalize.appendChild(createIcon("bi-check2-circle"));
-    btnFinalize.appendChild(createEl("span", "", "Finalisasi Proposal (Finalize)"));
+    btnFinalize.appendChild(createEl("span", "", "Kunci Kelompok"));
     btnFinalize.addEventListener("click", () => {
       if (proposalDetailState.isActionPending) return;
       openSharedConfirmModal({
-        title: "Finalisasi Proposal Kelompok?",
-        message: "Proposal akan dikunci ke status READY_FOR_SESSION dan sisa undangan yang masih PENDING akan otomatis ditarik (WITHDRAWN). Lanjutkan?",
-        confirmLabel: "Ya, Finalisasi",
+        title: "Kunci Anggota Kelompok?",
+        message: "Anggota yang sudah menerima akan dikunci untuk sesi ini, dan undangan lain yang belum dibalas akan otomatis ditarik.",
+        confirmLabel: "Ya, Kunci",
         confirmVariant: "btn-la--success",
         isBusyCheck: () => proposalDetailState.isActionPending,
         onConfirm: () => executeFinalizeProposalAction(proposal.proposal_id, btnFinalize),
@@ -724,7 +693,7 @@ function renderHostProposalControls(container, { proposal, proposalStatus }) {
       createEl(
         "div",
         "lifecycle-status-note",
-        "Tombol Finalisasi akan tersedia setelah jumlah anggota yang menerima undangan mencapai kuorum minimal."
+        "Kamu bisa mengunci kelompok begitu jumlah teman yang menerima undangan sudah mencukupi."
       )
     );
     container.appendChild(buildHostCancelProposalButton(proposal.proposal_id));
@@ -751,14 +720,14 @@ function buildHostCancelProposalButton(proposalId) {
   btnCancel.type = "button";
   btnCancel.id = "btnCancelProposal";
   btnCancel.dataset.proposalAction = "cancel";
-  btnCancel.appendChild(createIcon("bi-x-circle-fill"));
-  btnCancel.appendChild(createEl("span", "", "Batalkan Proposal (Cancel)"));
+  btnCancel.appendChild(createIcon("bi-x-circle"));
+  btnCancel.appendChild(createEl("span", "", "Batalkan Usulan"));
   btnCancel.addEventListener("click", () => {
     if (proposalDetailState.isActionPending) return;
     openSharedConfirmModal({
-      title: "Batalkan Proposal Kelompok?",
-      message: "Proposal akan dibatalkan dan seluruh undangan yang masih PENDING akan otomatis ditarik. Tindakan ini tidak dapat dikembalikan.",
-      confirmLabel: "Ya, Batalkan Proposal",
+      title: "Batalkan Usulan Kelompok?",
+      message: "Usulan akan dibatalkan dan undangan yang belum dibalas akan otomatis ditarik.",
+      confirmLabel: "Ya, Batalkan",
       confirmVariant: "btn-la--danger",
       showReasonInput: true,
       reasonPlaceholder: "Alasan pembatalan (opsional)...",

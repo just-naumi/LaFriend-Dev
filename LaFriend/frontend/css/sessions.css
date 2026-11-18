@@ -1,18 +1,17 @@
 /* ==============================================================================
-   sessions.css - Styling Khusus Halaman Sesi Belajarku & Detail Sesi (Day 23)
-   Konsisten dengan Design System Mobile-First LaFriend:
-   - Plus Jakarta Sans, Primary Purple #7C3AED, Mobile Frame 360x720 (Desktop)
-   - Responsif penuh pada mobile (<= 400px) & desktop
+   sessions.css - Desain Minimalis, Bersih & Lega (Tanpa Tumpukan Card)
+   Konsisten dengan LaFriend Mobile-First (#7C3AED, Plus Jakarta Sans, 360x720)
    ============================================================================== */
 
 .sessions-viewport {
   overflow: hidden !important;
+  background: #FFFFFF;
 }
 
-/* Header khusus halaman sesi (compact, tetap konsisten dengan purple-header) */
+/* Header Ringkas & Datar (selaras create-intent.html) */
 .sessions-header {
-  background: linear-gradient(145deg, #8B5CF6 0%, #7C3AED 55%, #6D28D9 100%);
-  padding: 18px 16px 16px 16px;
+  background-color: #7C3AED;
+  padding: 16px 16px 14px 16px;
   color: #FFFFFF;
   flex-shrink: 0;
   position: relative;
@@ -38,7 +37,7 @@
 }
 
 .sessions-page-title {
-  font-size: 1.05rem;
+  font-size: 1.02rem;
   font-weight: 800;
   color: #FFFFFF;
   line-height: 1.2;
@@ -50,80 +49,36 @@
 
 .sessions-page-sub {
   font-size: 0.72rem;
-  color: rgba(255, 255, 255, 0.86);
+  color: rgba(255, 255, 255, 0.84);
   font-weight: 500;
-  margin-top: 2px;
+  margin-top: 1px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .sessions-count-pill {
-  background: rgba(255, 255, 255, 0.22);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  color: #FFFFFF;
-  border-radius: 9999px;
-  padding: 4px 10px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-/* User identity strip inside sessions header */
-.sessions-user-strip {
-  margin-top: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  background: rgba(255, 255, 255, 0.14);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 14px;
-  padding: 8px 12px;
-}
-
-.sessions-user-identity {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.sessions-mini-avatar {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: #FFFFFF;
-  color: #7C3AED;
-  font-size: 0.78rem;
-  font-weight: 800;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.sessions-user-name {
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: #FFFFFF;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.sessions-refresh-btn {
-  background: rgba(255, 255, 255, 0.2);
-  border: none;
+  background: rgba(255, 255, 255, 0.18);
   color: #FFFFFF;
   border-radius: 9999px;
   padding: 4px 10px;
   font-size: 0.7rem;
   font-weight: 700;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.sessions-refresh-btn {
+  width: 34px;
+  height: 34px;
+  background: rgba(255, 255, 255, 0.18);
+  border: none;
+  color: #FFFFFF;
+  border-radius: 50%;
+  font-size: 0.92rem;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
   font-family: inherit;
@@ -131,17 +86,17 @@
 }
 
 .sessions-refresh-btn:hover {
-  background: rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.3);
 }
 
-/* Status Filter Bar */
+/* Filter Bar Minimalis */
 .status-filter-bar {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 12px 16px 10px 16px;
+  padding: 10px 16px;
   background: #FFFFFF;
-  border-bottom: 1px solid #E8EAED;
+  border-bottom: 1px solid #F1F5F9;
   overflow-x: auto;
   flex-shrink: 0;
   scrollbar-width: none;
@@ -152,41 +107,38 @@
 }
 
 .filter-pill-btn {
-  border: 1.5px solid #E2E8F0;
-  background: #FFFFFF;
-  color: #475569;
+  border: none;
+  background: #F4F5F8;
+  color: #64748B;
   border-radius: 9999px;
   padding: 6px 12px;
-  font-size: 0.74rem;
+  font-size: 0.73rem;
   font-weight: 700;
   font-family: inherit;
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
-  transition: all 0.16s ease;
+  transition: all 0.15s ease;
 }
 
 .filter-pill-btn:hover {
-  border-color: #C4B5FD;
-  color: #7C3AED;
+  background: #EDE9FE;
+  color: #6D28D9;
 }
 
 .filter-pill-btn.active {
   background: #7C3AED;
-  border-color: #7C3AED;
   color: #FFFFFF;
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.24);
 }
 
-/* Scrollable Main Body */
+/* Kanvas Utama: Putih Bersih, Lega, Tanpa Card Bertumpuk */
 .sessions-body {
   flex: 1;
   overflow-y: auto;
-  background: #F8F9FE;
-  padding: 14px 16px 24px 16px;
+  background: #FFFFFF;
+  padding: 0 0 28px 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
   scrollbar-width: none;
 }
 
@@ -194,49 +146,46 @@
   display: none;
 }
 
-/* Inline Alert / Flash Banner */
+/* Inline Alert / Banner Ringkas */
 .session-alert {
-  border-radius: 14px;
+  margin: 12px 16px 0 16px;
+  border-radius: 12px;
   padding: 10px 12px;
-  font-size: 0.78rem;
+  font-size: 0.77rem;
   font-weight: 600;
-  line-height: 1.4;
+  line-height: 1.45;
   display: flex;
   align-items: flex-start;
   gap: 8px;
 }
 
 .session-alert i {
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   margin-top: 1px;
   flex-shrink: 0;
 }
 
 .session-alert--success {
   background: #ECFDF5;
-  border: 1px solid #A7F3D0;
   color: #065F46;
 }
 
 .session-alert--warning {
   background: #FFFBEB;
-  border: 1px solid #FDE68A;
   color: #92400E;
 }
 
 .session-alert--danger {
   background: #FEF2F2;
-  border: 1px solid #FECACA;
   color: #991B1B;
 }
 
 .session-alert--info {
   background: #F5F3FF;
-  border: 1px solid #DDD6FE;
   color: #5B21B6;
 }
 
-/* Status & Role Badges */
+/* Badge Ringan */
 .badge-row {
   display: flex;
   align-items: center;
@@ -248,81 +197,68 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 9px;
+  padding: 3px 8px;
   border-radius: 9999px;
   font-size: 0.67rem;
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  font-weight: 700;
   white-space: nowrap;
 }
 
-/* Session statuses */
 .s-badge--confirmed {
   background: #ECFDF5;
   color: #047857;
-  border: 1px solid #A7F3D0;
 }
 
 .s-badge--completed {
   background: #EFF6FF;
   color: #1D4ED8;
-  border: 1px solid #BFDBFE;
 }
 
 .s-badge--cancelled {
   background: #FEF2F2;
   color: #B91C1C;
-  border: 1px solid #FECACA;
 }
 
 .s-badge--expired,
 .s-badge--neutral {
   background: #F1F5F9;
-  color: #475569;
-  border: 1px solid #CBD5E1;
+  color: #64748B;
 }
 
 .s-badge--pending {
   background: #FFFBEB;
   color: #B45309;
-  border: 1px solid #FDE68A;
 }
 
-/* Role badges */
 .s-badge--host {
   background: #F5F3FF;
   color: #6D28D9;
-  border: 1px solid #DDD6FE;
 }
 
 .s-badge--member {
   background: #F0F9FF;
   color: #0369A1;
-  border: 1px solid #BAE6FD;
 }
 
 .s-badge--you {
   background: #7C3AED;
   color: #FFFFFF;
-  border: 1px solid #7C3AED;
 }
 
-/* Session List Card */
+/* Daftar Sesi: Flat List Rows dengan Garis Pemisah Halus */
 .session-card {
   background: #FFFFFF;
-  border: 1px solid #E5E7EB;
-  border-radius: 18px;
-  padding: 14px;
-  box-shadow: 0 4px 16px -4px rgba(30, 27, 75, 0.07);
+  border: none;
+  border-bottom: 1px solid #F1F5F9;
+  padding: 15px 16px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  transition: border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+  gap: 6px;
+  transition: background 0.14s ease;
 }
 
 .session-card:hover {
-  border-color: #C4B5FD;
-  box-shadow: 0 8px 20px -6px rgba(124, 58, 237, 0.16);
+  background: #FAFAFE;
 }
 
 .session-card-top {
@@ -333,7 +269,7 @@
 }
 
 .session-card-title {
-  font-size: 0.94rem;
+  font-size: 0.93rem;
   font-weight: 800;
   color: #1E1B4B;
   line-height: 1.3;
@@ -341,29 +277,26 @@
 }
 
 .session-card-course {
-  font-size: 0.74rem;
+  font-size: 0.76rem;
   font-weight: 600;
-  color: #6D28D9;
+  color: #64748B;
   line-height: 1.35;
 }
 
 .session-meta-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 10px;
+  margin-top: 2px;
 }
 
 .session-meta-chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  background: #F8FAFC;
-  border: 1px solid #E2E8F0;
-  border-radius: 10px;
-  padding: 4px 8px;
-  font-size: 0.71rem;
+  gap: 4px;
+  font-size: 0.73rem;
   font-weight: 600;
-  color: #334155;
+  color: #475569;
 }
 
 .session-meta-chip i {
@@ -375,15 +308,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-top: 8px;
-  border-top: 1px solid #F1F5F9;
+  margin-top: 4px;
   gap: 8px;
 }
 
 .session-member-summary {
   font-size: 0.73rem;
   font-weight: 600;
-  color: #64748B;
+  color: #94A3B8;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -391,11 +323,10 @@
 
 .btn-detail-link {
   border: none;
-  background: #F5F3FF;
-  color: #6D28D9;
-  border-radius: 10px;
-  padding: 6px 12px;
-  font-size: 0.75rem;
+  background: transparent;
+  color: #7C3AED;
+  padding: 4px 0;
+  font-size: 0.76rem;
   font-weight: 800;
   font-family: inherit;
   cursor: pointer;
@@ -403,38 +334,33 @@
   align-items: center;
   gap: 4px;
   text-decoration: none;
-  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .btn-detail-link:hover {
-  background: #7C3AED;
-  color: #FFFFFF;
+  color: #5B21B6;
+  text-decoration: underline;
 }
 
-/* State Panels (Loading, Empty, Error, 403, 404) */
+/* State Panels (Loading, Empty, Error, 403, 404) — Lega Tanpa Card */
 .state-card {
-  background: #FFFFFF;
-  border: 1px solid #E5E7EB;
-  border-radius: 20px;
-  padding: 28px 18px;
+  padding: 42px 24px;
   text-align: center;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  box-shadow: 0 4px 16px -4px rgba(30, 27, 75, 0.05);
 }
 
 .state-icon-circle {
-  width: 54px;
-  height: 54px;
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
   background: #F5F3FF;
   color: #7C3AED;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.5rem;
+  font-size: 1.45rem;
 }
 
 .state-icon-circle--danger {
@@ -454,10 +380,10 @@
 }
 
 .state-desc {
-  font-size: 0.78rem;
+  font-size: 0.79rem;
   color: #64748B;
-  line-height: 1.45;
-  max-width: 260px;
+  line-height: 1.5;
+  max-width: 265px;
 }
 
 .state-actions {
@@ -465,13 +391,13 @@
   flex-wrap: wrap;
   justify-content: center;
   gap: 8px;
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
 /* Loading Spinner */
 .la-spinner {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   border: 3px solid #EDE9FE;
   border-top-color: #7C3AED;
@@ -494,17 +420,20 @@
 }
 
 /* ==============================================================================
-   DETAIL PAGE SECTIONS (Day 23.3 & 23.4)
+   DETAIL SECTIONS — Flat Sections dengan Pemisah Tipis (Bukan Card Bertumpuk)
    ============================================================================== */
 .detail-section-card {
   background: #FFFFFF;
-  border: 1px solid #E5E7EB;
-  border-radius: 18px;
-  padding: 14px;
+  border: none;
+  border-bottom: 1px solid #F1F5F9;
+  padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  box-shadow: 0 3px 12px -4px rgba(30, 27, 75, 0.06);
+}
+
+.detail-section-card:last-child {
+  border-bottom: none;
 }
 
 .detail-section-header {
@@ -515,18 +444,20 @@
 }
 
 .detail-section-title {
-  font-size: 0.76rem;
+  font-size: 0.78rem;
   font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #6D28D9;
+  color: #1E1B4B;
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
+.detail-section-title i {
+  color: #7C3AED;
+}
+
 .detail-hero-title {
-  font-size: 1.05rem;
+  font-size: 1.08rem;
   font-weight: 800;
   color: #1E1B4B;
   line-height: 1.3;
@@ -535,32 +466,29 @@
 
 .detail-course-line {
   font-size: 0.78rem;
-  font-weight: 700;
-  color: #5B21B6;
+  font-weight: 600;
+  color: #64748B;
 }
 
 .detail-description {
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   color: #475569;
-  line-height: 1.45;
-  background: #F8FAFC;
-  border-radius: 12px;
-  padding: 9px 11px;
-  border: 1px solid #EEF2F6;
+  line-height: 1.5;
   word-break: break-word;
 }
 
+/* Info List Datar (menggantikan kotak KV grid berat) */
 .detail-kv-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: 12px 10px;
+  padding-top: 4px;
 }
 
 .detail-kv-item {
-  background: #F8F9FE;
-  border: 1px solid #ECEBF5;
-  border-radius: 12px;
-  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .detail-kv-item--full {
@@ -568,26 +496,23 @@
 }
 
 .detail-kv-label {
-  font-size: 0.66rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  color: #64748B;
-  letter-spacing: 0.03em;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #94A3B8;
 }
 
 .detail-kv-value {
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   font-weight: 700;
   color: #1E1B4B;
-  margin-top: 2px;
   word-break: break-word;
 }
 
-/* Schedule Slots List */
+/* Schedule Rows (Flat) */
 .slot-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .slot-item-row {
@@ -595,10 +520,6 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  background: #F8FAFC;
-  border: 1px solid #E2E8F0;
-  border-radius: 12px;
-  padding: 10px 11px;
 }
 
 .slot-item-info {
@@ -609,22 +530,22 @@
 }
 
 .slot-item-date {
-  font-size: 0.8rem;
-  font-weight: 800;
+  font-size: 0.82rem;
+  font-weight: 700;
   color: #1E1B4B;
 }
 
 .slot-item-time {
-  font-size: 0.73rem;
-  font-weight: 600;
+  font-size: 0.75rem;
+  font-weight: 500;
   color: #64748B;
 }
 
-/* Members List */
+/* Member Rows (Flat & Rapi) */
 .member-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .member-item-row {
@@ -632,15 +553,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  background: #F8FAFC;
-  border: 1px solid #E2E8F0;
-  border-radius: 14px;
-  padding: 10px 11px;
 }
 
 .member-item-row--inactive {
-  opacity: 0.78;
-  background: #F9FAFB;
+  opacity: 0.62;
 }
 
 .member-item-left {
@@ -652,11 +568,11 @@
 }
 
 .member-avatar {
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  background: #EDE9FE;
-  color: #6D28D9;
+  background: #F5F3FF;
+  color: #7C3AED;
   font-size: 0.84rem;
   font-weight: 800;
   display: flex;
@@ -669,19 +585,19 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
 .member-name-row {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
 .member-name {
-  font-size: 0.82rem;
-  font-weight: 800;
+  font-size: 0.84rem;
+  font-weight: 700;
   color: #1E1B4B;
   word-break: break-word;
 }
@@ -690,13 +606,13 @@
   flex-shrink: 0;
 }
 
-/* Buttons (Primary, Secondary, Danger, Outline, Small Remove) */
+/* Buttons */
 .btn-la {
   border: none;
   border-radius: 12px;
-  padding: 10px 14px;
-  font-size: 0.8rem;
-  font-weight: 800;
+  padding: 11px 14px;
+  font-size: 0.82rem;
+  font-weight: 700;
   font-family: inherit;
   cursor: pointer;
   display: inline-flex;
@@ -704,11 +620,11 @@
   justify-content: center;
   gap: 6px;
   text-decoration: none;
-  transition: all 0.16s ease;
+  transition: all 0.15s ease;
 }
 
 .btn-la:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
@@ -722,39 +638,36 @@
 }
 
 .btn-la--success {
-  background: #059669;
+  background: #10B981;
   color: #FFFFFF;
 }
 
 .btn-la--success:hover:not(:disabled) {
-  background: #047857;
+  background: #059669;
 }
 
 .btn-la--danger {
-  background: #DC2626;
+  background: #EF4444;
   color: #FFFFFF;
 }
 
 .btn-la--danger:hover:not(:disabled) {
-  background: #B91C1C;
+  background: #DC2626;
 }
 
 .btn-la--outline-danger {
-  background: #FEF2F2;
+  background: transparent;
   color: #DC2626;
-  border: 1.5px solid #FECACA;
+  border: 1px solid #FECACA;
 }
 
 .btn-la--outline-danger:hover:not(:disabled) {
-  background: #DC2626;
-  color: #FFFFFF;
-  border-color: #DC2626;
+  background: #FEF2F2;
 }
 
 .btn-la--secondary {
   background: #F1F5F9;
   color: #334155;
-  border: 1px solid #E2E8F0;
 }
 
 .btn-la--secondary:hover:not(:disabled) {
@@ -762,8 +675,8 @@
 }
 
 .btn-la--sm {
-  padding: 6px 10px;
-  font-size: 0.71rem;
+  padding: 6px 11px;
+  font-size: 0.72rem;
   border-radius: 9px;
 }
 
@@ -774,42 +687,38 @@
 }
 
 .lifecycle-status-note {
-  font-size: 0.76rem;
-  color: #475569;
-  line-height: 1.45;
-  background: #F8FAFC;
-  border: 1px solid #E2E8F0;
-  border-radius: 12px;
-  padding: 10px 12px;
+  font-size: 0.78rem;
+  color: #64748B;
+  line-height: 1.5;
 }
 
-/* In-frame Confirmation Dialog Modal */
+/* In-frame Confirmation Modal */
 .confirm-modal-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(15, 23, 42, 0.56);
+  background: rgba(15, 23, 42, 0.48);
   backdrop-filter: blur(2px);
   z-index: 200;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 18px;
+  padding: 20px;
 }
 
 .confirm-modal-card {
   width: 100%;
-  max-width: 310px;
+  max-width: 300px;
   background: #FFFFFF;
   border-radius: 20px;
   padding: 18px;
-  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.28);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.22);
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
 .confirm-modal-title {
-  font-size: 0.95rem;
+  font-size: 0.94rem;
   font-weight: 800;
   color: #1E1B4B;
 }
@@ -832,15 +741,14 @@
   display: none !important;
 }
 
-/* Responsiveness untuk layar sangat kecil (< 360px) */
 @media (max-width: 359px) {
   .detail-kv-grid {
     grid-template-columns: 1fr;
   }
-  .sessions-header {
-    padding: 14px 12px;
-  }
-  .sessions-body {
-    padding: 12px;
+  .sessions-header,
+  .detail-section-card,
+  .session-card {
+    padding-left: 12px;
+    padding-right: 12px;
   }
 }

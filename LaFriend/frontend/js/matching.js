@@ -64,6 +64,7 @@ function initMatchingPage() {
 async function loadUserActiveIntents() {
   const container = document.getElementById("matchingIntentsContainer");
   const badge = document.getElementById("activeIntentsCountBadge");
+  const previewForm = document.getElementById("matchingPreviewForm");
   const paramsSection = document.getElementById("previewParamsSection");
   const resultContainer = document.getElementById("previewResultContainer");
   const alertBox = document.getElementById("matchingAlertContainer");
@@ -72,8 +73,8 @@ async function loadUserActiveIntents() {
   renderInlineAlert(alertBox, "info", "");
   renderStatePanel(container, {
     icon: "spinner",
-    title: "Memuat Study Intent...",
-    description: "Mengambil daftar Study Intent aktif milikmu.",
+    title: "Memuat rencana belajar...",
+    description: "Sebentar ya, kami sedang mengambil jadwal aktifmu.",
   });
 
   try {
@@ -91,6 +92,7 @@ async function loadUserActiveIntents() {
     if (activeList.length === 0) {
       matchingPageState.selectedIntentId = "";
       matchingPageState.lastPreviewResponse = null;
+      if (previewForm) previewForm.classList.add("d-none");
       if (paramsSection) paramsSection.classList.add("d-none");
       if (resultContainer) {
         resultContainer.textContent = "";
@@ -100,13 +102,13 @@ async function loadUserActiveIntents() {
       const hasNonActive = list.length > 0;
       renderStatePanel(container, {
         icon: "bi-journal-plus",
-        title: hasNonActive ? "Tidak Ada Study Intent Aktif" : "Belum Ada Study Intent",
+        title: hasNonActive ? "Belum Ada Rencana Aktif" : "Belum Ada Rencana Belajar",
         description: hasNonActive
-          ? "Seluruh Study Intent kamu saat ini tidak berstatus ACTIVE (sudah MATCHED/CANCELLED). Buat Study Intent baru untuk mencari partner belajar."
-          : "Kamu belum memiliki Study Intent aktif. Buat kebutuhan belajarmu terlebih dahulu sebelum menjalankan matching.",
+          ? "Rencana belajarmu sebelumnya sudah selesai atau terpakai. Buat rencana baru untuk mencari teman belajar."
+          : "Buat rencana belajarmu dulu agar kami bisa mencarikan teman yang cocok.",
         actions: [
-          { label: "Buat Study Intent", href: "create-intent.html", variantClass: "btn-la--primary" },
-          { label: "Lihat Sesi Belajarku", href: "sessions.html", variantClass: "btn-la--secondary" },
+          { label: "Buat Rencana Belajar", href: "create-intent.html", variantClass: "btn-la--primary" },
+          { label: "Sesi Belajarku", href: "sessions.html", variantClass: "btn-la--secondary" },
         ],
       });
       return;
@@ -126,12 +128,14 @@ async function loadUserActiveIntents() {
     }
 
     renderActiveIntentSelector(container, activeList);
+    if (previewForm) previewForm.classList.remove("d-none");
     if (paramsSection) paramsSection.classList.remove("d-none");
   } catch (err) {
     if (err.status === 401) {
       app.handleUnauthorized();
       return;
     }
+    if (previewForm) previewForm.classList.add("d-none");
     if (paramsSection) paramsSection.classList.add("d-none");
     if (err.isNetworkError || err.status === 0) {
       renderStatePanel(container, {
@@ -170,51 +174,26 @@ function renderActiveIntentSelector(container, activeIntents) {
     const courseName = intent.course && intent.course.course_name ? intent.course.course_name : "Mata Kuliah";
 
     const topRow = createEl("div", "intent-select-top");
-    topRow.appendChild(createEl("div", "intent-select-course", courseCode ? `${courseCode} — ${courseName}` : courseName));
-    topRow.appendChild(createEl("span", `s-badge ${isSelected ? "s-badge--you" : "s-badge--confirmed"}`, isSelected ? "Dipilih" : "ACTIVE"));
+    topRow.appendChild(createEl("div", "intent-select-course", courseName));
+    if (isSelected) {
+      topRow.appendChild(createEl("span", "s-badge s-badge--you", "Dipilih"));
+    }
     cardBtn.appendChild(topRow);
 
     if (intent.topics) {
       cardBtn.appendChild(createEl("div", "intent-select-topics", intent.topics));
     }
 
-    const metaGrid = createEl("div", "session-meta-grid");
-    const goalLabel = LEARNING_GOAL_LABELS[(intent.learning_goal || "").toUpperCase()] || intent.learning_goal || "-";
-    const styleLabel = COLLAB_STYLE_LABELS[(intent.collaboration_style || "").toUpperCase()] || intent.collaboration_style || "-";
-    const modeLabel = LEARNING_MODE_LABELS[(intent.learning_mode || "").toUpperCase()] || intent.learning_mode || "-";
-
-    [
-      { icon: "bi-bullseye", text: goalLabel },
-      { icon: "bi-chat-dots", text: styleLabel },
-      { icon: "bi-geo-alt", text: modeLabel },
-      { icon: "bi-people", text: `${intent.min_group_size}–${intent.max_group_size} orang` },
-    ].forEach((m) => {
-      const chip = createEl("div", "session-meta-chip");
-      chip.appendChild(createIcon(m.icon));
-      chip.appendChild(createEl("span", "", m.text));
-      metaGrid.appendChild(chip);
-    });
-
-    if (intent.earliest_date && intent.latest_date) {
-      const dateChip = createEl("div", "session-meta-chip");
-      dateChip.appendChild(createIcon("bi-calendar-range"));
-      dateChip.appendChild(createEl("span", "", `${intent.earliest_date} s/d ${intent.latest_date}`));
-      metaGrid.appendChild(dateChip);
-    }
-
+    const modeLabel = LEARNING_MODE_LABELS[(intent.learning_mode || "").toUpperCase()] || intent.learning_mode || "";
     const avails = Array.isArray(intent.availabilities) ? intent.availabilities : [];
+    const summaryParts = [];
+    if (modeLabel) summaryParts.push(modeLabel);
+    summaryParts.push(`${intent.min_group_size}–${intent.max_group_size} orang`);
     if (avails.length > 0) {
-      const firstSlot = avails[0];
-      const extra = avails.length > 1 ? ` (+${avails.length - 1})` : "";
-      const slotChip = createEl("div", "session-meta-chip");
-      slotChip.appendChild(createIcon("bi-clock"));
-      slotChip.appendChild(
-        createEl("span", "", `${firstSlot.day_or_date} ${firstSlot.start_time}–${firstSlot.end_time}${extra}`)
-      );
-      metaGrid.appendChild(slotChip);
+      const s = avails[0];
+      summaryParts.push(`${s.day_or_date} ${s.start_time}–${s.end_time}`);
     }
-
-    cardBtn.appendChild(metaGrid);
+    cardBtn.appendChild(createEl("div", "la-helper-text", summaryParts.join(" · ")));
 
     cardBtn.addEventListener("click", () => {
       if (matchingPageState.isPreviewLoading || matchingPageState.isCreatePending) return;
@@ -315,6 +294,9 @@ async function runMatchingPreview() {
     matchingPageState.lastPreviewParams = payload;
     matchingPageState.lastPreviewResponse = previewRes;
     renderMatchingPreviewResult(resultContainer, previewRes);
+    if (resultContainer && typeof resultContainer.scrollIntoView === "function") {
+      resultContainer.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   } catch (err) {
     if (seq !== matchingPageState.previewSeq) return;
     matchingPageState.lastPreviewResponse = null;
@@ -379,99 +361,74 @@ function renderMatchingPreviewResult(container, preview) {
   container.classList.remove("d-none");
 
   const status = (preview.formation_status || "").toUpperCase();
-  const statusMeta = getFormationStatusMeta(status);
   const fragment = document.createDocumentFragment();
 
-  // --- KARTU HASIL STATUS FORMASI ---
-  const summaryCard = createEl("section", "detail-section-card");
-  summaryCard.setAttribute("aria-label", "Hasil Matching Preview");
-
-  const head = createEl("div", "detail-section-header");
-  const titleWrap = createEl("div", "detail-section-title");
-  titleWrap.appendChild(createIcon("bi-stars"));
-  titleWrap.appendChild(createEl("span", "", "3. Hasil Preview"));
-  head.appendChild(titleWrap);
-  head.appendChild(createEl("span", `s-badge ${statusMeta.badgeClass}`, statusMeta.label));
-  summaryCard.appendChild(head);
-
-  if (preview.course_name) {
-    summaryCard.appendChild(createEl("div", "detail-course-line", preview.course_name));
-  }
-
-  // Kondisi BUKAN READY (INSUFFICIENT_MEMBERS / NO_COMPATIBLE_GROUP / fallback)
+  // --- KONDISI BELUM KETEMU KELOMPOK (INSUFFICIENT_MEMBERS / NO_COMPATIBLE_GROUP) ---
   if (status !== "READY") {
-    const warnBox = createEl("div", `session-alert ${status === "INSUFFICIENT_MEMBERS" ? "session-alert--warning" : "session-alert--danger"}`);
-    warnBox.appendChild(createIcon(status === "INSUFFICIENT_MEMBERS" ? "bi-people" : "bi-exclamation-circle-fill"));
-    warnBox.appendChild(
+    const emptySection = createEl("section", "detail-section-card");
+    emptySection.setAttribute("aria-label", "Hasil Pencarian Teman");
+
+    const title = status === "INSUFFICIENT_MEMBERS" ? "Belum Cukup Teman yang Cocok" : "Belum Ada Kelompok yang Cocok";
+    emptySection.appendChild(createEl("div", "detail-hero-title", title));
+    emptySection.appendChild(
       createEl(
-        "span",
-        "",
-        preview.message || "Belum ditemukan kelompok belajar yang memenuhi seluruh kriteria kecocokan."
+        "div",
+        "lifecycle-status-note",
+        preview.message || "Belum ditemukan teman belajar dengan jadwal dan preferensi yang cocok."
       )
     );
-    summaryCard.appendChild(warnBox);
-
-    const suggestionText =
-      status === "INSUFFICIENT_MEMBERS"
-        ? "Saran: coba turunkan Skor Minimal, kosongkan Target Grup, atau tambahkan slot ketersediaan jadwal pada Study Intent baru."
-        : "Saran: coba sesuaikan Skor Minimal atau periksa kembali mode belajar (Online/Offline/Hybrid) serta jadwal ketersediaanmu.";
-    summaryCard.appendChild(createEl("div", "lifecycle-status-note", suggestionText));
-
-    if (preview.candidate_pruning_stats) {
-      summaryCard.appendChild(buildPruningStatsElement(preview.candidate_pruning_stats));
-    }
-
-    fragment.appendChild(summaryCard);
+    emptySection.appendChild(
+      createEl(
+        "div",
+        "la-helper-text",
+        "Coba longgarkan minimal kecocokan di Pengaturan pencarian, atau tambahkan slot waktu luang lain."
+      )
+    );
+    fragment.appendChild(emptySection);
     container.appendChild(fragment);
     return;
   }
 
-  // --- KONDISI READY ---
-  if (preview.message) {
-    const infoBox = createEl("div", "session-alert session-alert--info");
-    infoBox.appendChild(createIcon("bi-info-circle-fill"));
-    infoBox.appendChild(createEl("span", "", preview.message));
-    summaryCard.appendChild(infoBox);
-  }
-
-  // KPI Skor (GQ, APS, MPS) murni dari backend
-  const kpiGrid = createEl("div", "score-kpi-grid");
-  [
-    { label: "Group Quality", sub: "GQ Score", val: formatScore(preview.group_quality_score), highlight: true },
-    { label: "Avg Pair", sub: "APS", val: formatScore(preview.average_pair_score), highlight: false },
-    { label: "Min Pair", sub: "MPS", val: formatScore(preview.minimum_pair_score), highlight: false },
-  ].forEach((kpi) => {
-    const box = createEl("div", `score-kpi-box${kpi.highlight ? " score-kpi-box--highlight" : ""}`);
-    box.appendChild(createEl("div", "score-kpi-label", kpi.label));
-    box.appendChild(createEl("div", "score-kpi-val", kpi.val));
-    box.appendChild(createEl("div", "score-kpi-sub", kpi.sub));
-    kpiGrid.appendChild(box);
-  });
-  summaryCard.appendChild(kpiGrid);
-
-  summaryCard.appendChild(
-    createEl(
-      "div",
-      "la-helper-text",
-      `Ukuran kelompok hasil preview: ${preview.group_size} mahasiswa (rentang kompatibel ${preview.min_group_size_bound}–${preview.max_group_size_bound} orang).`
-    )
-  );
-  fragment.appendChild(summaryCard);
-
-  // --- DAFTAR ANGGOTA KANDIDAT (PRIVACY-SAFE: tanpa email, NIM, atau intent_id) ---
+  // --- KONDISI READY: RINGKAS, BERSIH, MANUSIAWI ---
   const members = Array.isArray(preview.members) ? preview.members : [];
   const nameByStudentId = new Map();
-  const membersCard = createEl("section", "detail-section-card");
-  membersCard.setAttribute("aria-label", "Kandidat Anggota Kelompok");
 
-  const memHeader = createEl("div", "detail-section-header");
-  const memTitle = createEl("div", "detail-section-title");
-  memTitle.appendChild(createIcon("bi-people-fill"));
-  memTitle.appendChild(createEl("span", "", "Kandidat Anggota"));
-  memHeader.appendChild(memTitle);
-  memHeader.appendChild(createEl("span", "s-badge s-badge--neutral", `${members.length} mahasiswa`));
-  membersCard.appendChild(memHeader);
+  // Bagian 1: Ringkasan Hasil + Daftar Teman + Jadwal Rekomendasi (1 aliran bersih, bukan 5 card)
+  const matchSection = createEl("section", "detail-section-card");
+  matchSection.setAttribute("aria-label", "Rekomendasi Kelompok Belajar");
 
+  const strip = createEl("div", "match-summary-strip");
+  const stripLeft = createEl("div", "");
+  stripLeft.appendChild(createEl("div", "detail-section-title", preview.course_name || "Kelompok Ditemukan"));
+  stripLeft.appendChild(
+    createEl("div", "match-summary-label", `${members.length} mahasiswa cocok untuk belajar bersama`)
+  );
+  strip.appendChild(stripLeft);
+  const scoreBox = createEl("div", "");
+  scoreBox.style.textAlign = "right";
+  scoreBox.appendChild(createEl("div", "match-summary-score", `${Math.round(Number(preview.group_quality_score) || 0)}%`));
+  scoreBox.appendChild(createEl("div", "match-summary-label", "cocok"));
+  strip.appendChild(scoreBox);
+  matchSection.appendChild(strip);
+
+  // Jadwal Rekomendasi (Read-only, ringkas 1 baris)
+  if (preview.selected_schedule) {
+    const schedBox = createEl("div", "schedule-primary-box");
+    schedBox.appendChild(createIcon("bi-calendar-event"));
+    const schedInfo = createEl("div", "slot-item-info");
+    schedInfo.appendChild(
+      createEl(
+        "div",
+        "slot-item-date",
+        `${formatSessionDateIndo(preview.selected_schedule.date)} · ${preview.selected_schedule.start_time}–${preview.selected_schedule.end_time}`
+      )
+    );
+    schedInfo.appendChild(createEl("div", "slot-item-time", "Jadwal rekomendasi otomatis"));
+    schedBox.appendChild(schedInfo);
+    matchSection.appendChild(schedBox);
+  }
+
+  // Daftar Anggota Kandidat (Privacy-safe: tanpa email, NIM, atau ID internal)
   const memList = createEl("div", "member-list");
   members.forEach((m) => {
     const displayName = m.student_name || "Mahasiswa";
@@ -491,177 +448,96 @@ function renderMatchingPreviewResult(container, preview) {
 
     const subParts = [];
     if (m.study_program) subParts.push(m.study_program);
-    if (m.academic_year) subParts.push(`Angkatan ${m.academic_year}`);
-    if (subParts.length > 0) {
-      info.appendChild(createEl("div", "invitation-sub-meta", subParts.join(" · ")));
-    }
-
-    const badges = createEl("div", "badge-row");
-    badges.appendChild(createEl("span", `s-badge ${isHostRole ? "s-badge--host" : "s-badge--member"}`, isHostRole ? "HOST" : "MEMBER"));
-    if (m.learning_goal) {
-      badges.appendChild(
-        createEl("span", "s-badge s-badge--neutral", LEARNING_GOAL_LABELS[m.learning_goal.toUpperCase()] || m.learning_goal)
-      );
-    }
-    info.appendChild(badges);
+    if (m.academic_year) subParts.push(`'${String(m.academic_year).slice(-2)}`);
+    subParts.push(isHostRole ? "Host" : "Calon Anggota");
+    info.appendChild(createEl("div", "invitation-sub-meta", subParts.join(" · ")));
 
     left.appendChild(info);
     row.appendChild(left);
     memList.appendChild(row);
   });
-  membersCard.appendChild(memList);
-  fragment.appendChild(membersCard);
+  matchSection.appendChild(memList);
 
-  // --- PAIRWISE BREAKDOWN ---
+  // Rincian Teknis (GQ/APS/MPS, Pairwise, Opsi Jadwal, Statistik) disembunyikan rapi di <details>
+  const detailsEl = createEl("details", "la-disclosure");
+  const summaryEl = createEl("summary", "");
+  summaryEl.appendChild(createEl("span", "", "Lihat rincian kecocokan"));
+  summaryEl.appendChild(createIcon("bi-chevron-down"));
+  detailsEl.appendChild(summaryEl);
+
+  const detailsBody = createEl("div", "la-disclosure-body");
+  const kpiGrid = createEl("div", "score-kpi-grid");
+  [
+    { label: "Skor Grup", val: formatScore(preview.group_quality_score) },
+    { label: "Rata-rata", val: formatScore(preview.average_pair_score) },
+    { label: "Terendah", val: formatScore(preview.minimum_pair_score) },
+  ].forEach((kpi) => {
+    const box = createEl("div", "score-kpi-box");
+    box.appendChild(createEl("div", "score-kpi-label", kpi.label));
+    box.appendChild(createEl("div", "score-kpi-val", kpi.val));
+    kpiGrid.appendChild(box);
+  });
+  detailsBody.appendChild(kpiGrid);
+
   const pairs = Array.isArray(preview.pairwise_scores) ? preview.pairwise_scores : [];
   if (pairs.length > 0) {
-    const pairCard = createEl("section", "detail-section-card");
-    pairCard.setAttribute("aria-label", "Skor Kecocokan Pasangan");
-    const pairHead = createEl("div", "detail-section-header");
-    const pairTitle = createEl("div", "detail-section-title");
-    pairTitle.appendChild(createIcon("bi-diagram-3-fill"));
-    pairTitle.appendChild(createEl("span", "", "Pairwise Compatibility"));
-    pairHead.appendChild(pairTitle);
-    pairHead.appendChild(createEl("span", "s-badge s-badge--neutral", `${pairs.length} pasangan`));
-    pairCard.appendChild(pairHead);
-
     const pairList = createEl("div", "pairwise-list");
     pairs.forEach((pair) => {
       const nameA = nameByStudentId.get(pair.student_a_id) || "Anggota A";
       const nameB = nameByStudentId.get(pair.student_b_id) || "Anggota B";
-
       const pItem = createEl("div", "pairwise-item");
       const pTop = createEl("div", "pairwise-top");
-      pTop.appendChild(createEl("div", "pairwise-names", `${nameA} ↔ ${nameB}`));
+      pTop.appendChild(createEl("div", "pairwise-names", `${nameA} & ${nameB}`));
       pTop.appendChild(createEl("span", "s-badge s-badge--confirmed", `${formatScore(pair.compatibility_score)}`));
       pItem.appendChild(pTop);
-
-      if (pair.breakdown) {
-        const chipsWrap = createEl("div", "pairwise-breakdown-chips");
-        [
-          { key: "topic", label: "Topik" },
-          { key: "goal", label: "Tujuan" },
-          { key: "style", label: "Gaya" },
-          { key: "date", label: "Jadwal" },
-          { key: "mode", label: "Mode" },
-        ].forEach((comp) => {
-          const detail = pair.breakdown[comp.key];
-          if (detail && detail.score !== undefined) {
-            chipsWrap.appendChild(createEl("span", "pairwise-chip", `${comp.label}: ${formatScore(detail.score)}`));
-          }
-        });
-        pItem.appendChild(chipsWrap);
-      }
-
       if (pair.explanation) {
         pItem.appendChild(createEl("div", "pairwise-explanation", pair.explanation));
       }
-
       pairList.appendChild(pItem);
     });
-    pairCard.appendChild(pairList);
-    fragment.appendChild(pairCard);
-  }
-
-  // --- REKOMENDASI JADWAL (READ-ONLY) ---
-  const schedCard = createEl("section", "detail-section-card");
-  schedCard.setAttribute("aria-label", "Rekomendasi Jadwal Hasil Matching");
-  const schedHead = createEl("div", "detail-section-header");
-  const schedTitle = createEl("div", "detail-section-title");
-  schedTitle.appendChild(createIcon("bi-calendar3"));
-  schedTitle.appendChild(createEl("span", "", "Rekomendasi Jadwal"));
-  schedHead.appendChild(schedTitle);
-  schedHead.appendChild(createEl("span", "s-badge s-badge--neutral", "Read-Only"));
-  schedCard.appendChild(schedHead);
-
-  if (preview.selected_schedule) {
-    const selBox = createEl("div", "schedule-primary-box");
-    selBox.appendChild(createEl("div", "schedule-readonly-tag", "Rekomendasi Jadwal Utama Hasil Matching"));
-    selBox.appendChild(
-      createEl("div", "slot-item-date", formatSessionDateIndo(preview.selected_schedule.date))
-    );
-    selBox.appendChild(
-      createEl(
-        "div",
-        "slot-item-time",
-        `${preview.selected_schedule.start_time} – ${preview.selected_schedule.end_time} (${preview.selected_schedule.duration_minutes} menit)`
-      )
-    );
-    schedCard.appendChild(selBox);
+    detailsBody.appendChild(pairList);
   }
 
   const opts = Array.isArray(preview.schedule_options) ? preview.schedule_options : [];
-  if (opts.length > 0) {
-    const optList = createEl("div", "slot-list");
-    opts.forEach((opt, idx) => {
-      const row = createEl("div", "slot-item-row");
-      const info = createEl("div", "slot-item-info");
-      info.appendChild(createEl("div", "slot-item-date", formatSessionDateIndo(opt.date)));
-      info.appendChild(
-        createEl("div", "slot-item-time", `${opt.start_time} – ${opt.end_time} · ${opt.duration_minutes} menit`)
+  if (opts.length > 1) {
+    const altLabel = createEl("div", "la-label", `Alternatif jadwal lain (${opts.length} opsi, read-only)`);
+    detailsBody.appendChild(altLabel);
+    opts.forEach((opt) => {
+      detailsBody.appendChild(
+        createEl("div", "la-helper-text", `• ${formatSessionDateIndo(opt.date)}, ${opt.start_time}–${opt.end_time}`)
       );
-      row.appendChild(info);
-      row.appendChild(createEl("span", "s-badge s-badge--neutral", `Opsi ${idx + 1}`));
-      optList.appendChild(row);
     });
-    schedCard.appendChild(optList);
   }
 
-  schedCard.appendChild(
-    createEl(
-      "div",
-      "la-helper-text",
-      "Jadwal di atas merupakan rekomendasi hasil perhitungan backend dan belum merupakan jadwal sesi final sampai proposal disetujui dan dieksekusi."
-    )
-  );
-  fragment.appendChild(schedCard);
+  detailsEl.appendChild(detailsBody);
+  matchSection.appendChild(detailsEl);
+  fragment.appendChild(matchSection);
 
-  // --- CANDIDATE PRUNING STATS (OPSIONAL) ---
-  if (preview.candidate_pruning_stats) {
-    const statsCard = createEl("section", "detail-section-card");
-    statsCard.setAttribute("aria-label", "Statistik Penyaringan Kandidat");
-    const stHead = createEl("div", "detail-section-header");
-    const stTitle = createEl("div", "detail-section-title");
-    stTitle.appendChild(createIcon("bi-funnel-fill"));
-    stTitle.appendChild(createEl("span", "", "Statistik Kandidat"));
-    stHead.appendChild(stTitle);
-    statsCard.appendChild(stHead);
-    statsCard.appendChild(buildPruningStatsElement(preview.candidate_pruning_stats));
-    fragment.appendChild(statsCard);
-  }
+  // Bagian 2: Ajak Belajar (Buat Proposal Kelompok)
+  const createSection = createEl("section", "detail-section-card");
+  createSection.id = "createProposalSection";
+  createSection.setAttribute("aria-label", "Kirim Undangan Kelompok");
 
-  // --- BAGIAN D: BUAT GROUP PROPOSAL RESMI (HANYA UNTUK READY) ---
-  const createCard = createEl("section", "detail-section-card");
-  createCard.id = "createProposalSection";
-  createCard.setAttribute("aria-label", "Ajukan Group Proposal");
-
-  const cHead = createEl("div", "detail-section-header");
-  const cTitle = createEl("div", "detail-section-title");
-  cTitle.appendChild(createIcon("bi-send-check-fill"));
-  cTitle.appendChild(createEl("span", "", "4. Ajukan Proposal Kelompok"));
-  cHead.appendChild(cTitle);
-  createCard.appendChild(cHead);
-
-  createCard.appendChild(
-    createEl(
-      "div",
-      "la-helper-text",
-      "Preview bersifat sementara. Saat kamu menekan Buat Proposal, backend akan menghitung ulang kecocokan secara independen dan mengirimkan undangan resmi ke calon anggota."
-    )
-  );
+  createSection.appendChild(createEl("div", "detail-section-title", "Undang Mereka Belajar"));
 
   const msgField = createEl("div", "la-field");
-  const msgLabel = createEl("label", "la-label", "Pesan Undangan (Opsional)");
+  const msgLabel = createEl("label", "la-label", "Pesan ajakan (opsional)");
   msgLabel.setAttribute("for", "inputProposalMessage");
   const msgInput = createEl("textarea", "la-textarea");
   msgInput.id = "inputProposalMessage";
-  msgInput.placeholder = "Contoh: Yuk belajar bareng persiapan kuis minggu depan!";
+  msgInput.placeholder = "Misal: Yuk belajar bareng persiapan kuis!";
   msgField.appendChild(msgLabel);
   msgField.appendChild(msgInput);
-  createCard.appendChild(msgField);
+  createSection.appendChild(msgField);
 
+  const durDetails = createEl("details", "la-disclosure");
+  const durSum = createEl("summary", "");
+  durSum.appendChild(createEl("span", "", "Batas waktu balas undangan (default 24 jam)"));
+  durSum.appendChild(createIcon("bi-chevron-down"));
+  durDetails.appendChild(durSum);
+  const durBody = createEl("div", "la-disclosure-body");
   const durField = createEl("div", "la-field");
-  const durLabel = createEl("label", "la-label", "Batas Waktu Respons Undangan (1–168 jam)");
+  const durLabel = createEl("label", "la-label", "Durasi berlaku (1–168 jam)");
   durLabel.setAttribute("for", "inputProposalDuration");
   const durInput = createEl("input", "la-input");
   durInput.id = "inputProposalDuration";
@@ -671,17 +547,19 @@ function renderMatchingPreviewResult(container, preview) {
   durInput.value = "24";
   durField.appendChild(durLabel);
   durField.appendChild(durInput);
-  createCard.appendChild(durField);
+  durBody.appendChild(durField);
+  durDetails.appendChild(durBody);
+  createSection.appendChild(durDetails);
 
   const btnCreate = createEl("button", "btn-la btn-la--success");
   btnCreate.type = "button";
   btnCreate.id = "btnCreateProposal";
-  btnCreate.appendChild(createIcon("bi-send-fill"));
-  btnCreate.appendChild(createEl("span", "", "Buat Proposal Kelompok"));
+  btnCreate.appendChild(createIcon("bi-send"));
+  btnCreate.appendChild(createEl("span", "", "Kirim Undangan Kelompok"));
   btnCreate.addEventListener("click", () => handleCreateProposalClick(btnCreate));
-  createCard.appendChild(btnCreate);
+  createSection.appendChild(btnCreate);
 
-  fragment.appendChild(createCard);
+  fragment.appendChild(createSection);
   container.appendChild(fragment);
 }
 
