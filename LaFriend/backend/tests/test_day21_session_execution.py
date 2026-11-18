@@ -2108,5 +2108,809 @@ class TestDay21SessionExecutionAtomicity(unittest.TestCase):
             verify_db.close()
 
 
+class TestDay21SessionExecutionConcurrency(unittest.TestCase):
+    """
+    Day 21.3 — Concurrency & Race Condition Acceptance Test Suite.
+    Menggunakan temporary file-backed SQLite dengan koneksi independen (NullPool),
+    SQLAlchemy Session terpisah per worker thread, threading.Barrier deterministik,
+    serta verifikasi database independen pasca-eksekusi dari engine/koneksi baru.
+    """
+
+    def setUp(self):
+        import tempfile
+        self._tmpdir = tempfile.TemporaryDirectory(prefix="lafriend_day21_3_")
+        self._db_counter = 0
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def _create_file_sqlite_engine(self, journal_mode: str = "WAL"):
+        """Membuat database SQLite berbasis file sementara dengan NullPool agar tiap thread memakai koneksi independen."""
+        from sqlalchemy import event
+        from sqlalchemy.pool import NullPool
+
+        self._db_counter += 1
+        db_file = Path(self._tmpdir.name) / f"lafriend_d213_{self._db_counter}.db"
+        db_url = f"sqlite:///{db_file.as_posix()}"
+
+        eng = create_engine(
+            db_url,
+            connect_args={"check_same_thread": False, "timeout": 10},
+            poolclass=NullPool,
+        )
+
+        @event.listens_for(eng, "connect")
+        def _configure_sqlite(dbapi_conn, _conn_record):
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA foreign_keys=ON")
+            cur.execute("PRAGMA busy_timeout=5000")
+            cur.close()
+
+        with eng.connect() as conn:
+            conn.execute(text(f"PRAGMA journal_mode={journal_mode}"))
+            conn.commit()
+
+        ensure_database_schema(eng)
+        return db_url, eng
+
+    def _open_independent_verify_session(self, db_url: str):
+        """Membuka engine & session baru yang sepenuhnya independen untuk memverifikasi kondisi aktual di disk."""
+        from sqlalchemy.pool import NullPool
+
+        verify_eng = create_engine(
+            db_url,
+            connect_args={"check_same_thread": False, "timeout": 10},
+            poolclass=NullPool,
+        )
+        VerifySession = sessionmaker(autocommit=False, autoflush=False, bind=verify_eng)
+        return verify_eng, VerifySession()
+
+    def _seed_same_proposal_scenario(self, eng, proposal_id: str = "PR-001"):
+        """Menyiapkan 1 proposal READY_FOR_SESSION dengan Host Andi + 2 kandidat ACCEPTED (Budi & Citra)."""
+        SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng)
+        db = SessionFactory()
+        try:
+            course = Course(
+                course_id="c_d213",
+                course_code="ACK3CON1",
+                course_name="Sistem Terdistribusi",
+                study_program="S1 Teknik Komputer",
+            )
+            andi = Student(
+                student_id="s_andi_d213",
+                full_name="Andi Concurrency",
+                email="andi.d213@telkomuniversity.ac.id",
+                student_number="1201250301",
+                password_hash="pw",
+                verification_status="VERIFIED",
+                account_status="ACTIVE",
+                is_discoverable=True,
+            )
+            budi = Student(
+                student_id="s_budi_d213",
+                full_name="Budi Concurrency",
+                email="budi.d213@telkomuniversity.ac.id",
+                student_number="1201250302",
+                password_hash="pw",
+                verification_status="VERIFIED",
+                account_status="ACTIVE",
+                is_discoverable=True,
+            )
+            citra = Student(
+                student_id="s_citra_d213",
+                full_name="Citra Concurrency",
+                email="citra.d213@telkomuniversity.ac.id",
+                student_number="1201250303",
+                password_hash="pw",
+                verification_status="VERIFIED",
+                account_status="ACTIVE",
+                is_discoverable=True,
+            )
+            i_andi = StudyIntent(
+                intent_id="INTENT-ANDI",
+                student_id=andi.student_id,
+                course_id=course.course_id,
+                topics="Raft, Consensus",
+                learning_mode="OFFLINE",
+                earliest_date="2026-11-20",
+                latest_date="2026-11-30",
+                min_group_size=3,
+                max_group_size=4,
+                status="ACTIVE",
+            )
+            i_budi = StudyIntent(
+                intent_id="INTENT-BUDI",
+                student_id=budi.student_id,
+                course_id=course.course_id,
+                topics="Raft",
+                learning_mode="OFFLINE",
+                earliest_date="2026-11-20",
+                latest_date="2026-11-30",
+                min_group_size=3,
+                max_group_size=4,
+                status="ACTIVE",
+            )
+            i_citra = StudyIntent(
+                intent_id="INTENT-CITRA",
+                student_id=citra.student_id,
+                course_id=course.course_id,
+                topics="Consensus",
+                learning_mode="OFFLINE",
+                earliest_date="2026-11-20",
+                latest_date="2026-11-30",
+                min_group_size=3,
+                max_group_size=4,
+                status="ACTIVE",
+            )
+            sched = {"date": "2026-11-26", "start_time": "13:00", "end_time": "15:00", "duration_minutes": 120}
+            prop = GroupProposal(
+                proposal_id=proposal_id,
+                host_intent_id=i_andi.intent_id,
+                host_student_id=andi.student_id,
+                course_id=course.course_id,
+                status="READY_FOR_SESSION",
+                min_group_size_bound=3,
+                max_group_size_bound=4,
+                group_quality_score=90.0,
+                average_pair_score=91.0,
+                minimum_pair_score=88.0,
+                selected_schedule_json=json.dumps(sched),
+                message="Same Proposal Concurrency Test",
+                expires_at=datetime.utcnow() + timedelta(hours=24),
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+                finalized_at=datetime.utcnow(),
+            )
+            inv_b = Invitation(
+                invitation_id=f"inv_b_{proposal_id}",
+                invitation_type="GROUP_PROPOSAL",
+                sender_id=andi.student_id,
+                recipient_id=budi.student_id,
+                target_intent_id=i_budi.intent_id,
+                proposal_id=proposal_id,
+                status="ACCEPTED",
+                created_at=datetime.utcnow(),
+                responded_at=datetime.utcnow(),
+            )
+            inv_c = Invitation(
+                invitation_id=f"inv_c_{proposal_id}",
+                invitation_type="GROUP_PROPOSAL",
+                sender_id=andi.student_id,
+                recipient_id=citra.student_id,
+                target_intent_id=i_citra.intent_id,
+                proposal_id=proposal_id,
+                status="ACCEPTED",
+                created_at=datetime.utcnow(),
+                responded_at=datetime.utcnow(),
+            )
+            db.add_all([course, andi, budi, citra, i_andi, i_budi, i_citra, prop, inv_b, inv_c])
+            db.commit()
+        finally:
+            db.close()
+
+    def _seed_shared_candidate_intent_scenario(self, eng):
+        """
+        Menyiapkan 2 proposal berbeda (PR-001 & PR-002) yang berbagi 1 StudyIntent kandidat (INTENT-SHARED):
+        - PR-001: Host Andi (INTENT-ANDI) + Budi (INTENT-SHARED) + Citra (INTENT-CITRA)
+        - PR-002: Host Doni (INTENT-DONI) + Budi (INTENT-SHARED) + Eka (INTENT-EKA)
+        """
+        SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng)
+        db = SessionFactory()
+        try:
+            course = Course(
+                course_id="c_d213_shared",
+                course_code="ACK3CON2",
+                course_name="Jaringan Komputer",
+                study_program="S1 Teknik Komputer",
+            )
+            students = [
+                Student(student_id="s_andi", full_name="Andi", email="andi.s@t.ac.id", student_number="2001", password_hash="pw", verification_status="VERIFIED", account_status="ACTIVE", is_discoverable=True),
+                Student(student_id="s_budi", full_name="Budi Shared", email="budi.s@t.ac.id", student_number="2002", password_hash="pw", verification_status="VERIFIED", account_status="ACTIVE", is_discoverable=True),
+                Student(student_id="s_citra", full_name="Citra", email="citra.s@t.ac.id", student_number="2003", password_hash="pw", verification_status="VERIFIED", account_status="ACTIVE", is_discoverable=True),
+                Student(student_id="s_doni", full_name="Doni", email="doni.s@t.ac.id", student_number="2004", password_hash="pw", verification_status="VERIFIED", account_status="ACTIVE", is_discoverable=True),
+                Student(student_id="s_eka", full_name="Eka", email="eka.s@t.ac.id", student_number="2005", password_hash="pw", verification_status="VERIFIED", account_status="ACTIVE", is_discoverable=True),
+            ]
+            intents = [
+                StudyIntent(intent_id="INTENT-ANDI", student_id="s_andi", course_id=course.course_id, topics="TCP/IP", learning_mode="OFFLINE", earliest_date="2026-11-20", latest_date="2026-11-30", min_group_size=3, max_group_size=4, status="ACTIVE"),
+                StudyIntent(intent_id="INTENT-SHARED", student_id="s_budi", course_id=course.course_id, topics="TCP/IP, Routing", learning_mode="OFFLINE", earliest_date="2026-11-20", latest_date="2026-11-30", min_group_size=3, max_group_size=4, status="ACTIVE"),
+                StudyIntent(intent_id="INTENT-CITRA", student_id="s_citra", course_id=course.course_id, topics="TCP/IP", learning_mode="OFFLINE", earliest_date="2026-11-20", latest_date="2026-11-30", min_group_size=3, max_group_size=4, status="ACTIVE"),
+                StudyIntent(intent_id="INTENT-DONI", student_id="s_doni", course_id=course.course_id, topics="Routing", learning_mode="OFFLINE", earliest_date="2026-11-20", latest_date="2026-11-30", min_group_size=3, max_group_size=4, status="ACTIVE"),
+                StudyIntent(intent_id="INTENT-EKA", student_id="s_eka", course_id=course.course_id, topics="Routing", learning_mode="OFFLINE", earliest_date="2026-11-20", latest_date="2026-11-30", min_group_size=3, max_group_size=4, status="ACTIVE"),
+            ]
+            sched = {"date": "2026-11-27", "start_time": "09:00", "end_time": "11:00", "duration_minutes": 120}
+            now = datetime.utcnow()
+            p1 = GroupProposal(
+                proposal_id="PR-001", host_intent_id="INTENT-ANDI", host_student_id="s_andi",
+                course_id=course.course_id, status="READY_FOR_SESSION",
+                min_group_size_bound=3, max_group_size_bound=4,
+                group_quality_score=89.0, average_pair_score=90.0, minimum_pair_score=87.0,
+                selected_schedule_json=json.dumps(sched), message="Proposal A",
+                expires_at=now + timedelta(hours=24), created_at=now, updated_at=now, finalized_at=now,
+            )
+            p2 = GroupProposal(
+                proposal_id="PR-002", host_intent_id="INTENT-DONI", host_student_id="s_doni",
+                course_id=course.course_id, status="READY_FOR_SESSION",
+                min_group_size_bound=3, max_group_size_bound=4,
+                group_quality_score=88.0, average_pair_score=89.0, minimum_pair_score=86.0,
+                selected_schedule_json=json.dumps(sched), message="Proposal B",
+                expires_at=now + timedelta(hours=24), created_at=now, updated_at=now, finalized_at=now,
+            )
+            invs = [
+                Invitation(invitation_id="inv_p1_budi", invitation_type="GROUP_PROPOSAL", sender_id="s_andi", recipient_id="s_budi", target_intent_id="INTENT-SHARED", proposal_id="PR-001", status="ACCEPTED", created_at=now, responded_at=now),
+                Invitation(invitation_id="inv_p1_citra", invitation_type="GROUP_PROPOSAL", sender_id="s_andi", recipient_id="s_citra", target_intent_id="INTENT-CITRA", proposal_id="PR-001", status="ACCEPTED", created_at=now, responded_at=now),
+                Invitation(invitation_id="inv_p2_budi", invitation_type="GROUP_PROPOSAL", sender_id="s_doni", recipient_id="s_budi", target_intent_id="INTENT-SHARED", proposal_id="PR-002", status="ACCEPTED", created_at=now, responded_at=now),
+                Invitation(invitation_id="inv_p2_eka", invitation_type="GROUP_PROPOSAL", sender_id="s_doni", recipient_id="s_eka", target_intent_id="INTENT-EKA", proposal_id="PR-002", status="ACCEPTED", created_at=now, responded_at=now),
+            ]
+            db.add(course)
+            db.add_all(students)
+            db.add_all(intents)
+            db.add_all([p1, p2])
+            db.add_all(invs)
+            db.commit()
+        finally:
+            db.close()
+
+    def _assert_same_proposal_db_integrity(self, db_url: str, proposal_id: str, expected_session_id: str):
+        """Verifikasi independen D21.3-01 & D21.3-02 dari koneksi database baru."""
+        verify_eng, verify_db = self._open_independent_verify_session(db_url)
+        try:
+            sessions = verify_db.query(StudySession).filter_by(proposal_id=proposal_id).all()
+            self.assertEqual(len(sessions), 1, "Wajib ada tepat 1 StudySession untuk proposal yang sama")
+            self.assertEqual(sessions[0].session_id, expected_session_id)
+            self.assertEqual(sessions[0].status, "CONFIRMED")
+
+            self.assertEqual(verify_db.query(StudySession).count(), 1)
+            self.assertEqual(verify_db.query(SessionSlot).filter_by(session_id=expected_session_id).count(), 1)
+            self.assertEqual(verify_db.query(SessionSlot).count(), 1)
+
+            members = verify_db.query(SessionMember).filter_by(session_id=expected_session_id).all()
+            self.assertEqual(len(members), 3)
+            self.assertEqual(verify_db.query(SessionMember).count(), 3)
+            self.assertEqual(
+                {m.intent_id for m in members},
+                {"INTENT-ANDI", "INTENT-BUDI", "INTENT-CITRA"}
+            )
+
+            for iid in ("INTENT-ANDI", "INTENT-BUDI", "INTENT-CITRA"):
+                self.assertEqual(verify_db.query(StudyIntent).filter_by(intent_id=iid).first().status, "MATCHED")
+
+            self.assertEqual(
+                verify_db.query(GroupProposal).filter_by(proposal_id=proposal_id).first().status,
+                "SESSION_EXECUTED"
+            )
+        finally:
+            verify_db.close()
+            verify_eng.dispose()
+
+    def _assert_shared_intent_db_integrity(
+        self,
+        db_url: str,
+        winner_proposal_id: str,
+        loser_proposal_id: str,
+        winner_session_id: str,
+        shared_intent_id: str,
+        winner_exclusive_intents: list[str],
+        loser_exclusive_intents: list[str],
+        expected_member_count: int,
+    ):
+        """Verifikasi independen D21.3-03 s/d D21.3-06 dari koneksi database baru."""
+        verify_eng, verify_db = self._open_independent_verify_session(db_url)
+        try:
+            # 1. Total sesi di seluruh DB tepat 1, milik proposal pemenang
+            all_sessions = verify_db.query(StudySession).all()
+            self.assertEqual(len(all_sessions), 1, "Hanya tepat 1 StudySession boleh terbentuk pada Shared Intent Race")
+            self.assertEqual(all_sessions[0].session_id, winner_session_id)
+            self.assertEqual(all_sessions[0].proposal_id, winner_proposal_id)
+
+            # 2. Proposal kalah memiliki 0 StudySession, 0 SessionSlot, 0 SessionMember parsial
+            self.assertIsNone(verify_db.query(StudySession).filter_by(proposal_id=loser_proposal_id).first())
+            self.assertEqual(verify_db.query(SessionSlot).count(), 1)
+            self.assertEqual(verify_db.query(SessionSlot).filter_by(session_id=winner_session_id).count(), 1)
+            self.assertEqual(verify_db.query(SessionMember).count(), expected_member_count)
+            self.assertEqual(verify_db.query(SessionMember).filter_by(session_id=winner_session_id).count(), expected_member_count)
+
+            # 3. Shared StudyIntent muncul TEPAT 1 kali di session_members (milik sesi pemenang)
+            shared_members = verify_db.query(SessionMember).filter_by(intent_id=shared_intent_id).all()
+            self.assertEqual(len(shared_members), 1)
+            self.assertEqual(shared_members[0].session_id, winner_session_id)
+            self.assertEqual(verify_db.query(StudyIntent).filter_by(intent_id=shared_intent_id).first().status, "MATCHED")
+
+            # 4. Intent eksklusif pemenang berstatus MATCHED; intent eksklusif kalah tetap ACTIVE
+            for iid in winner_exclusive_intents:
+                self.assertEqual(verify_db.query(StudyIntent).filter_by(intent_id=iid).first().status, "MATCHED")
+            for iid in loser_exclusive_intents:
+                self.assertEqual(
+                    verify_db.query(StudyIntent).filter_by(intent_id=iid).first().status,
+                    "ACTIVE",
+                    f"Intent eksklusif proposal kalah ({iid}) wajib tetap ACTIVE!"
+                )
+
+            # 5. Status kedua proposal konsisten: pemenang SESSION_EXECUTED, kalah tetap READY_FOR_SESSION
+            self.assertEqual(
+                verify_db.query(GroupProposal).filter_by(proposal_id=winner_proposal_id).first().status,
+                "SESSION_EXECUTED"
+            )
+            self.assertEqual(
+                verify_db.query(GroupProposal).filter_by(proposal_id=loser_proposal_id).first().status,
+                "READY_FOR_SESSION"
+            )
+        finally:
+            verify_db.close()
+            verify_eng.dispose()
+
+    def test_d21_3_01_same_proposal_concurrent_race_barrier_at_entry(self):
+        """D21.3-01 & D21.3-02: Dua thread bersamaan (Barrier + file SQLite + Session independen) mengeksekusi proposal yang sama."""
+        from threading import Barrier, Thread
+        from app.session_execution_service import execute_study_session_from_proposal_service
+
+        for journal_mode in ("DELETE", "WAL"):
+            with self.subTest(journal_mode=journal_mode):
+                db_url, eng = self._create_file_sqlite_engine(journal_mode=journal_mode)
+                try:
+                    self._seed_same_proposal_scenario(eng, proposal_id="PR-001")
+                    SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng)
+
+                    barrier = Barrier(2)
+                    results = [None, None]
+                    errors = [None, None]
+
+                    def worker(idx: int):
+                        db = SessionFactory()
+                        try:
+                            host = db.query(Student).filter_by(student_id="s_andi_d213").first()
+                            barrier.wait(timeout=10)
+                            results[idx] = execute_study_session_from_proposal_service(db, "PR-001", host)
+                        except Exception as exc:
+                            errors[idx] = exc
+                        finally:
+                            db.close()
+
+                    t_a = Thread(target=worker, args=(0,))
+                    t_b = Thread(target=worker, args=(1,))
+                    t_a.start()
+                    t_b.start()
+                    t_a.join(timeout=15)
+                    t_b.join(timeout=15)
+
+                    self.assertFalse(t_a.is_alive())
+                    self.assertFalse(t_b.is_alive())
+                    self.assertEqual(errors, [None, None], f"Kedua request pada Same Proposal Race wajib selesai bersih: {errors}")
+                    self.assertIsNotNone(results[0])
+                    self.assertIsNotNone(results[1])
+                    self.assertEqual(
+                        results[0].session_id,
+                        results[1].session_id,
+                        "Kontrak idempotensi: kedua thread wajib menerima session_id yang persis sama"
+                    )
+
+                    self._assert_same_proposal_db_integrity(db_url, "PR-001", results[0].session_id)
+                finally:
+                    eng.dispose()
+
+    def test_d21_3_02_same_proposal_deterministic_uq_session_proposal_race(self):
+        """D21.3-01 & D21.3-02: Barrier di titik kritis pasca-read membuktikan uq_session_proposal benar-benar tertabrak & dipulihkan idempotent."""
+        from threading import Barrier, Event, Lock, Thread
+        from unittest.mock import patch
+        from sqlalchemy import event as sa_event
+        import app.session_execution_service as svc_mod
+
+        db_url, eng = self._create_file_sqlite_engine(journal_mode="WAL")
+        try:
+            self._seed_same_proposal_scenario(eng, proposal_id="PR-001")
+            SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng)
+
+            pre_write_barrier = Barrier(2)
+            winner_committed = Event()
+            turn_lock = Lock()
+            winner_claimed = {"claimed": False}
+            insert_attempts = []
+            constraint_errors_seen = []
+
+            @sa_event.listens_for(eng, "before_cursor_execute")
+            def _track_inserts(_conn, _cursor, statement, _params, _ctx, _execmany):
+                if "INSERT INTO study_sessions" in statement:
+                    insert_attempts.append(statement)
+
+            @sa_event.listens_for(eng, "handle_error")
+            def _track_constraint_errors(exception_context):
+                err_txt = str(exception_context.original_exception).lower()
+                if "study_sessions.proposal_id" in err_txt:
+                    constraint_errors_seen.append(err_txt)
+
+            orig_parse_time = svc_mod.parse_time_minutes
+            thread_parse_calls = {}
+
+            def synchronized_parse_time(raw_time: str) -> int:
+                # Sinkronisasi hanya pada pemanggilan pertama per thread (Step 9), tepat setelah
+                # kedua thread selesai membaca existing_session=None & proposal.status=READY_FOR_SESSION
+                import threading
+                tid = threading.get_ident()
+                count = thread_parse_calls.get(tid, 0) + 1
+                thread_parse_calls[tid] = count
+                val = orig_parse_time(raw_time)
+                if count == 2:
+                    pre_write_barrier.wait(timeout=10)
+                    with turn_lock:
+                        is_winner = not winner_claimed["claimed"]
+                        if is_winner:
+                            winner_claimed["claimed"] = True
+                    if not is_winner:
+                        # Biarkan thread pemenang commit terlebih dahulu agar thread kedua
+                        # benar-benar menabrak uq_session_proposal di level SQLite
+                        self.assertTrue(winner_committed.wait(timeout=10))
+                return val
+
+            results = [None, None]
+            errors = [None, None]
+
+            def worker(idx: int):
+                db = SessionFactory()
+                try:
+                    host = db.query(Student).filter_by(student_id="s_andi_d213").first()
+                    results[idx] = svc_mod.execute_study_session_from_proposal_service(db, "PR-001", host)
+                    winner_committed.set()
+                except Exception as exc:
+                    errors[idx] = exc
+                    winner_committed.set()
+                finally:
+                    db.close()
+
+            with patch.object(svc_mod, "parse_time_minutes", side_effect=synchronized_parse_time):
+                t_a = Thread(target=worker, args=(0,))
+                t_b = Thread(target=worker, args=(1,))
+                t_a.start()
+                t_b.start()
+                t_a.join(timeout=15)
+                t_b.join(timeout=15)
+
+            self.assertEqual(errors, [None, None], f"Tidak boleh ada error tak tertangani: {errors}")
+            self.assertEqual(results[0].session_id, results[1].session_id)
+            self.assertGreaterEqual(len(insert_attempts), 2, "Kedua thread wajib benar-benar mencoba INSERT study_sessions")
+            self.assertGreaterEqual(len(constraint_errors_seen), 1, "Constraint uq_session_proposal wajib benar-benar terpicu")
+
+            self._assert_same_proposal_db_integrity(db_url, "PR-001", results[0].session_id)
+        finally:
+            eng.dispose()
+
+    def test_d21_3_03_shared_intent_concurrent_race_barrier_at_entry(self):
+        """D21.3-03 s/d D21.3-06: Dua proposal berbeda (PR-001 & PR-002) berbagi INTENT-SHARED dieksekusi bersamaan."""
+        from threading import Barrier, Thread
+        from fastapi import HTTPException
+        from app.session_execution_service import execute_study_session_from_proposal_service
+
+        for journal_mode in ("DELETE", "WAL"):
+            with self.subTest(journal_mode=journal_mode):
+                db_url, eng = self._create_file_sqlite_engine(journal_mode=journal_mode)
+                try:
+                    self._seed_shared_candidate_intent_scenario(eng)
+                    SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng)
+
+                    barrier = Barrier(2)
+                    outcomes = {}
+
+                    def worker(proposal_id: str, host_student_id: str):
+                        db = SessionFactory()
+                        try:
+                            host = db.query(Student).filter_by(student_id=host_student_id).first()
+                            barrier.wait(timeout=10)
+                            resp = execute_study_session_from_proposal_service(db, proposal_id, host)
+                            outcomes[proposal_id] = ("SUCCESS", resp)
+                        except HTTPException as he:
+                            outcomes[proposal_id] = ("HTTP_ERROR", he)
+                        except Exception as exc:
+                            outcomes[proposal_id] = ("UNEXPECTED_ERROR", exc)
+                        finally:
+                            db.close()
+
+                    t1 = Thread(target=worker, args=("PR-001", "s_andi"))
+                    t2 = Thread(target=worker, args=("PR-002", "s_doni"))
+                    t1.start()
+                    t2.start()
+                    t1.join(timeout=15)
+                    t2.join(timeout=15)
+
+                    self.assertFalse(t1.is_alive())
+                    self.assertFalse(t2.is_alive())
+
+                    winners = [pid for pid, (kind, _) in outcomes.items() if kind == "SUCCESS"]
+                    losers = [pid for pid, (kind, _) in outcomes.items() if kind == "HTTP_ERROR"]
+                    unexpected = [pid for pid, (kind, _) in outcomes.items() if kind == "UNEXPECTED_ERROR"]
+
+                    self.assertEqual(unexpected, [], f"Tidak boleh ada exception tak terduga: {outcomes}")
+                    self.assertEqual(len(winners), 1, f"Wajib tepat 1 proposal menang, aktual: {outcomes}")
+                    self.assertEqual(len(losers), 1, f"Wajib tepat 1 proposal ditolak konflik, aktual: {outcomes}")
+
+                    winner_pid = winners[0]
+                    loser_pid = losers[0]
+                    winner_resp = outcomes[winner_pid][1]
+                    loser_exc = outcomes[loser_pid][1]
+
+                    self.assertIn(loser_exc.status_code, (400, 409), f"Proposal kalah wajib 400/409, bukan {loser_exc.status_code}")
+
+                    if winner_pid == "PR-001":
+                        win_excl = ["INTENT-ANDI", "INTENT-CITRA"]
+                        lose_excl = ["INTENT-DONI", "INTENT-EKA"]
+                    else:
+                        win_excl = ["INTENT-DONI", "INTENT-EKA"]
+                        lose_excl = ["INTENT-ANDI", "INTENT-CITRA"]
+
+                    self._assert_shared_intent_db_integrity(
+                        db_url=db_url,
+                        winner_proposal_id=winner_pid,
+                        loser_proposal_id=loser_pid,
+                        winner_session_id=winner_resp.session_id,
+                        shared_intent_id="INTENT-SHARED",
+                        winner_exclusive_intents=win_excl,
+                        loser_exclusive_intents=lose_excl,
+                        expected_member_count=3,
+                    )
+                finally:
+                    eng.dispose()
+
+    def test_d21_3_04_shared_intent_deterministic_uq_session_member_intent_race(self):
+        """D21.3-03 s/d D21.3-06: Barrier pasca-read membuktikan PR-002 menabrak uq_session_member_intent, rollback penuh, & HTTP 409 (BUKAN idempotent)."""
+        from threading import Barrier, Event, Thread
+        from unittest.mock import patch
+        from fastapi import HTTPException
+        from sqlalchemy import event as sa_event
+        import app.session_execution_service as svc_mod
+
+        db_url, eng = self._create_file_sqlite_engine(journal_mode="WAL")
+        try:
+            self._seed_shared_candidate_intent_scenario(eng)
+            SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng)
+
+            pre_write_barrier = Barrier(2)
+            pr1_done = Event()
+            pr2_flushed_session = []
+            intent_constraint_errors = []
+
+            @sa_event.listens_for(eng, "before_cursor_execute")
+            def _track_sql(_conn, _cursor, statement, params, _ctx, _execmany):
+                if "INSERT INTO study_sessions" in statement and "PR-002" in str(params):
+                    pr2_flushed_session.append(statement)
+
+            @sa_event.listens_for(eng, "handle_error")
+            def _track_errors(exception_context):
+                err_txt = str(exception_context.original_exception).lower()
+                if "session_members.intent_id" in err_txt:
+                    intent_constraint_errors.append(err_txt)
+
+            orig_parse_time = svc_mod.parse_time_minutes
+            thread_context = {}
+
+            def synchronized_parse_time(raw_time: str) -> int:
+                import threading
+                tid = threading.get_ident()
+                info = thread_context[tid]
+                info["calls"] += 1
+                val = orig_parse_time(raw_time)
+                if info["calls"] == 2:
+                    # Kedua thread SUDAH melewati pre-flight & melihat INTENT-SHARED=ACTIVE
+                    pre_write_barrier.wait(timeout=10)
+                    if info["proposal_id"] == "PR-002":
+                        # Tahan PR-002 hingga PR-001 selesai commit agar PR-002 menabrak uq_session_member_intent
+                        self.assertTrue(pr1_done.wait(timeout=10))
+                return val
+
+            outcomes = {}
+
+            def worker(proposal_id: str, host_student_id: str):
+                import threading
+                thread_context[threading.get_ident()] = {"proposal_id": proposal_id, "calls": 0}
+                db = SessionFactory()
+                try:
+                    host = db.query(Student).filter_by(student_id=host_student_id).first()
+                    resp = svc_mod.execute_study_session_from_proposal_service(db, proposal_id, host)
+                    outcomes[proposal_id] = ("SUCCESS", resp)
+                except HTTPException as he:
+                    outcomes[proposal_id] = ("HTTP_ERROR", he)
+                except Exception as exc:
+                    outcomes[proposal_id] = ("UNEXPECTED_ERROR", exc)
+                finally:
+                    if proposal_id == "PR-001":
+                        pr1_done.set()
+                    db.close()
+
+            with patch.object(svc_mod, "parse_time_minutes", side_effect=synchronized_parse_time):
+                t1 = Thread(target=worker, args=("PR-001", "s_andi"))
+                t2 = Thread(target=worker, args=("PR-002", "s_doni"))
+                t1.start()
+                t2.start()
+                t1.join(timeout=15)
+                t2.join(timeout=15)
+
+            self.assertEqual(outcomes["PR-001"][0], "SUCCESS")
+            self.assertEqual(outcomes["PR-002"][0], "HTTP_ERROR")
+            self.assertEqual(
+                outcomes["PR-002"][1].status_code,
+                409,
+                "Konflik uq_session_member_intent wajib mengembalikan HTTP 409 CONFLICT (bukan idempotent)"
+            )
+            self.assertIn("telah dialokasikan", outcomes["PR-002"][1].detail)
+            self.assertGreaterEqual(len(pr2_flushed_session), 1, "PR-002 wajib terbukti sempat flush StudySession sebelum rollback")
+            self.assertGreaterEqual(len(intent_constraint_errors), 1, "Constraint uq_session_member_intent wajib benar-benar terpicu")
+
+            self._assert_shared_intent_db_integrity(
+                db_url=db_url,
+                winner_proposal_id="PR-001",
+                loser_proposal_id="PR-002",
+                winner_session_id=outcomes["PR-001"][1].session_id,
+                shared_intent_id="INTENT-SHARED",
+                winner_exclusive_intents=["INTENT-ANDI", "INTENT-CITRA"],
+                loser_exclusive_intents=["INTENT-DONI", "INTENT-EKA"],
+                expected_member_count=3,
+            )
+        finally:
+            eng.dispose()
+
+    def test_d21_3_05_shared_intent_host_vs_candidate_concurrent_race(self):
+        """D21.3-03 s/d D21.3-06: Shared Intent antara Host Proposal A (INTENT-001) dan Kandidat Proposal B (INTENT-001)."""
+        from threading import Barrier, Thread
+        from fastapi import HTTPException
+        from app.session_execution_service import execute_study_session_from_proposal_service
+
+        db_url, eng = self._create_file_sqlite_engine(journal_mode="WAL")
+        try:
+            SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng)
+            db = SessionFactory()
+            try:
+                course = Course(course_id="c_hc", course_code="ACK3HC", course_name="Basis Data", study_program="S1 Teknik Komputer")
+                s1 = Student(student_id="s_001", full_name="Student 1", email="s1@t.ac.id", student_number="3001", password_hash="pw", verification_status="VERIFIED", account_status="ACTIVE", is_discoverable=True)
+                s2 = Student(student_id="s_002", full_name="Student 2", email="s2@t.ac.id", student_number="3002", password_hash="pw", verification_status="VERIFIED", account_status="ACTIVE", is_discoverable=True)
+                s3 = Student(student_id="s_003", full_name="Student 3", email="s3@t.ac.id", student_number="3003", password_hash="pw", verification_status="VERIFIED", account_status="ACTIVE", is_discoverable=True)
+                i1 = StudyIntent(intent_id="INTENT-001", student_id="s_001", course_id="c_hc", topics="SQL", learning_mode="ONLINE", earliest_date="2026-11-20", latest_date="2026-11-30", min_group_size=2, max_group_size=4, status="ACTIVE")
+                i2 = StudyIntent(intent_id="INTENT-002", student_id="s_002", course_id="c_hc", topics="SQL", learning_mode="ONLINE", earliest_date="2026-11-20", latest_date="2026-11-30", min_group_size=2, max_group_size=4, status="ACTIVE")
+                i3 = StudyIntent(intent_id="INTENT-003", student_id="s_003", course_id="c_hc", topics="SQL", learning_mode="ONLINE", earliest_date="2026-11-20", latest_date="2026-11-30", min_group_size=2, max_group_size=4, status="ACTIVE")
+                sched = {"date": "2026-11-28", "start_time": "14:00", "end_time": "16:00", "duration_minutes": 120}
+                now = datetime.utcnow()
+
+                # Proposal A: host = INTENT-001, candidate = INTENT-002
+                p_a = GroupProposal(
+                    proposal_id="PR-001", host_intent_id="INTENT-001", host_student_id="s_001", course_id="c_hc",
+                    status="READY_FOR_SESSION", min_group_size_bound=2, max_group_size_bound=4,
+                    selected_schedule_json=json.dumps(sched), expires_at=now + timedelta(hours=24),
+                    created_at=now, updated_at=now, finalized_at=now,
+                )
+                inv_a = Invitation(
+                    invitation_id="inv_a_2", invitation_type="GROUP_PROPOSAL", sender_id="s_001",
+                    recipient_id="s_002", target_intent_id="INTENT-002", proposal_id="PR-001",
+                    status="ACCEPTED", created_at=now, responded_at=now,
+                )
+                # Proposal B: host = INTENT-003, candidate = INTENT-001
+                p_b = GroupProposal(
+                    proposal_id="PR-002", host_intent_id="INTENT-003", host_student_id="s_003", course_id="c_hc",
+                    status="READY_FOR_SESSION", min_group_size_bound=2, max_group_size_bound=4,
+                    selected_schedule_json=json.dumps(sched), expires_at=now + timedelta(hours=24),
+                    created_at=now, updated_at=now, finalized_at=now,
+                )
+                inv_b = Invitation(
+                    invitation_id="inv_b_1", invitation_type="GROUP_PROPOSAL", sender_id="s_003",
+                    recipient_id="s_001", target_intent_id="INTENT-001", proposal_id="PR-002",
+                    status="ACCEPTED", created_at=now, responded_at=now,
+                )
+                db.add_all([course, s1, s2, s3, i1, i2, i3, p_a, inv_a, p_b, inv_b])
+                db.commit()
+            finally:
+                db.close()
+
+            barrier = Barrier(2)
+            outcomes = {}
+
+            def worker(proposal_id: str, host_student_id: str):
+                w_db = SessionFactory()
+                try:
+                    host = w_db.query(Student).filter_by(student_id=host_student_id).first()
+                    barrier.wait(timeout=10)
+                    resp = execute_study_session_from_proposal_service(w_db, proposal_id, host)
+                    outcomes[proposal_id] = ("SUCCESS", resp)
+                except HTTPException as he:
+                    outcomes[proposal_id] = ("HTTP_ERROR", he)
+                except Exception as exc:
+                    outcomes[proposal_id] = ("UNEXPECTED_ERROR", exc)
+                finally:
+                    w_db.close()
+
+            t1 = Thread(target=worker, args=("PR-001", "s_001"))
+            t2 = Thread(target=worker, args=("PR-002", "s_003"))
+            t1.start()
+            t2.start()
+            t1.join(timeout=15)
+            t2.join(timeout=15)
+
+            winners = [pid for pid, (kind, _) in outcomes.items() if kind == "SUCCESS"]
+            losers = [pid for pid, (kind, _) in outcomes.items() if kind == "HTTP_ERROR"]
+            self.assertEqual(len(winners), 1, f"Wajib tepat 1 pemenang: {outcomes}")
+            self.assertEqual(len(losers), 1, f"Wajib tepat 1 kalah konflik: {outcomes}")
+            self.assertIn(outcomes[losers[0]][1].status_code, (400, 409))
+
+            winner_pid = winners[0]
+            loser_pid = losers[0]
+            self._assert_shared_intent_db_integrity(
+                db_url=db_url,
+                winner_proposal_id=winner_pid,
+                loser_proposal_id=loser_pid,
+                winner_session_id=outcomes[winner_pid][1].session_id,
+                shared_intent_id="INTENT-001",
+                winner_exclusive_intents=["INTENT-002"] if winner_pid == "PR-001" else ["INTENT-003"],
+                loser_exclusive_intents=["INTENT-003"] if winner_pid == "PR-001" else ["INTENT-002"],
+                expected_member_count=2,
+            )
+        finally:
+            eng.dispose()
+
+    def test_d21_3_06_sqlite_lock_contention_recovery_and_exhaustion_fail_closed(self):
+        """Day 21.3: Membedakan SQLite lock contention transien (retry bersih) vs lock exhausted (HTTP 409, tanpa data parsial)."""
+        import sqlite3
+        from unittest.mock import patch
+        from fastapi import HTTPException
+        from sqlalchemy.orm import Session as SASession
+        from sqlalchemy.exc import OperationalError
+        import app.session_execution_service as svc_mod
+
+        # Skenario A: Lock contention sementara 1x lalu berhasil -> sukses atomik tanpa duplikasi
+        db_url_a, eng_a = self._create_file_sqlite_engine(journal_mode="WAL")
+        try:
+            self._seed_same_proposal_scenario(eng_a, proposal_id="PR-LOCK-OK")
+            SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng_a)
+            db = SessionFactory()
+            orig_commit = SASession.commit
+            commit_calls = {"n": 0}
+
+            def fail_once_locked(sess_self):
+                commit_calls["n"] += 1
+                if commit_calls["n"] == 1:
+                    raise OperationalError("COMMIT", {}, sqlite3.OperationalError("database is locked"))
+                return orig_commit(sess_self)
+
+            try:
+                host = db.query(Student).filter_by(student_id="s_andi_d213").first()
+                with patch.object(SASession, "commit", new=fail_once_locked):
+                    resp = svc_mod.execute_study_session_from_proposal_service(db, "PR-LOCK-OK", host)
+                self.assertEqual(commit_calls["n"], 2)
+                self._assert_same_proposal_db_integrity(db_url_a, "PR-LOCK-OK", resp.session_id)
+            finally:
+                db.close()
+        finally:
+            eng_a.dispose()
+
+        # Skenario B: Lock contention tak kunjung reda (exhausted) -> WAJIB fail-closed HTTP 409 & 0 data parsial
+        db_url_b, eng_b = self._create_file_sqlite_engine(journal_mode="WAL")
+        try:
+            self._seed_same_proposal_scenario(eng_b, proposal_id="PR-LOCK-FAIL")
+            SessionFactory = sessionmaker(autocommit=False, autoflush=False, bind=eng_b)
+            db = SessionFactory()
+
+            def always_locked(_sess_self):
+                raise OperationalError("COMMIT", {}, sqlite3.OperationalError("database is locked"))
+
+            try:
+                host = db.query(Student).filter_by(student_id="s_andi_d213").first()
+                with patch.object(SASession, "commit", new=always_locked):
+                    with self.assertRaises(HTTPException) as ctx:
+                        svc_mod.execute_study_session_from_proposal_service(db, "PR-LOCK-FAIL", host)
+                self.assertEqual(ctx.exception.status_code, 409)
+            finally:
+                db.close()
+
+            # Verifikasi independen: 0 StudySession, 0 Slot, 0 Member, semua intent ACTIVE, proposal READY_FOR_SESSION
+            verify_eng, verify_db = self._open_independent_verify_session(db_url_b)
+            try:
+                self.assertEqual(verify_db.query(StudySession).count(), 0)
+                self.assertEqual(verify_db.query(SessionSlot).count(), 0)
+                self.assertEqual(verify_db.query(SessionMember).count(), 0)
+                for iid in ("INTENT-ANDI", "INTENT-BUDI", "INTENT-CITRA"):
+                    self.assertEqual(verify_db.query(StudyIntent).filter_by(intent_id=iid).first().status, "ACTIVE")
+                self.assertEqual(
+                    verify_db.query(GroupProposal).filter_by(proposal_id="PR-LOCK-FAIL").first().status,
+                    "READY_FOR_SESSION"
+                )
+            finally:
+                verify_db.close()
+                verify_eng.dispose()
+        finally:
+            eng_b.dispose()
+
+
 if __name__ == "__main__":
     unittest.main()
