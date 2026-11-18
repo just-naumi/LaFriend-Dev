@@ -643,3 +643,232 @@ function formatProposalScore(val) {
   const num = Number(val);
   return Number.isFinite(num) ? num.toFixed(1) : "0.0";
 }
+
+
+// ==============================================================================
+// DAY 24.3 — HOST FINALIZATION, PROPOSAL CANCELLATION & SESSION EXECUTION
+// ==============================================================================
+function renderHostProposalControls(container, { proposal, proposalStatus }) {
+  container.textContent = "";
+
+  // 1. Sudah dieksekusi (SESSION_EXECUTED atau session_id sudah terisi) -> CTA Buka Detail Sesi Day 23
+  if ((proposalStatus === "SESSION_EXECUTED" || proposal.session_id) && proposal.session_id) {
+    const openSessionLink = createEl("a", "btn-la btn-la--primary");
+    openSessionLink.id = "btnOpenExecutedSession";
+    openSessionLink.href = `session-detail.html?id=${encodeURIComponent(proposal.session_id)}`;
+    openSessionLink.appendChild(createIcon("bi-calendar2-check-fill"));
+    openSessionLink.appendChild(createEl("span", "", "Buka Detail Sesi"));
+    container.appendChild(openSessionLink);
+
+    const mySessionsLink = createEl("a", "btn-la btn-la--secondary");
+    mySessionsLink.href = "sessions.html";
+    mySessionsLink.appendChild(createIcon("bi-list-ul"));
+    mySessionsLink.appendChild(createEl("span", "", "Ke Sesi Belajarku"));
+    container.appendChild(mySessionsLink);
+    return;
+  }
+
+  // 2. READY_FOR_SESSION -> HANYA Host Execute Session (Cancel tidak lagi tersedia)
+  if (proposalStatus === "READY_FOR_SESSION") {
+    const btnExecute = createEl("button", "btn-la btn-la--primary");
+    btnExecute.type = "button";
+    btnExecute.id = "btnExecuteSession";
+    btnExecute.dataset.proposalAction = "execute";
+    btnExecute.appendChild(createIcon("bi-rocket-takeoff-fill"));
+    btnExecute.appendChild(createEl("span", "", "Eksekusi Sesi Belajar (Execute)"));
+    btnExecute.addEventListener("click", () => {
+      if (proposalDetailState.isActionPending) return;
+      openSharedConfirmModal({
+        title: "Eksekusi Study Session?",
+        message: "Proposal yang telah difinalisasi akan diubah secara atomik menjadi Study Session resmi dan Study Intent seluruh anggota aktif akan berstatus MATCHED. Lanjutkan?",
+        confirmLabel: "Ya, Eksekusi Sesi",
+        confirmVariant: "btn-la--primary",
+        isBusyCheck: () => proposalDetailState.isActionPending,
+        onConfirm: () => executeCreateSessionFromProposalAction(proposal.proposal_id, btnExecute),
+      });
+    });
+
+    container.appendChild(btnExecute);
+    return;
+  }
+
+  // 3. QUORUM_REACHED -> Host Finalize + Host Cancel
+  if (proposalStatus === "QUORUM_REACHED") {
+    const btnFinalize = createEl("button", "btn-la btn-la--success");
+    btnFinalize.type = "button";
+    btnFinalize.id = "btnFinalizeProposal";
+    btnFinalize.dataset.proposalAction = "finalize";
+    btnFinalize.appendChild(createIcon("bi-check2-circle"));
+    btnFinalize.appendChild(createEl("span", "", "Finalisasi Proposal (Finalize)"));
+    btnFinalize.addEventListener("click", () => {
+      if (proposalDetailState.isActionPending) return;
+      openSharedConfirmModal({
+        title: "Finalisasi Proposal Kelompok?",
+        message: "Proposal akan dikunci ke status READY_FOR_SESSION dan sisa undangan yang masih PENDING akan otomatis ditarik (WITHDRAWN). Lanjutkan?",
+        confirmLabel: "Ya, Finalisasi",
+        confirmVariant: "btn-la--success",
+        isBusyCheck: () => proposalDetailState.isActionPending,
+        onConfirm: () => executeFinalizeProposalAction(proposal.proposal_id, btnFinalize),
+      });
+    });
+
+    const btnCancel = buildHostCancelProposalButton(proposal.proposal_id);
+    container.appendChild(btnFinalize);
+    container.appendChild(btnCancel);
+    return;
+  }
+
+  // 4. PENDING_RESPONSES -> HANYA Host Cancel (Finalize belum tersedia)
+  if (proposalStatus === "PENDING_RESPONSES") {
+    container.appendChild(
+      createEl(
+        "div",
+        "lifecycle-status-note",
+        "Tombol Finalisasi akan tersedia setelah jumlah anggota yang menerima undangan mencapai kuorum minimal."
+      )
+    );
+    container.appendChild(buildHostCancelProposalButton(proposal.proposal_id));
+    return;
+  }
+
+  // 5. Status terminal (NOT_FORMED / CANCELLED / EXPIRED) atau fallback aman
+  container.appendChild(
+    createEl(
+      "div",
+      "lifecycle-status-note",
+      `Proposal berada pada status akhir (${getProposalStatusMeta(proposalStatus).label}) dan tidak dapat diubah lagi.`
+    )
+  );
+  const retryMatching = createEl("a", "btn-la btn-la--secondary");
+  retryMatching.href = "matching.html";
+  retryMatching.appendChild(createIcon("bi-arrow-repeat"));
+  retryMatching.appendChild(createEl("span", "", "Cari Partner Lagi"));
+  container.appendChild(retryMatching);
+}
+
+function buildHostCancelProposalButton(proposalId) {
+  const btnCancel = createEl("button", "btn-la btn-la--outline-danger");
+  btnCancel.type = "button";
+  btnCancel.id = "btnCancelProposal";
+  btnCancel.dataset.proposalAction = "cancel";
+  btnCancel.appendChild(createIcon("bi-x-circle-fill"));
+  btnCancel.appendChild(createEl("span", "", "Batalkan Proposal (Cancel)"));
+  btnCancel.addEventListener("click", () => {
+    if (proposalDetailState.isActionPending) return;
+    openSharedConfirmModal({
+      title: "Batalkan Proposal Kelompok?",
+      message: "Proposal akan dibatalkan dan seluruh undangan yang masih PENDING akan otomatis ditarik. Tindakan ini tidak dapat dikembalikan.",
+      confirmLabel: "Ya, Batalkan Proposal",
+      confirmVariant: "btn-la--danger",
+      showReasonInput: true,
+      reasonPlaceholder: "Alasan pembatalan (opsional)...",
+      isBusyCheck: () => proposalDetailState.isActionPending,
+      onConfirm: (reasonText) => executeCancelProposalAction(proposalId, reasonText, btnCancel),
+    });
+  });
+  return btnCancel;
+}
+
+async function executeFinalizeProposalAction(proposalId, triggerBtn) {
+  if (proposalDetailState.isActionPending) return;
+  const alertBox = document.getElementById("proposalAlertContainer");
+  proposalDetailState.isActionPending = true;
+  setProposalActionButtonsDisabled(true, triggerBtn);
+
+  try {
+    const updatedProposal = await app.proposals.finalize(proposalId);
+    proposalDetailState.proposal = updatedProposal;
+    const course = await resolveProposalCourse(updatedProposal.course_id);
+    renderInlineAlert(
+      alertBox,
+      "success",
+      "Proposal berhasil difinalisasi (READY_FOR_SESSION)! Silakan tekan Eksekusi Sesi Belajar untuk membentuk Study Session resmi."
+    );
+    renderProposalDetail(updatedProposal, course);
+  } catch (err) {
+    await handleProposalActionError(err);
+  } finally {
+    proposalDetailState.isActionPending = false;
+    setProposalActionButtonsDisabled(false);
+  }
+}
+
+async function executeCancelProposalAction(proposalId, reason, triggerBtn) {
+  if (proposalDetailState.isActionPending) return;
+  const alertBox = document.getElementById("proposalAlertContainer");
+  proposalDetailState.isActionPending = true;
+  setProposalActionButtonsDisabled(true, triggerBtn);
+
+  try {
+    const payload = reason && reason.trim() ? { reason: reason.trim() } : null;
+    const updatedProposal = await app.proposals.cancel(proposalId, payload);
+    proposalDetailState.proposal = updatedProposal;
+    const course = await resolveProposalCourse(updatedProposal.course_id);
+    renderInlineAlert(alertBox, "success", "Proposal kelompok berhasil dibatalkan (CANCELLED).");
+    renderProposalDetail(updatedProposal, course);
+  } catch (err) {
+    await handleProposalActionError(err);
+  } finally {
+    proposalDetailState.isActionPending = false;
+    setProposalActionButtonsDisabled(false);
+  }
+}
+
+async function executeCreateSessionFromProposalAction(proposalId, triggerBtn) {
+  if (proposalDetailState.isActionPending) return;
+  const alertBox = document.getElementById("proposalAlertContainer");
+  const container = document.getElementById("proposalDetailContent");
+  const headerSub = document.getElementById("proposalHeaderSub");
+  proposalDetailState.isActionPending = true;
+  setProposalActionButtonsDisabled(true, triggerBtn);
+  let executedSuccessfully = false;
+
+  try {
+    // Endpoint kanonis Day 21: POST /api/v1/sessions/from-proposal/{proposal_id} -> HTTP 201 StudySessionResponse
+    const createdSession = await app.proposals.executeSession(proposalId);
+    if (!createdSession || !createdSession.session_id) {
+      throw new Error("Server tidak mengembalikan session_id hasil eksekusi.");
+    }
+    executedSuccessfully = true;
+
+    const targetUrl = `session-detail.html?id=${encodeURIComponent(createdSession.session_id)}`;
+    if (headerSub) headerSub.textContent = "Sesi belajar berhasil dibentuk";
+    renderInlineAlert(alertBox, "success", "Study Session resmi berhasil terbentuk! Mengalihkan ke Detail Sesi...");
+
+    if (container) {
+      renderStatePanel(container, {
+        icon: "bi-check-circle-fill",
+        title: "Study Session Berhasil Terbentuk!",
+        description: "Sesi belajar telah tercatat di database. Mengarahkan kamu ke halaman Detail Sesi (Day 23)...",
+        actions: [
+          { label: "Buka Detail Sesi Sekarang", href: targetUrl, variantClass: "btn-la--primary" },
+          { label: "Ke Sesi Belajarku", href: "sessions.html", variantClass: "btn-la--secondary" },
+        ],
+      });
+    }
+
+    setTimeout(() => {
+      window.location.href = targetUrl;
+    }, 550);
+  } catch (err) {
+    // Skenario khusus Timeout / Network Error pada Execute Session (Klarifikasi Day 24.0 #7):
+    // JANGAN otomatis mengirim ulang mutasi; minta pengguna menyegarkan detail proposal
+    // agar jika sesi ternyata sudah terbentuk di backend (idempoten), CTA Buka Detail Sesi langsung muncul.
+    if (err.isNetworkError || err.status === 0) {
+      renderInlineAlert(
+        alertBox,
+        "warning",
+        "Koneksi terputus atau waktu habis saat mengeksekusi sesi. Jangan kirim ulang secara otomatis — klik tombol Segarkan di atas untuk memeriksa apakah sesi sudah terbentuk di server."
+      );
+      return;
+    }
+
+    await handleProposalActionError(err);
+  } finally {
+    if (!executedSuccessfully) {
+      proposalDetailState.isActionPending = false;
+      setProposalActionButtonsDisabled(false);
+    }
+  }
+}
+
