@@ -280,8 +280,11 @@ class SessionMember(Base):
     session_id = Column(String(36), ForeignKey("study_sessions.session_id", ondelete="CASCADE"), nullable=False)
     student_id = Column(String(36), ForeignKey("students.student_id", ondelete="CASCADE"), nullable=False)
 
-    # intent_id: Referensi ke Study Intent asal mahasiswa untuk keanggotaan ini (Day 21)
-    # Menjamin provenance dan mencegah satu Study Intent dialokasikan ke dua sesi berbeda
+    # intent_id: Referensi ke Study Intent asal mahasiswa untuk keanggotaan ini (Day 21.1)
+    # Invariant Global Permanen: satu Study Intent hanya dapat digunakan sekali sepanjang riwayat
+    # untuk maksimal satu keanggotaan sesi (tidak digunakan ulang walaupun sesi selesai/dibatalkan;
+    # mahasiswa wajib membuat Study Intent baru untuk siklus belajar berikutnya).
+    # nullable=True dipertahankan demi backward compatibility data keanggotaan lama (Day 13).
     intent_id = Column(String(36), ForeignKey("study_intents.intent_id", ondelete="RESTRICT"), nullable=True)
 
     # role: 'HOST' (Pembuat sesi) atau 'MEMBER' (Anggota biasa)
@@ -300,7 +303,9 @@ class SessionMember(Base):
     intent = relationship("StudyIntent", back_populates="session_members")
 
     __table_args__ = (
-        UniqueConstraint("session_id", "student_id", name="uq_session_member_student"),
+        # Satu mahasiswa hanya boleh tercatat maksimal satu kali dalam satu sesi belajar
+        Index("uq_session_member_student", "session_id", "student_id", unique=True),
+        # Invariant global permanen: satu StudyIntent hanya boleh dialokasikan sekali sepanjang riwayat
         Index("uq_session_member_intent", "intent_id", unique=True, sqlite_where=text("intent_id IS NOT NULL")),
     )
 

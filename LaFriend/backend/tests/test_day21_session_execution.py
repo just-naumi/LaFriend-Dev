@@ -611,14 +611,13 @@ class TestDay21SessionExecution(unittest.TestCase):
         member_ids = [mem.member_id for mem in self.intent_citra.session_members]
         self.assertIn(m_new.member_id, member_ids)
 
-    def test_13_sqlite_legacy_migration_day21(self):
-        """Memverifikasi auto-migrasi skema SQLite lama (tanpa proposal_id dan intent_id) secara aman, idempotent, dan fail-closed."""
+    def _create_legacy_day13_engine(self):
+        """Membuat engine SQLite in-memory dengan skema legacy Day 13 (tanpa proposal_id, intent_id, dan unique indexes Day 20/21)."""
         legacy_engine = create_engine(
             "sqlite:///:memory:",
             connect_args={"check_same_thread": False},
             poolclass=StaticPool
         )
-        # Buat skema SQLite mentah versi Day 13 (tanpa proposal_id pada study_sessions, tanpa intent_id pada session_members)
         with legacy_engine.connect() as conn:
             conn.execute(text("""
                 CREATE TABLE students (
@@ -687,31 +686,119 @@ class TestDay21SessionExecution(unittest.TestCase):
                     joined_at TIMESTAMP
                 );
             """))
+            conn.execute(text("""
+                CREATE TABLE invitations (
+                    invitation_id VARCHAR(36) PRIMARY KEY,
+                    invitation_type VARCHAR(30) NOT NULL,
+                    sender_id VARCHAR(36) NOT NULL,
+                    recipient_id VARCHAR(36) NOT NULL,
+                    session_id VARCHAR(36),
+                    target_intent_id VARCHAR(36),
+                    status VARCHAR(20) DEFAULT 'PENDING',
+                    message TEXT,
+                    created_at TIMESTAMP,
+                    responded_at TIMESTAMP
+                );
+            """))
             conn.commit()
+        return legacy_engine
 
-        # Jalankan auto-migrasi ensure_database_schema pada legacy engine
-        ensure_database_schema(legacy_engine)
+    def test_13_sqlite_legacy_migration_day21(self):
+        """Day 21.1.1 (P1): Verifikasi migrasi legacy (kolom, metadata indeks, enforcement) dan idempotensi berulang."""
+        from app.database import _inspect_sqlite_index
 
-        with legacy_engine.connect() as conn:
-            # 1. Periksa kolom proposal_id di study_sessions
-            cols_sess = [row[1] for row in conn.execute(text("PRAGMA table_info(study_sessions)")).fetchall()]
-            self.assertIn("proposal_id", cols_sess)
-
-            # 2. Periksa index uq_session_proposal
-            idxs_sess = [row[1] for row in conn.execute(text("PRAGMA index_list(study_sessions)")).fetchall()]
-            self.assertIn("uq_session_proposal", idxs_sess)
-
-            # 3. Periksa kolom intent_id di session_members
-            cols_mem = [row[1] for row in conn.execute(text("PRAGMA table_info(session_members)")).fetchall()]
-            self.assertIn("intent_id", cols_mem)
-
-            # 4. Periksa index uq_session_member_intent dan uq_session_member_student
-            idxs_mem = [row[1] for row in conn.execute(text("PRAGMA index_list(session_members)")).fetchall()]
-            self.assertIn("uq_session_member_intent", idxs_mem)
-            self.assertIn("uq_session_member_student", idxs_mem)
-
-            # 5. Uji idempotensi migrasi: panggil ulang tidak boleh melempar exception
+        legacy_engine = self._create_legacy_day13_engine()
+        try:
+            # 1. Jalankan auto-migrasi pertama kali pada legacy engine
             ensure_database_schema(legacy_engine)
+
+            with legacy_engine.connect() as conn:
+                # Verifikasi kolom terbentuk
+                cols_sess = [row[1] for row in conn.execute(text("PRAGMA table_info(study_sessions)")).fetchall()]
+                self.assertIn("proposal_id", cols_sess)
+
+                cols_mem = [row[1] for row in conn.execute(text("PRAGMA table_info(session_members)")).fetchall()]
+                self.assertIn("intent_id", cols_mem)
+
+                # Verifikasi metadata lengkap seluruh 4 unique index melalui PRAGMA index_list/index_info/sqlite_master
+                meta_sess_prop = _inspect_sqlite_index(conn, "study_sessions", "uq_session_proposal")
+                self.assertIsNotNone(meta_sess_prop)
+                self.assertTrue(meta_sess_prop["unique"])
+                self.assertTrue(meta_sess_prop["partial"])
+                self.assertEqual(meta_sess_prop["columns"], ["proposal_id"])
+                self.assertIn("PROPOSAL_ID IS NOT NULL", meta_sess_prop["where_predicate"].upper())
+
+                meta_mem_intent = _inspect_sqlite_index(conn, "session_members", "uq_session_member_intent")
+                self.assertIsNotNone(meta_mem_intent)
+                self.assertTrue(meta_mem_intent["unique"])
+                self.assertTrue(meta_mem_intent["partial"])
+                self.assertEqual(meta_mem_intent["columns"], ["intent_id"])
+                self.assertIn("INTENT_ID IS NOT NULL", meta_mem_intent["where_predicate"].upper())
+
+                meta_mem_student = _inspect_sqlite_index(conn, "session_members", "uq_session_member_student")
+                self.assertIsNotNone(meta_mem_student)
+                self.assertTrue(meta_mem_student["unique"])
+                self.assertFalse(meta_mem_student["partial"])
+                self.assertEqual(meta_mem_student["columns"], ["session_id", "student_id"])
+
+                meta_inv_rec = _inspect_sqlite_index(conn, "invitations", "uq_proposal_recipient")
+                self.assertIsNotNone(meta_inv_rec)
+                self.assertTrue(meta_inv_rec["unique"])
+                self.assertTrue(meta_inv_rec["partial"])
+                self.assertEqual(meta_inv_rec["columns"], ["proposal_id", "recipient_id"])
+
+                # Snapshot skema sebelum migrasi berulang
+                schema_before = conn.execute(
+                    text("SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name")
+                ).fetchall()
+
+            # 2. Jalankan migrasi berulang (idempotensi): skema tidak boleh rusak atau berubah
+            ensure_database_schema(legacy_engine)
+            ensure_database_schema(legacy_engine)
+
+            with legacy_engine.connect() as conn:
+                schema_after = conn.execute(
+                    text("SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name")
+                ).fetchall()
+                self.assertEqual(schema_before, schema_after)
+
+                # 3. Verifikasi enforcement aktual constraint pada DB hasil migrasi
+                conn.execute(text(
+                    "INSERT INTO study_sessions (session_id, host_id, course_id, title, proposal_id) "
+                    "VALUES ('s1', 'u1', 'c1', 'T1', 'p1')"
+                ))
+                conn.commit()
+                with self.assertRaises(IntegrityError):
+                    conn.execute(text(
+                        "INSERT INTO study_sessions (session_id, host_id, course_id, title, proposal_id) "
+                        "VALUES ('s2', 'u1', 'c1', 'T2', 'p1')"
+                    ))
+                    conn.commit()
+                conn.rollback()
+
+                conn.execute(text(
+                    "INSERT INTO session_members (member_id, session_id, student_id, intent_id, role, status) "
+                    "VALUES ('m1', 's1', 'u1', 'i1', 'HOST', 'CONFIRMED')"
+                ))
+                conn.commit()
+                # Duplikasi intent_id ditolak
+                with self.assertRaises(IntegrityError):
+                    conn.execute(text(
+                        "INSERT INTO session_members (member_id, session_id, student_id, intent_id, role, status) "
+                        "VALUES ('m2', 's2', 'u2', 'i1', 'MEMBER', 'CONFIRMED')"
+                    ))
+                    conn.commit()
+                conn.rollback()
+                # Duplikasi (session_id, student_id) ditolak
+                with self.assertRaises(IntegrityError):
+                    conn.execute(text(
+                        "INSERT INTO session_members (member_id, session_id, student_id, intent_id, role, status) "
+                        "VALUES ('m3', 's1', 'u1', 'i2', 'MEMBER', 'CONFIRMED')"
+                    ))
+                    conn.commit()
+                conn.rollback()
+        finally:
+            legacy_engine.dispose()
 
     def test_14_service_populates_intent_id_on_host_and_members(self):
         """Memverifikasi eksekusi proposal via API mengisi intent_id pada host dan anggota di response maupun DB."""
@@ -749,6 +836,230 @@ class TestDay21SessionExecution(unittest.TestCase):
         self.assertEqual(intent_map[self.andi.student_id], self.intent_andi.intent_id)
         self.assertEqual(intent_map[self.budi.student_id], self.intent_budi.intent_id)
         self.assertEqual(intent_map[self.citra.student_id], self.intent_citra.intent_id)
+
+    def test_15_migration_fails_closed_on_duplicate_data_in_legacy_db(self):
+        """Day 21.1.1 (P1): Migrasi WAJIB gagal eksplisit (IntegrityError) bila database legacy berisi data duplikat."""
+        # Skenario A: Duplikat proposal_id di study_sessions
+        eng_a = self._create_legacy_day13_engine()
+        try:
+            with eng_a.connect() as conn:
+                conn.execute(text("ALTER TABLE study_sessions ADD COLUMN proposal_id VARCHAR(36)"))
+                conn.execute(text(
+                    "INSERT INTO study_sessions (session_id, host_id, course_id, title, proposal_id) "
+                    "VALUES ('s1', 'u1', 'c1', 'S1', 'prop_dup'), ('s2', 'u1', 'c1', 'S2', 'prop_dup')"
+                ))
+                conn.commit()
+            with self.assertRaises(IntegrityError):
+                ensure_database_schema(eng_a)
+        finally:
+            eng_a.dispose()
+
+        # Skenario B: Duplikat intent_id di session_members
+        eng_b = self._create_legacy_day13_engine()
+        try:
+            with eng_b.connect() as conn:
+                conn.execute(text("ALTER TABLE session_members ADD COLUMN intent_id VARCHAR(36)"))
+                conn.execute(text(
+                    "INSERT INTO session_members (member_id, session_id, student_id, intent_id) "
+                    "VALUES ('m1', 's1', 'u1', 'intent_dup'), ('m2', 's2', 'u2', 'intent_dup')"
+                ))
+                conn.commit()
+            with self.assertRaises(IntegrityError):
+                ensure_database_schema(eng_b)
+        finally:
+            eng_b.dispose()
+
+        # Skenario C: Duplikat (session_id, student_id) di session_members
+        eng_c = self._create_legacy_day13_engine()
+        try:
+            with eng_c.connect() as conn:
+                conn.execute(text(
+                    "INSERT INTO session_members (member_id, session_id, student_id) "
+                    "VALUES ('m1', 's_same', 'u_same'), ('m2', 's_same', 'u_same')"
+                ))
+                conn.commit()
+            with self.assertRaises(IntegrityError):
+                ensure_database_schema(eng_c)
+        finally:
+            eng_c.dispose()
+
+        # Skenario D: Duplikat (proposal_id, recipient_id) di invitations
+        eng_d = self._create_legacy_day13_engine()
+        try:
+            with eng_d.connect() as conn:
+                conn.execute(text("ALTER TABLE invitations ADD COLUMN proposal_id VARCHAR(36)"))
+                conn.execute(text(
+                    "INSERT INTO invitations (invitation_id, invitation_type, sender_id, recipient_id, proposal_id) "
+                    "VALUES ('inv1', 'GROUP_PROPOSAL', 'h1', 'r_dup', 'p_dup'), "
+                    "('inv2', 'GROUP_PROPOSAL', 'h1', 'r_dup', 'p_dup')"
+                ))
+                conn.commit()
+            with self.assertRaises(IntegrityError):
+                ensure_database_schema(eng_d)
+        finally:
+            eng_d.dispose()
+
+    def test_16_migration_fails_closed_on_malformed_existing_index_definition(self):
+        """Day 21.1.1 (P0): Migrasi WAJIB menolak indeks lama yang namanya sama tetapi definisinya salah (fail-closed)."""
+        # Skenario A: Nama uq_session_member_intent ada, tapi BUKAN UNIQUE
+        eng_a = self._create_legacy_day13_engine()
+        try:
+            with eng_a.connect() as conn:
+                conn.execute(text("ALTER TABLE session_members ADD COLUMN intent_id VARCHAR(36)"))
+                conn.execute(text(
+                    "CREATE INDEX uq_session_member_intent ON session_members (intent_id) WHERE intent_id IS NOT NULL"
+                ))
+                conn.commit()
+            with self.assertRaises(RuntimeError) as ctx:
+                ensure_database_schema(eng_a)
+            self.assertIn("bukan UNIQUE index", str(ctx.exception))
+        finally:
+            eng_a.dispose()
+
+        # Skenario B: Nama uq_session_member_intent ada dan UNIQUE, tapi TANPA partial WHERE intent_id IS NOT NULL
+        eng_b = self._create_legacy_day13_engine()
+        try:
+            with eng_b.connect() as conn:
+                conn.execute(text("ALTER TABLE session_members ADD COLUMN intent_id VARCHAR(36)"))
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX uq_session_member_intent ON session_members (intent_id)"
+                ))
+                conn.commit()
+            with self.assertRaises(RuntimeError) as ctx:
+                ensure_database_schema(eng_b)
+            self.assertIn("partial index", str(ctx.exception))
+        finally:
+            eng_b.dispose()
+
+        # Skenario C: Nama uq_session_member_student ada dan UNIQUE, tapi KOLOM SALAH
+        eng_c = self._create_legacy_day13_engine()
+        try:
+            with eng_c.connect() as conn:
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX uq_session_member_student ON session_members (student_id)"
+                ))
+                conn.commit()
+            with self.assertRaises(RuntimeError) as ctx:
+                ensure_database_schema(eng_c)
+            self.assertIn("Kolom indeks", str(ctx.exception))
+        finally:
+            eng_c.dispose()
+
+        # Skenario D: Nama uq_session_proposal ada dan UNIQUE + partial, tapi PREDIKAT WHERE SALAH
+        eng_d = self._create_legacy_day13_engine()
+        try:
+            with eng_d.connect() as conn:
+                conn.execute(text("ALTER TABLE study_sessions ADD COLUMN proposal_id VARCHAR(36)"))
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX uq_session_proposal ON study_sessions (proposal_id) WHERE host_id IS NOT NULL"
+                ))
+                conn.commit()
+            with self.assertRaises(RuntimeError) as ctx:
+                ensure_database_schema(eng_d)
+            self.assertIn("Predikat partial index", str(ctx.exception))
+        finally:
+            eng_d.dispose()
+
+        # Skenario E: Nama uq_session_member_intent terpasang di tabel LAIN (menyebabkan CREATE INDEX IF NOT EXISTS no-op)
+        eng_e = self._create_legacy_day13_engine()
+        try:
+            with eng_e.connect() as conn:
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX uq_session_member_intent ON courses (course_code)"
+                ))
+                conn.commit()
+            with self.assertRaises(RuntimeError) as ctx:
+                ensure_database_schema(eng_e)
+            self.assertIn("tidak ditemukan pada tabel 'session_members'", str(ctx.exception))
+        finally:
+            eng_e.dispose()
+
+    def test_17_migration_fails_closed_on_unexpected_index_operational_error(self):
+        """Day 21.1.1 (P0): OperationalError saat CREATE UNIQUE INDEX (meski mengandung teks 'already exists') TIDAK boleh ditelan."""
+        from unittest.mock import patch
+        from sqlalchemy.engine import Connection
+        from sqlalchemy.exc import OperationalError
+
+        legacy_engine = self._create_legacy_day13_engine()
+        orig_execute = Connection.execute
+        intercepted = []
+
+        def failing_index_execute(conn_self, statement, *args, **kwargs):
+            sql_str = str(statement)
+            if "CREATE UNIQUE INDEX IF NOT EXISTS uq_session_member_intent" in sql_str:
+                intercepted.append(sql_str)
+                # Simulasikan error yang bahkan mengandung kata 'already exists' agar memastikan tidak ada silent pass berbasis string
+                raise OperationalError("simulated failure: index already exists / locked", None, None)
+            return orig_execute(conn_self, statement, *args, **kwargs)
+
+        try:
+            with patch.object(Connection, "execute", new=failing_index_execute):
+                with self.assertRaises(OperationalError):
+                    ensure_database_schema(legacy_engine)
+            self.assertEqual(len(intercepted), 1)
+        finally:
+            legacy_engine.dispose()
+
+    def test_18_global_permanent_intent_uniqueness_across_completed_and_cancelled_sessions(self):
+        """Day 21.1.1 (P2): Menegaskan kebijakan global permanen — StudyIntent tidak boleh digunakan ulang meski sesi sebelumnya COMPLETED/CANCELLED."""
+        for terminal_status in ("COMPLETED", "CANCELLED"):
+            with self.subTest(terminal_status=terminal_status):
+                intent = StudyIntent(
+                    intent_id=f"intent_perm_{terminal_status.lower()}",
+                    student_id=self.doni.student_id,
+                    course_id=self.course.course_id,
+                    topics="Graph Theory",
+                    learning_mode="ONLINE",
+                    earliest_date="2026-11-20",
+                    latest_date="2026-11-30",
+                    min_group_size=2,
+                    max_group_size=4,
+                    status="MATCHED"
+                )
+                self.db.add(intent)
+
+                sess_old = StudySession(
+                    session_id=f"sess_old_{terminal_status.lower()}",
+                    host_id=self.doni.student_id,
+                    course_id=self.course.course_id,
+                    title=f"Sesi Lama ({terminal_status})",
+                    status=terminal_status
+                )
+                sess_new = StudySession(
+                    session_id=f"sess_new_{terminal_status.lower()}",
+                    host_id=self.andi.student_id,
+                    course_id=self.course.course_id,
+                    title=f"Sesi Baru ({terminal_status})",
+                    status="CONFIRMED"
+                )
+                self.db.add_all([sess_old, sess_new])
+                self.db.commit()
+
+                # Keanggotaan pertama pada sesi lama (COMPLETED / CANCELLED)
+                m_old = SessionMember(
+                    member_id=f"m_old_{terminal_status.lower()}",
+                    session_id=sess_old.session_id,
+                    student_id=self.doni.student_id,
+                    intent_id=intent.intent_id,
+                    role="HOST",
+                    status="CONFIRMED"
+                )
+                self.db.add(m_old)
+                self.db.commit()
+
+                # Percobaan penggunaan ulang intent yang sama pada sesi baru WAJIB ditolak oleh uq_session_member_intent
+                m_reuse = SessionMember(
+                    member_id=f"m_reuse_{terminal_status.lower()}",
+                    session_id=sess_new.session_id,
+                    student_id=self.doni.student_id,
+                    intent_id=intent.intent_id,
+                    role="MEMBER",
+                    status="CONFIRMED"
+                )
+                self.db.add(m_reuse)
+                with self.assertRaises(IntegrityError):
+                    self.db.commit()
+                self.db.rollback()
 
 
 if __name__ == "__main__":
